@@ -18,7 +18,6 @@ extern crate futures;
 extern crate tokio;
 extern crate dns_lookup;
 extern crate regex;
-extern crate ring_pwhash;
 extern crate yaml_rust;
 extern crate openssl;
 extern crate chrono;

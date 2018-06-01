@@ -52,17 +52,3 @@ macro_rules! hset {
         }
     };
 }
-
-#[macro_export]
-macro_rules! scrypt {
-    ($pw:expr) => {
-        ::ring_pwhash::scrypt::scrypt_simple($pw, &::ring_pwhash::scrypt::ScryptParams::new(10, 8, 1)).expect("Invalid SCrypt input, this should never happen")
-    };
-}
-
-#[macro_export]
-macro_rules! scrypt_check {
-    ($pw:expr,$hs:expr) => {
-        ::ring_pwhash::scrypt::scrypt_check($pw, $hs).unwrap_or(false)
-    };
-}

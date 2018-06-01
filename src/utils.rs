@@ -37,4 +37,5 @@ macro_rules! reg {
     ($str_regex:expr) => {
         $str_regex.to_regex().expect("the parameter passed to reg macro is not a legitimate regex")
     };
+
 }

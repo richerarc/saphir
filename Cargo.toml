@@ -1,6 +1,6 @@
 [package]
 name = "saphir"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["richer <richer.arc@gmail.com>"]
 description = "Yet another http server framework based on Hyper-rs"
 documentation = "https://docs.rs/saphir"
@@ -11,15 +11,10 @@ license = "MIT"
 
 [dependencies]
 log = "0.4.1"
-env_logger = "0.5"
-dns-lookup = "0.9"
 hyper = "0.11"
 futures = "0.1"
 tokio = "0.1"
 regex = "1.0"
-ring-pwhash = "0.12"
-yaml-rust = "0.4"
-openssl = "0.10.7"
 chrono = "0.4"
 ansi_term = "0.11"
 url = "1.7"

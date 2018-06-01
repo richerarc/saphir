@@ -38,31 +38,3 @@ macro_rules! reg {
         $str_regex.to_regex().expect("the parameter passed to reg macro is not a legitimate regex")
     };
 }
-
-#[macro_export]
-macro_rules! hset {
-    ($($x:expr),*) => {
-        {
-            #[allow(unused_mut)]
-            let mut hs = ::std::collections::HashSet::new();
-            {
-                $(hs.insert($x);)*
-            }
-            hs
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! scrypt {
-    ($pw:expr) => {
-        ::ring_pwhash::scrypt::scrypt_simple($pw, &::ring_pwhash::scrypt::ScryptParams::new(10, 8, 1)).expect("Invalid SCrypt input, this should never happen")
-    };
-}
-
-#[macro_export]
-macro_rules! scrypt_check {
-    ($pw:expr,$hs:expr) => {
-        ::ring_pwhash::scrypt::scrypt_check($pw, $hs).unwrap_or(false)
-    };
-}

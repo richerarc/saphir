@@ -28,7 +28,7 @@ impl Default for TestControllerContext {
     }
 }
 
-fn function_to_receive_any_get_http_call(context: &TestControllerContext, req: &SyncRequest, res: &mut Response) {
+fn function_to_receive_any_get_http_call(context: &TestControllerContext, _req: &SyncRequest, _res: &mut Response) {
     println!("This is from controller 1");
     println!("{}", context.resource);
 }
@@ -50,5 +50,5 @@ fn http_server() {
 
     let server = Server::new(router, Some(mid_stack));
 
-    server.run(12345);
+    let _ = server.run(12345);
 }

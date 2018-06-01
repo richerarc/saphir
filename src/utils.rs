@@ -37,18 +37,5 @@ macro_rules! reg {
     ($str_regex:expr) => {
         $str_regex.to_regex().expect("the parameter passed to reg macro is not a legitimate regex")
     };
-}
 
-#[macro_export]
-macro_rules! hset {
-    ($($x:expr),*) => {
-        {
-            #[allow(unused_mut)]
-            let mut hs = ::std::collections::HashSet::new();
-            {
-                $(hs.insert($x);)*
-            }
-            hs
-        }
-    };
 }

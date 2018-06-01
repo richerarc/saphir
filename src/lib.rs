@@ -12,14 +12,10 @@
 
 #[macro_use]
 extern crate log;
-extern crate env_logger;
 extern crate hyper;
 extern crate futures;
 extern crate tokio;
-extern crate dns_lookup;
 extern crate regex;
-extern crate yaml_rust;
-extern crate openssl;
 extern crate chrono;
 extern crate ansi_term;
 extern crate url;
@@ -41,6 +37,9 @@ pub use middleware::MiddlewareStack;
 pub use controller::Controller;
 pub use controller::BasicController;
 pub use controller::ControllerDispatch;
+pub use controller::RequestGuard;
+pub use controller::RequestGuardCollection;
+pub use controller::BodyGuard;
 pub use router::Router;
 pub use server::Server;
 pub use error::ServerError;

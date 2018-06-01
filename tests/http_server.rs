@@ -41,6 +41,7 @@ fn http_server() {
 
     basic_test_cont.add(Method::Get, reg!("/"), function_to_receive_any_get_http_call);
     basic_test_cont.add(Method::Post, reg!("/"), |_, _, _| { println!("this was a post request") });
+    basic_test_cont.add_with_guards(Method::Put, "^/patate", BodyGuard.into(), |_,_,_| {println!("this is only reachable if the request has a body")});
 
     let mut router = Router::new();
 

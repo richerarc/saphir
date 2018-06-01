@@ -1,10 +1,17 @@
+# Saphir
+[![Saphir doc badge](https://docs.rs/saphir/badge.svg)](https://docs.rs/saphir/)
+
+## Quick server setup
+```rust
 #[macro_use]
 extern crate saphir;
 extern crate regex;
 
 use saphir::*;
 
-struct TestMiddleware {}
+struct TestMiddleware {
+
+}
 
 impl Middleware for TestMiddleware {
     fn resolve(&self, req: &SyncRequest, _res: &mut Response<Body>) -> RequestContinuation {
@@ -31,16 +38,15 @@ fn function_to_receive_any_get_http_call(context: &TestControllerContext, _req: 
     println!("{}", context.resource);
 }
 
-#[test]
-fn http_server() {
+fn main() {
     let mut mid_stack = MiddlewareStack::new();
 
-    mid_stack.apply(TestMiddleware {}, vec!("/"), None);
+    mid_stack.apply(TestMiddleware{}, vec!("/"), None);
 
     let basic_test_cont = BasicController::new(TestControllerContext::default());
 
     basic_test_cont.add(Method::Get, reg!("/"), function_to_receive_any_get_http_call);
-    basic_test_cont.add(Method::Post, reg!("/"), |_, _, _| { println!("this was a post request") });
+    basic_test_cont.add(Method::Post, reg!("/"), |_, _, _| {println!("this was a post request")});
 
     let mut router = Router::new();
 
@@ -50,3 +56,4 @@ fn http_server() {
 
     let _ = server.run(12345);
 }
+```

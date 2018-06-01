@@ -11,12 +11,18 @@ pub use hyper::Request;
 use futures::Future;
 use futures::Stream;
 
+/// A Structure which represent an http request with a fully loaded body
 #[derive(Debug)]
 pub struct SyncRequest {
+    /// Method
     method: Method,
+    /// Uri
     uri: Uri,
+    /// Version
     version: HttpVersion,
+    /// Headers
     headers: Headers,
+    /// Body
     body: Vec<u8>,
 }
 
@@ -27,7 +33,7 @@ impl SyncRequest {
                uri: Uri,
                version: HttpVersion,
                headers: Headers,
-               body: Vec<u8>
+               body: Vec<u8>,
     ) -> SyncRequest {
         SyncRequest {
             method,
@@ -79,14 +85,16 @@ impl SyncRequest {
     pub fn headers_mut(&mut self) -> &mut Headers { &mut self.headers }
 }
 
+/// A trait allowing the implicit conversion of a Hyper::Request into a SyncRequest
 pub trait LoadBody {
+    ///
     fn load_body(self) -> Box<Future<Item=SyncRequest, Error=::hyper::Error>>;
 }
 
 impl LoadBody for Request<Body> {
     fn load_body(self) -> Box<Future<Item=SyncRequest, Error=::hyper::Error>> {
         let (method, uri, version, headers, body) = self.deconstruct();
-        Box::new(body.concat2().map( move |b| {
+        Box::new(body.concat2().map(move |b| {
             let body_vec: Vec<u8> = b.to_vec();
             SyncRequest::new(method, uri, version, headers, body_vec)
         }))

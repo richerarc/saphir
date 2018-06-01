@@ -5,17 +5,20 @@ use utils::RequestContinuation::*;
 use regex::Regex;
 use std::sync::RwLock;
 
+/// Struct representing the layering of middlewares in the server
 pub struct MiddlewareStack {
     middlewares: RwLock<Vec<(MiddlewareRule, Box<Middleware>)>>
 }
 
 impl MiddlewareStack {
+    ///
     pub fn new() -> Self {
         MiddlewareStack {
             middlewares: RwLock::new(Vec::new()),
         }
     }
 
+    ///
     pub fn resolve(&self, req: &SyncRequest, res: &mut Response<Body>) -> RequestContinuation {
         let path = req.path();
 
@@ -30,6 +33,8 @@ impl MiddlewareStack {
         Next
     }
 
+    /// Method to apply a new middleware onto the stack where the `include_path` vec are all path affected by the middleware,
+    /// and `exclude_path` are exclusion amongst the included paths.
     pub fn apply<M: 'static + Middleware>(&mut self, m: M, include_path: Vec<&str>, exclude_path: Option<Vec<&str>>) {
         let rule = MiddlewareRule::new(include_path, exclude_path);
         let boxed_m = Box::new(m);
@@ -38,7 +43,11 @@ impl MiddlewareStack {
     }
 }
 
+/// The trait a struct need to `impl` to be considered as a middleware
 pub trait Middleware: Send + Sync {
+    /// This method will be invoked if the request is targeting an included path, (as defined when "applying" the middleware to the stack)
+    /// and doesn't match any exclusion. Returning `RequestContinuation::Next` will allow the request to continue through the stack, and
+    /// returning `RequestContinuation::None` will cease the request processing, returning as response the modified `res` param.
     fn resolve(&self, req: &SyncRequest, res: &mut Response<Body>) -> RequestContinuation;
 }
 
@@ -54,7 +63,7 @@ impl MiddlewareRule {
             included_path.push(reg!(include));
         }
 
-        let mut excluded_path : Option<Vec<Regex>> = Option::None;
+        let mut excluded_path: Option<Vec<Regex>> = Option::None;
 
         if let Some(excludes) = exclude_path {
             let mut excludes_vec = Vec::new();
@@ -74,17 +83,16 @@ impl MiddlewareRule {
     pub fn validate_path(&self, path: &str) -> bool {
         let path_clone = path.clone();
         if self.included_path.iter().enumerate().find(
-            move | &(_index, r) | {
+            move |&(_index, r)| {
                 r.is_match(path_clone)
             }
         ).is_some() {
-
             if let Some(ref excluded_path) = self.excluded_path {
                 return excluded_path.iter().enumerate().find(
-                    move | &(_index, re) | {
+                    move |&(_index, re)| {
                         re.is_match(path_clone)
                     }
-                ).is_none()
+                ).is_none();
             } else {
                 return true;
             }

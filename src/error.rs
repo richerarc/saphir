@@ -1,7 +1,10 @@
+/// Potential server errors
 #[derive(Debug)]
 pub enum ServerError {
+    /// An Hyper Error
     HyperError(::hyper::Error),
-    ParseError(::std::net::AddrParseError)
+    /// A parsing error of addr
+    ParseError(::std::net::AddrParseError),
 }
 
 impl From<::std::net::AddrParseError> for ServerError {

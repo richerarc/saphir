@@ -1,11 +1,16 @@
 #![allow(dead_code)]
 
+/// Enum representing whether or not a request should continue to be processed be the server
 pub enum RequestContinuation {
+    /// Next
     Next,
-    None
+    /// None
+    None,
 }
 
+/// Trait to convert string type to regular expressions
 pub trait ToRegex {
+    ///
     fn to_regex(&self) -> Result<::regex::Regex, ::regex::Error>;
 }
 

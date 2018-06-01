@@ -6,11 +6,13 @@ use middleware::MiddlewareStack;
 use router::Router;
 use futures::Future;
 
+/// The http server
 pub struct Server {
     http_service: HyperHttpService,
 }
 
 impl Server {
+    /// Create a new server from a `Router` and a `MiddlewareStack`
     pub fn new(router: Router, middleware_stack: Option<MiddlewareStack>) -> Self {
         let http_service = HyperHttpService::new(router, middleware_stack);
 
@@ -19,6 +21,7 @@ impl Server {
         }
     }
 
+    /// This method will run untill the server terminates, `port` defines the listener port.
     pub fn run(&self, port: u16) -> Result<(), ::error::ServerError> {
         let addr = format!("0.0.0.0:{}", port).as_str().parse()?;
         let service_clone = self.http_service.clone();
@@ -36,7 +39,7 @@ struct HyperHttpService {
 
 impl HyperHttpService {
     pub fn new(router: Router, middleware_stack: Option<MiddlewareStack>) -> Self {
-        let middleware_stack = middleware_stack.unwrap_or_else(|| {MiddlewareStack::new()});
+        let middleware_stack = middleware_stack.unwrap_or_else(|| { MiddlewareStack::new() });
 
         HyperHttpService {
             middleware_stack: Arc::new(middleware_stack),

@@ -1,3 +1,15 @@
+#![deny(missing_docs)]
+#![deny(warnings)]
+
+//! # Saphir
+//!
+//! Saphir is a progressive http server framework based on Hyper-rs that aims to reduce the time spent on playing with futures and
+//! limiting the amount of copied code amongst request matching.
+//!
+//! Saphir provide what's needed to easily start with your own server with middleware, controllers and request routing.
+//!
+//! Futures version will comes with more macro and a nightly experiment is currently being tested to reproduces decorator in rust.
+
 #[macro_use]
 extern crate log;
 extern crate env_logger;

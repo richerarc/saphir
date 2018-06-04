@@ -8,7 +8,7 @@ use std::sync::RwLock;
 pub trait Controller: Send + Sync {
     /// Method invoked if the request gets routed to this controller. Nothing will be processed after a controller `handling` a request.
     /// When returning from this function, the `res` param is the response returned to the client.
-    fn handle(&self, req: &SyncRequest, res: &mut Response<Body>);
+    fn handle(&self, req: &SyncRequest, res: &mut SyncResponse);
 }
 
 ///
@@ -72,10 +72,10 @@ impl<'a> IntoIterator for &'a RequestGuardCollection {
 /// A trait to provide an other layer of validation before allowing a request into a controller
 pub trait RequestGuard {
     ///
-    fn validate(&self, req: &SyncRequest, res: &mut Response<Body>) -> RequestContinuation;
+    fn validate(&self, req: &SyncRequest, res: &mut SyncResponse) -> RequestContinuation;
 }
 
-type DelegateFunction<T> = Fn(&T, &SyncRequest, &mut Response<Body>);
+type DelegateFunction<T> = Fn(&T, &SyncRequest, &mut SyncResponse);
 type ControllerDelegate<T> = (Method, Regex, Option<RequestGuardCollection>, Box<DelegateFunction<T>>);
 
 /// Struct to delegate a request to a registered function matching booth a `method` and a `path`
@@ -104,7 +104,7 @@ impl<T: Send + Sync> ControllerDispatch<T> {
     /// dispatch.add(Method::Get, "^/test$", |ctx, req, res| { println!("this will handle Get request done on <your_host>/test")});
     /// ```
     pub fn add<F, R: ToRegex>(&self, method: Method, path: R, delegate_func: F)
-        where for<'r, 's, 't0> F: 'static + Fn(&'r T, &'s SyncRequest, &'t0 mut Response<Body>) {
+        where for<'r, 's, 't0> F: 'static + Fn(&'r T, &'s SyncRequest, &'t0 mut SyncResponse) {
         self.delegates.write().unwrap().push((method, reg!(path), None, Box::new(delegate_func)));
     }
 
@@ -118,12 +118,12 @@ impl<T: Send + Sync> ControllerDispatch<T> {
     /// dispatch.add_with_guards(Method::Get, "^/test$", guard.into(), |ctx, req, res| { println!("this will handle Get request done on <your_host>/test")});
     /// ```
     pub fn add_with_guards<F, R: ToRegex>(&self, method: Method, path: R, guards: RequestGuardCollection, delegate_func: F)
-        where for<'r, 's, 't0> F: 'static + Fn(&'r T, &'s SyncRequest, &'t0 mut Response<Body>) {
+        where for<'r, 's, 't0> F: 'static + Fn(&'r T, &'s SyncRequest, &'t0 mut SyncResponse) {
         self.delegates.write().unwrap().push((method, reg!(path), Some(guards), Box::new(delegate_func)));
     }
 
     ///
-    pub fn dispatch(&self, req: &SyncRequest, res: &mut Response<Body>) {
+    pub fn dispatch(&self, req: &SyncRequest, res: &mut SyncResponse) {
         use std::iter::FromIterator;
         let delegates_list = self.delegates.read().unwrap();
         let method = req.method().clone();
@@ -133,7 +133,7 @@ impl<T: Send + Sync> ControllerDispatch<T> {
         }));
 
         if retained_delegate.len() == 0 {
-            res.set_status(StatusCode::MethodNotAllowed);
+            res.status(StatusCode::METHOD_NOT_ALLOWED);
             return;
         }
 
@@ -153,7 +153,7 @@ impl<T: Send + Sync> ControllerDispatch<T> {
             }
         }
 
-        res.set_status(StatusCode::BadRequest);
+        res.status(StatusCode::BAD_REQUEST);
     }
 }
 
@@ -167,7 +167,7 @@ pub struct BasicController<C> {
 }
 
 impl<C: Send + Sync> Controller for BasicController<C> {
-    fn handle(&self, req: &SyncRequest, res: &mut Response<Body>) {
+    fn handle(&self, req: &SyncRequest, res: &mut SyncResponse) {
         self.dispatch.dispatch(req, res);
     }
 }
@@ -189,7 +189,7 @@ impl<C: Send + Sync> BasicController<C> {
     /// u8_controller.add(Method::Get, "^/test$", |ctx, req, res| { println!("this will handle Get request done on <your_host>/test")});
     /// ```
     pub fn add<F, R: ToRegex>(&self, method: Method, path: R, delegate_func: F)
-        where for<'r, 's, 't0> F: 'static + Fn(&'r C, &'s SyncRequest, &'t0 mut Response<Body>) {
+        where for<'r, 's, 't0> F: 'static + Fn(&'r C, &'s SyncRequest, &'t0 mut SyncResponse) {
         self.dispatch.add(method, path, delegate_func);
     }
 
@@ -202,7 +202,7 @@ impl<C: Send + Sync> BasicController<C> {
     /// u8_controller.add(Method::Get, "^/test$", |ctx, req, res| { println!("this will handle Get request done on <your_host>/test")});
     /// ```
     pub fn add_with_guards<F, R: ToRegex>(&self, method: Method, path: R, guards: RequestGuardCollection, delegate_func: F)
-        where for<'r, 's, 't0> F: 'static + Fn(&'r C, &'s SyncRequest, &'t0 mut Response<Body>) {
+        where for<'r, 's, 't0> F: 'static + Fn(&'r C, &'s SyncRequest, &'t0 mut SyncResponse) {
         self.dispatch.add_with_guards(method, path, guards, delegate_func);
     }
 }
@@ -211,8 +211,8 @@ impl<C: Send + Sync> BasicController<C> {
 pub struct BodyGuard;
 
 impl RequestGuard for BodyGuard {
-    fn validate(&self, req: &SyncRequest, _res: &mut Response<Body>) -> RequestContinuation {
-        if req.body_ref().len() <= 0 {
+    fn validate(&self, req: &SyncRequest, _res: &mut SyncResponse) -> RequestContinuation {
+        if req.body().len() <= 0 {
             return RequestContinuation::None
         }
 

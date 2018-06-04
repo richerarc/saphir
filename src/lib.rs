@@ -13,12 +13,14 @@
 #[macro_use]
 extern crate log;
 extern crate hyper;
+extern crate http as http_types;
 extern crate futures;
 extern crate tokio;
 extern crate regex;
 extern crate chrono;
 extern crate ansi_term;
 extern crate url;
+extern crate bytes;
 
 #[macro_use]
 mod utils;

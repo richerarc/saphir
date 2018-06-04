@@ -19,8 +19,8 @@ impl Router {
     }
 
     ///
-    pub fn dispatch(&self, req: &SyncRequest, res: &mut Response<Body>) {
-        let request_path = req.path();
+    pub fn dispatch(&self, req: &SyncRequest, res: &mut SyncResponse) {
+        let request_path = req.uri().path();
         let h: Option<(usize, &(Regex, Box<Controller>))> = self.routes.iter().enumerate().find(
             move |&(_, &(ref re, _))| {
                 re.is_match(request_path)
@@ -30,7 +30,7 @@ impl Router {
         if let Some((_, &(_, ref controller))) = h {
             controller.handle(req, res);
         } else {
-            res.set_status(StatusCode::NotFound);
+            res.status(StatusCode::NOT_FOUND);
         }
     }
 

@@ -1,108 +1,96 @@
 use http::*;
 use utils;
+use error::ServerError;
 use std::sync::Arc;
-use hyper::Error;
 use middleware::MiddlewareStack;
 use router::Router;
 use futures::Future;
 
 /// The http server
 pub struct Server {
-    http_service: HyperHttpService,
+    middleware_stack: Arc<MiddlewareStack>,
+    router: Arc<Router>,
 }
 
 impl Server {
     /// Create a new server from a `Router` and a `MiddlewareStack`
     pub fn new(router: Router, middleware_stack: Option<MiddlewareStack>) -> Self {
-        let http_service = HyperHttpService::new(router, middleware_stack);
+        let middleware_stack = middleware_stack.unwrap_or_else(|| { MiddlewareStack::new() });
+        //let http_service = HyperHttpService::new(router, middleware_stack);
 
         Server {
-            http_service,
+            middleware_stack: Arc::new(middleware_stack),
+            router: Arc::new(router),
         }
     }
 
     /// This method will run untill the server terminates, `port` defines the listener port.
     pub fn run(&self, port: u16) -> Result<(), ::error::ServerError> {
         let addr = format!("0.0.0.0:{}", port).as_str().parse()?;
-        let service_clone = self.http_service.clone();
-        let server = Http::new().bind(&addr, move || Ok(service_clone.clone()))?;
+        let middleware_stack_clone = self.middleware_stack.clone();
+        let router_clone = self.router.clone();
+        let server = HyperServer::bind(&addr)
+            .serve(move || {
+                let middleware_stack_clone_svc = middleware_stack_clone.clone();
+                let router_clone_svc = router_clone.clone();
+                service_fn(move |req| {
+                    http_service(req, &middleware_stack_clone_svc, &router_clone_svc)
+                })
+            })
+            .map_err(|e| error!("server error: {}", e));
+        ;
         info!("Saphir successfully started and listening on port {}", port);
-        server.run()?;
+        ::hyper::rt::run(server);
         Ok(())
     }
 }
 
-struct HyperHttpService {
-    middleware_stack: Arc<MiddlewareStack>,
-    router: Arc<Router>,
-}
+fn http_service(req: Request<Body>, middleware_stack: &Arc<MiddlewareStack>, router: &Arc<Router>)
+                -> Box<Future<Item=Response<Body>, Error=ServerError> + Send> {
+    use std::time::Instant;
+    use server::utils::RequestContinuation::*;
+    use futures::sync::oneshot::channel;
+    use std::thread;
 
-impl HyperHttpService {
-    pub fn new(router: Router, middleware_stack: Option<MiddlewareStack>) -> Self {
-        let middleware_stack = middleware_stack.unwrap_or_else(|| { MiddlewareStack::new() });
+    let (tx, rx) = channel();
+    let middleware_stack_c = middleware_stack.clone();
+    let router_c = router.clone();
 
-        HyperHttpService {
-            middleware_stack: Arc::new(middleware_stack),
-            router: Arc::new(router),
-        }
-    }
-}
+    Box::new(req.load_body().map_err(|e| ServerError::from(e)).and_then(move |request| {
+        thread::spawn(move || {
+            let req_iat = Instant::now();
+            let mut response = SyncResponse::new();
 
-impl Service for HyperHttpService {
-    type Request = Request;
-    type Response = Response;
-    type Error = Error;
-    type Future = Box<Future<Item=Self::Response, Error=Self::Error>>;
+            if let Next = middleware_stack_c.resolve(&request, &mut response) {
+                router_c.dispatch(&request, &mut response);
+            }
 
-    fn call(&self, req: <Self as Service>::Request) -> <Self as Service>::Future {
-        use std::time::Instant;
-        use server::utils::RequestContinuation::*;
-        use futures::sync::oneshot::channel;
-        use std::thread;
-
-        let (tx, rx) = channel();
-        let service_clone = self.clone();
-
-        Box::new(req.load_body().and_then(move |request| {
-            thread::spawn(move || {
-                let req_iat = Instant::now();
-                let mut response = Response::new();
-
-                if let Next = service_clone.middleware_stack.resolve(&request, &mut response) {
-                    service_clone.router.dispatch(&request, &mut response);
-                }
-
-                let elapsed = req_iat.elapsed();
-
-                use ansi_term::Colour::*;
-
-                let resp_status = response.status();
-                let status_str = resp_status.to_string();
-
-                let status = match resp_status.as_u16() {
-                    0...199 => Cyan.paint(status_str),
-                    200...299 => Green.paint(status_str),
-                    400...599 => Red.paint(status_str),
-                    _ => Yellow.paint(status_str),
-                };
-
-
-                info!("{} {} {} - {:.3}ms", request.method(), request.path(), status, (elapsed.as_secs() as f64
-                    + elapsed.subsec_nanos() as f64 * 1e-9) * 1000 as f64);
-
-                let _ = tx.send(response);
+            let final_res = response.build_response().unwrap_or_else(|_| {
+                let empty: &[u8] = b"";
+                Response::new(empty.into())
             });
 
-            rx.map_err(|e| Error::from(::std::io::Error::new(::std::io::ErrorKind::Other, e)))
-        }))
-    }
-}
+            let resp_status = final_res.status();
 
-impl Clone for HyperHttpService {
-    fn clone(&self) -> Self {
-        HyperHttpService {
-            middleware_stack: self.middleware_stack.clone(),
-            router: self.router.clone(),
-        }
-    }
+            let _ = tx.send(final_res);
+
+            let elapsed = req_iat.elapsed();
+
+            use ansi_term::Colour::*;
+
+            let status_str = resp_status.to_string();
+
+            let status = match resp_status.as_u16() {
+                0...199 => Cyan.paint(status_str),
+                200...299 => Green.paint(status_str),
+                400...599 => Red.paint(status_str),
+                _ => Yellow.paint(status_str),
+            };
+
+            info!("{} {} {} - {:.3}ms", request.method(), request.uri().path(), status, (elapsed.as_secs() as f64
+                + elapsed.subsec_nanos() as f64 * 1e-9) * 1000 as f64);
+        });
+
+        rx.map_err(|e| ServerError::from(e))
+    }))
 }

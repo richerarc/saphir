@@ -231,14 +231,10 @@ pub trait LoadBody {
 impl LoadBody for Request<Body> {
     fn load_body(self) -> Box<Future<Item=SyncRequest, Error=::hyper::Error> + Send> {
         let (parts, body) = self.into_parts();
-        if body.content_length().unwrap_or_else(|| {0}) > 0 {
-            Box::new(body.concat2().map(move |b| {
-                let body_vec: Vec<u8> = b.to_vec();
-                SyncRequest::new(parts, body_vec)
-            }))
-        } else {
-            Box::new(::futures::future::ok( SyncRequest::new(parts, Vec::with_capacity(0))))
-        }
+        Box::new(body.concat2().map(move |b| {
+            let body_vec: Vec<u8> = b.to_vec();
+            SyncRequest::new(parts, body_vec)
+        }))
     }
 }
 

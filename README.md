@@ -1,5 +1,9 @@
 # Saphir
 [![Saphir doc badge](https://docs.rs/saphir/badge.svg)](https://docs.rs/saphir/)
+[![Saphir crate badge](https://img.shields.io/crates/v/saphir.svg)](https://img.shields.io/crates/v/saphir.svg)
+[![Saphir downloads badge](https://img.shields.io/crates/d/saphir.svg)](https://img.shields.io/crates/d/saphir.svg)
+[![Saphir license badge](https://img.shields.io/crates/l/saphir.svg)](https://img.shields.io/crates/l/saphir.svg)
+[![Saphir issue badge](https://img.shields.io/github/issues/richerarc/saphir.svg)](https://img.shields.io/github/issues/richerarc/saphir.svg)
 
 ## Quick server setup
 ```rust

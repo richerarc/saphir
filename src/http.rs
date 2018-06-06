@@ -1,21 +1,22 @@
-pub use http_types::header::HeaderName;
-pub use http_types::header::HeaderValue;
-pub use http_types::request::Parts as ReqParts;
-pub use http_types::response::Parts as ResParts;
-pub use http_types::response::Builder as ResponseBuilder;
+use http_types::response::Builder as ResponseBuilder;
+use http_types::request::Parts as ReqParts;
 pub use http_types::Extensions;
 pub use hyper::Method;
 pub use hyper::Uri;
 pub use hyper::Version;
-pub use hyper::HeaderMap;
 pub use hyper::Body;
 pub use hyper::body::Payload;
 pub use hyper::StatusCode;
-pub use hyper::service::Service;
-pub use hyper::service::service_fn;
 pub use hyper::Request;
 pub use hyper::Response;
-pub use hyper::Server as HyperServer;
+
+/// Headers types re-export
+pub mod headers {
+    pub use http_types::header::*;
+    pub use hyperx::mime;
+    pub use hyperx::header::*;
+}
+
 use futures::Future;
 use futures::Stream;
 use http_types::HttpTryFrom;
@@ -49,7 +50,8 @@ impl SyncRequest {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// # use http::*;
+    /// # use saphir::*;
+    /// # use saphir::headers::*;
     /// let request: Request<()> = Request::default();
     /// assert_eq!(*request.method(), Method::GET);
     /// ```
@@ -63,7 +65,8 @@ impl SyncRequest {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// # use http::*;
+    /// # use saphir::*;
+    /// # use saphir::headers::*;
     /// let mut request: Request<()> = Request::default();
     /// *request.method_mut() = Method::PUT;
     /// assert_eq!(*request.method(), Method::PUT);
@@ -78,7 +81,8 @@ impl SyncRequest {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// # use http::*;
+    /// # use saphir::*;
+    /// # use saphir::headers::*;
     /// let request: Request<()> = Request::default();
     /// assert_eq!(*request.uri(), *"/");
     /// ```
@@ -92,7 +96,8 @@ impl SyncRequest {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// # use http::*;
+    /// # use saphir::*;
+    /// # use saphir::headers::*;
     /// let mut request: Request<()> = Request::default();
     /// *request.uri_mut() = "/hello".parse().unwrap();
     /// assert_eq!(*request.uri(), *"/hello");
@@ -107,7 +112,8 @@ impl SyncRequest {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// # use http::*;
+    /// # use saphir::*;
+    /// # use saphir::headers::*;
     /// let request: Request<()> = Request::default();
     /// assert_eq!(request.version(), Version::HTTP_11);
     /// ```
@@ -121,7 +127,8 @@ impl SyncRequest {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// # use http::*;
+    /// # use saphir::*;
+    /// # use saphir::headers::*;
     /// let mut request: Request<()> = Request::default();
     /// *request.version_mut() = Version::HTTP_2;
     /// assert_eq!(request.version(), Version::HTTP_2);
@@ -136,12 +143,13 @@ impl SyncRequest {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// # use http::*;
+    /// # use saphir::*;
+    /// # use saphir::headers::*;
     /// let request: Request<()> = Request::default();
     /// assert!(request.headers().is_empty());
     /// ```
     #[inline]
-    pub fn headers(&self) -> &HeaderMap<HeaderValue> {
+    pub fn headers_map(&self) -> &headers::HeaderMap<headers::HeaderValue> {
         &self.head.headers
     }
 
@@ -150,15 +158,21 @@ impl SyncRequest {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// # use http::*;
-    /// # use http::header::*;
+    /// # use saphir::*;
+    /// # use saphir::headers::*;
     /// let mut request: Request<()> = Request::default();
     /// request.headers_mut().insert(HOST, HeaderValue::from_static("world"));
     /// assert!(!request.headers().is_empty());
     /// ```
     #[inline]
-    pub fn headers_mut(&mut self) -> &mut HeaderMap<HeaderValue> {
+    pub fn headers_map_mut(&mut self) -> &mut headers::HeaderMap<headers::HeaderValue> {
         &mut self.head.headers
+    }
+
+    /// Clone the HeaderMap and convert it to a more dev-friendly Headers struct
+    ///
+    pub fn headers(&self) -> headers::Headers {
+        self.head.headers.clone().into()
     }
 
 
@@ -167,7 +181,8 @@ impl SyncRequest {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// # use http::*;
+    /// # use saphir::*;
+    /// # use saphir::headers::*;
     /// let request: Request<()> = Request::default();
     /// assert!(request.extensions().get::<i32>().is_none());
     /// ```
@@ -181,8 +196,8 @@ impl SyncRequest {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// # use http::*;
-    /// # use http::header::*;
+    /// # use saphir::*;
+    /// # use saphir::headers::*;
     /// let mut request: Request<()> = Request::default();
     /// request.extensions_mut().insert("hello");
     /// assert_eq!(request.extensions().get(), Some(&"hello"));
@@ -197,7 +212,8 @@ impl SyncRequest {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// # use http::*;
+    /// # use saphir::*;
+    /// # use saphir::headers::*;
     /// let request: Request<String> = Request::default();
     /// assert!(request.body().is_empty());
     /// ```
@@ -211,7 +227,8 @@ impl SyncRequest {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// # use http::*;
+    /// # use saphir::*;
+    /// # use saphir::headers::*;
     /// let mut request: Request<String> = Request::default();
     /// request.body_mut().push_str("hello world");
     /// assert!(!request.body().is_empty());
@@ -264,7 +281,8 @@ impl SyncResponse {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// # use http::*;
+    /// # use saphir::*;
+    /// # use saphir::headers::*;
     ///
     /// let response = SyncResponse::new()
     ///     .status(200)
@@ -288,7 +306,8 @@ impl SyncResponse {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// # use http::*;
+    /// # use saphir::*;
+    /// # use saphir::headers::*;
     ///
     /// let response = SyncResponse::new()
     ///     .version(Version::HTTP_2)
@@ -309,8 +328,8 @@ impl SyncResponse {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// # use http::*;
-    /// # use http::header::HeaderValue;
+    /// # use saphir::*;
+    /// # use saphir::headers::*;
     ///
     /// let response = SyncResponse::new()
     ///     .header("Content-Type", "text/html")
@@ -319,10 +338,23 @@ impl SyncResponse {
     ///     .unwrap();
     /// ```
     pub fn header<K, V>(&mut self, key: K, value: V) -> &mut SyncResponse
-        where HeaderName: HttpTryFrom<K>,
-              HeaderValue: HttpTryFrom<V>
+        where headers::HeaderName: HttpTryFrom<K>,
+              headers::HeaderValue: HttpTryFrom<V>
     {
         self.builder.header(key, value);
+        self
+    }
+
+    /// A convinient function to constuct the response headers from a Headers struct
+    pub fn headers_struct(&mut self, headers: headers::Headers) -> &mut SyncResponse {
+        let map: headers::HeaderMap = headers.into();
+
+        for header in map {
+            if let (Some(name), value) = header {
+                self.builder.header(name, value);
+            }
+        }
+
         self
     }
 
@@ -331,7 +363,8 @@ impl SyncResponse {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// # use http::*;
+    /// # use saphir::*;
+    /// # use saphir::headers::*;
     ///
     /// let response = SyncResponse::new()
     ///     .extension("My Extension")
@@ -353,7 +386,8 @@ impl SyncResponse {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// # use http::*;
+    /// # use saphir::*;
+    /// # use saphir::headers::*;
     ///
     /// let response = SyncResponse::new()
     ///     .body(b"this is a payload")

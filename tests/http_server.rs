@@ -26,8 +26,11 @@ impl Default for TestControllerContext {
     }
 }
 
-fn function_to_receive_any_get_http_call(context: &TestControllerContext, _req: &SyncRequest, res: &mut SyncResponse) {
-    res.status(StatusCode::OK).body(format!("this is working nicely!\r\n the context string is : {}", context.resource));
+fn function_to_receive_any_get_http_call(context: &TestControllerContext, req: &SyncRequest, res: &mut SyncResponse) {
+    use saphir::headers::*;
+    let heads: Headers = req.headers().into();
+    res.status(StatusCode::OK).body(format!("this is working nicely!\r\n the context string is : {}", context.resource))
+        .headers_struct(heads);
 }
 
 #[test]

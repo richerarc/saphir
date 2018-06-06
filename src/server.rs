@@ -1,3 +1,5 @@
+use hyper::Server as HyperServer;
+use hyper::service::service_fn;
 use http::*;
 use utils;
 use error::ServerError;

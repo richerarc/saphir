@@ -11,7 +11,7 @@ pub use hyper::Request;
 pub use hyper::Response;
 
 /// Headers types re-export
-pub mod headers {
+pub mod header {
     pub use http_types::header::*;
     pub use hyperx::mime;
     pub use hyperx::header::*;
@@ -149,7 +149,7 @@ impl SyncRequest {
     /// assert!(request.headers().is_empty());
     /// ```
     #[inline]
-    pub fn headers_map(&self) -> &headers::HeaderMap<headers::HeaderValue> {
+    pub fn headers_map(&self) -> &header::HeaderMap<header::HeaderValue> {
         &self.head.headers
     }
 
@@ -165,13 +165,13 @@ impl SyncRequest {
     /// assert!(!request.headers().is_empty());
     /// ```
     #[inline]
-    pub fn headers_map_mut(&mut self) -> &mut headers::HeaderMap<headers::HeaderValue> {
+    pub fn headers_map_mut(&mut self) -> &mut header::HeaderMap<header::HeaderValue> {
         &mut self.head.headers
     }
 
     /// Clone the HeaderMap and convert it to a more dev-friendly Headers struct
     ///
-    pub fn headers(&self) -> headers::Headers {
+    pub fn headers(&self) -> header::Headers {
         self.head.headers.clone().into()
     }
 
@@ -338,16 +338,16 @@ impl SyncResponse {
     ///     .unwrap();
     /// ```
     pub fn header<K, V>(&mut self, key: K, value: V) -> &mut SyncResponse
-        where headers::HeaderName: HttpTryFrom<K>,
-              headers::HeaderValue: HttpTryFrom<V>
+        where header::HeaderName: HttpTryFrom<K>,
+              header::HeaderValue: HttpTryFrom<V>
     {
         self.builder.header(key, value);
         self
     }
 
     /// A convinient function to constuct the response headers from a Headers struct
-    pub fn headers_struct(&mut self, headers: headers::Headers) -> &mut SyncResponse {
-        let map: headers::HeaderMap = headers.into();
+    pub fn headers_struct(&mut self, headers: header::Headers) -> &mut SyncResponse {
+        let map: header::HeaderMap = headers.into();
 
         for header in map {
             if let (Some(name), value) = header {

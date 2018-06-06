@@ -171,10 +171,21 @@ impl SyncRequest {
 
     /// Clone the HeaderMap and convert it to a more dev-friendly Headers struct
     ///
-    pub fn headers(&self) -> header::Headers {
+    pub fn parsed_header(&self) -> header::Headers {
         self.head.headers.clone().into()
     }
 
+    /// Insert a dev-friendly Headers to the HeaderMap
+    ///
+    pub fn insert_parsed_headers(&mut self, headers: header::Headers) {
+        let map: header::HeaderMap = headers.into();
+
+        for header in map {
+            if let (Some(name), value) = header {
+                self.head.headers.insert(name, value);
+            }
+        }
+    }
 
     /// Returns a reference to the associated extensions.
     ///
@@ -346,7 +357,7 @@ impl SyncResponse {
     }
 
     /// A convinient function to constuct the response headers from a Headers struct
-    pub fn headers_struct(&mut self, headers: header::Headers) -> &mut SyncResponse {
+    pub fn parsed_header(&mut self, headers: header::Headers) -> &mut SyncResponse {
         let map: header::HeaderMap = headers.into();
 
         for header in map {

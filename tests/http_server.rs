@@ -28,9 +28,9 @@ impl Default for TestControllerContext {
 
 fn function_to_receive_any_get_http_call(context: &TestControllerContext, req: &SyncRequest, res: &mut SyncResponse) {
     use saphir::header::*;
-    let heads: Headers = req.headers().into();
+    let heads: Headers = req.parsed_header();
     res.status(StatusCode::OK).body(format!("this is working nicely!\r\n the context string is : {}", context.resource))
-        .headers_struct(heads);
+        .parsed_header(heads);
 }
 
 #[test]

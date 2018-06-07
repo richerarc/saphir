@@ -26,9 +26,12 @@ impl Server {
         }
     }
 
-    /// This method will run untill the server terminates, `port` defines the listener port.
-    pub fn run(&self, port: u16) -> Result<(), ::error::ServerError> {
-        let addr = format!("0.0.0.0:{}", port).as_str().parse()?;
+    /// This method will run untill the server terminates, `uri` defines the listener uri.
+    pub fn run(&self, uri: &str) -> Result<(), ::error::ServerError> {
+        let url:Uri = uri.parse()?;
+
+        let addr = url.authority_part().expect("The uri passed to launch the server doesn't contain an authority.").as_str().parse()?;
+
         let middleware_stack_clone = self.middleware_stack.clone();
         let router_clone = self.router.clone();
         let server = HyperServer::bind(&addr)
@@ -41,7 +44,7 @@ impl Server {
             })
             .map_err(|e| error!("server error: {}", e));
         ;
-        info!("Saphir successfully started and listening on port {}", port);
+        info!("Saphir successfully started and listening on {}", addr);
         ::hyper::rt::run(server);
         Ok(())
     }

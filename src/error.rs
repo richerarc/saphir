@@ -9,6 +9,8 @@ pub enum ServerError {
     FutureCancelledError(::futures::Canceled),
     /// A parsing error of addr
     ParseError(::std::net::AddrParseError),
+    /// An invalid URI
+    InvalidUri(::http_types::uri::InvalidUri),
 }
 
 impl From<::std::net::AddrParseError> for ServerError {
@@ -29,6 +31,12 @@ impl From<::futures::Canceled> for ServerError {
     }
 }
 
+impl From<::http_types::uri::InvalidUri> for ServerError {
+    fn from(e: ::http_types::uri::InvalidUri) -> Self {
+        ServerError::InvalidUri(e)
+    }
+}
+
 impl ::std::error::Error for ServerError {
     fn description(&self) -> &str {
         use ServerError::*;
@@ -36,6 +44,7 @@ impl ::std::error::Error for ServerError {
             HyperError(ref e) => e.description(),
             FutureCancelledError(ref e) => e.description(),
             ParseError(ref e) => e.description(),
+            InvalidUri(ref e) => e.description(),
         }
     }
 }
@@ -47,6 +56,7 @@ impl ::std::fmt::Display for ServerError {
             HyperError(ref e) => e.fmt(f),
             FutureCancelledError(ref e) => e.fmt(f),
             ParseError(ref e) => e.fmt(f),
+            InvalidUri(ref e) => e.fmt(f),
         }
     }
 }

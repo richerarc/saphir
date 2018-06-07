@@ -15,9 +15,9 @@
 extern crate log;
 extern crate futures;
 extern crate ansi_term;
-extern crate regex;
 extern crate http as http_types;
 extern crate hyperx;
+pub extern crate regex;
 pub extern crate hyper;
 
 #[macro_use]

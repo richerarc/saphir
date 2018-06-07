@@ -2,7 +2,7 @@
 [![doc](https://docs.rs/saphir/badge.svg)](https://docs.rs/saphir/)
 [![crate](https://img.shields.io/crates/v/saphir.svg)](https://crates.io/crates/saphir)
 [![issue](https://img.shields.io/github/issues/richerarc/saphir.svg)](https://github.com/richerarc/saphir/issues)
-[![downloads](https://img.shields.io/crates/d/saphir.svg)]
+![downloads](https://img.shields.io/crates/d/saphir.svg)
 [![license](https://img.shields.io/crates/l/saphir.svg)](https://github.com/richerarc/saphir/blob/master/LICENSE)
 
 ### Saphir is an attempt to a low-level yet not-painful server side rust framework
@@ -12,7 +12,6 @@ Rust has plenty of great features, but some of them are causing some pain when g
 ```rust
 #[macro_use]
 extern crate saphir;
-extern crate regex;
 
 use saphir::*;
 

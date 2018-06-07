@@ -48,5 +48,5 @@ fn simple_http_server() {
 
     let server = Server::new(router, Some(mid_stack));
 
-    let _ = server.run(12345);
+    let _ = server.run("http://0.0.0.0:12345");
 }

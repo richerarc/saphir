@@ -1,9 +1,12 @@
 # Saphir
-[![Saphir doc badge](https://docs.rs/saphir/badge.svg)](https://docs.rs/saphir/)
-[![Saphir crate badge](https://img.shields.io/crates/v/saphir.svg)](https://img.shields.io/crates/v/saphir.svg)
-[![Saphir downloads badge](https://img.shields.io/crates/d/saphir.svg)](https://img.shields.io/crates/d/saphir.svg)
-[![Saphir license badge](https://img.shields.io/crates/l/saphir.svg)](https://img.shields.io/crates/l/saphir.svg)
-[![Saphir issue badge](https://img.shields.io/github/issues/richerarc/saphir.svg)](https://img.shields.io/github/issues/richerarc/saphir.svg)
+[![doc](https://docs.rs/saphir/badge.svg)](https://docs.rs/saphir/)
+[![crate](https://img.shields.io/crates/v/saphir.svg)](https://crates.io/crates/saphir)
+[![issue](https://img.shields.io/github/issues/richerarc/saphir.svg)](https://github.com/richerarc/saphir/issues)
+[![downloads](https://img.shields.io/crates/d/saphir.svg)]
+[![license](https://img.shields.io/crates/l/saphir.svg)](https://github.com/richerarc/saphir/blob/master/LICENSE)
+
+### Saphir is an attempt to a low-level yet not-painful server side rust framework
+Rust has plenty of great features, but some of them are causing some pain when getting into the web development game. The goal is to give low-level control to your web stack (as hyper does) without the time consuming task of doing everything from scratch.
 
 ## Quick server setup
 ```rust

@@ -6,6 +6,7 @@ description = "Yet another http server framework based on Hyper-rs"
 documentation = "https://docs.rs/saphir"
 homepage = "https://github.com/richerarc/saphir"
 repository = "https://github.com/richerarc/saphir"
+readme = "README.md"
 keywords = ["hyper", "http", "server", "web"]
 license = "MIT"
 

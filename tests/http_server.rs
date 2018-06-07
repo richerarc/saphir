@@ -1,6 +1,5 @@
 #[macro_use]
 extern crate saphir;
-extern crate regex;
 
 use saphir::*;
 

@@ -30,8 +30,12 @@ impl Server {
     pub fn run(&self, uri: &str) -> Result<(), ::error::ServerError> {
         let url:Uri = uri.parse()?;
 
-        let addr = url.authority_part().expect("The uri passed to launch the server doesn't contain an authority.").as_str().parse()?;
+        let scheme = url.scheme_part().expect("The uri passed to launch the server doesn't contain a scheme.");
+        if !scheme.eq(&::http_types::uri::Scheme::HTTP) {
+            return Err(::error::ServerError::UnsupportedUriScheme);
+        }
 
+        let addr = url.authority_part().expect("The uri passed to launch the server doesn't contain an authority.").as_str().parse()?;
         let middleware_stack_clone = self.middleware_stack.clone();
         let router_clone = self.router.clone();
         let server = HyperServer::bind(&addr)

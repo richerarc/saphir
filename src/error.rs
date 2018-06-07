@@ -11,6 +11,8 @@ pub enum ServerError {
     ParseError(::std::net::AddrParseError),
     /// An invalid URI
     InvalidUri(::http_types::uri::InvalidUri),
+    /// Unsupported URI Scheme
+    UnsupportedUriScheme,
 }
 
 impl From<::std::net::AddrParseError> for ServerError {
@@ -45,6 +47,7 @@ impl ::std::error::Error for ServerError {
             FutureCancelledError(ref e) => e.description(),
             ParseError(ref e) => e.description(),
             InvalidUri(ref e) => e.description(),
+            UnsupportedUriScheme => "Unsupported URI scheme",
         }
     }
 }
@@ -57,6 +60,7 @@ impl ::std::fmt::Display for ServerError {
             FutureCancelledError(ref e) => e.fmt(f),
             ParseError(ref e) => e.fmt(f),
             InvalidUri(ref e) => e.fmt(f),
+            UnsupportedUriScheme => write!(f, "Unsupported URI scheme"),
         }
     }
 }

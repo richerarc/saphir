@@ -4,17 +4,18 @@ use utils::RequestContinuation;
 use utils::RequestContinuation::*;
 use regex::Regex;
 use std::sync::RwLock;
+use std::sync::Arc;
 
 /// Struct representing the layering of middlewares in the server
 pub struct MiddlewareStack {
-    middlewares: RwLock<Vec<(MiddlewareRule, Box<Middleware>)>>
+    middlewares: Arc<RwLock<Vec<(MiddlewareRule, Box<Middleware>)>>>
 }
 
 impl MiddlewareStack {
     ///
     pub fn new() -> Self {
         MiddlewareStack {
-            middlewares: RwLock::new(Vec::new()),
+            middlewares: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
@@ -35,11 +36,19 @@ impl MiddlewareStack {
 
     /// Method to apply a new middleware onto the stack where the `include_path` vec are all path affected by the middleware,
     /// and `exclude_path` are exclusion amongst the included paths.
-    pub fn apply<M: 'static + Middleware>(&mut self, m: M, include_path: Vec<&str>, exclude_path: Option<Vec<&str>>) {
+    pub fn apply<M: 'static + Middleware>(&self, m: M, include_path: Vec<&str>, exclude_path: Option<Vec<&str>>) {
         let rule = MiddlewareRule::new(include_path, exclude_path);
         let boxed_m = Box::new(m);
 
         self.middlewares.write().unwrap().push((rule, boxed_m))
+    }
+}
+
+impl Clone for MiddlewareStack {
+    fn clone(&self) -> Self {
+        MiddlewareStack {
+            middlewares: self.middlewares.clone(),
+        }
     }
 }
 

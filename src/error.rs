@@ -13,6 +13,10 @@ pub enum ServerError {
     InvalidUri(::http_types::uri::InvalidUri),
     /// Unsupported URI Scheme
     UnsupportedUriScheme,
+    /// IO error
+    IOError(::std::io::Error),
+    /// Bad listener configuration
+    BadListenerConfig,
 }
 
 impl From<::std::net::AddrParseError> for ServerError {
@@ -39,6 +43,12 @@ impl From<::http_types::uri::InvalidUri> for ServerError {
     }
 }
 
+impl From<::std::io::Error> for ServerError {
+    fn from(e: ::std::io::Error) -> Self {
+        ServerError::IOError(e)
+    }
+}
+
 impl ::std::error::Error for ServerError {
     fn description(&self) -> &str {
         use ServerError::*;
@@ -48,6 +58,8 @@ impl ::std::error::Error for ServerError {
             ParseError(ref e) => e.description(),
             InvalidUri(ref e) => e.description(),
             UnsupportedUriScheme => "Unsupported URI scheme",
+            IOError(ref e) => e.description(),
+            BadListenerConfig => "Bad listener configuration",
         }
     }
 }
@@ -61,6 +73,8 @@ impl ::std::fmt::Display for ServerError {
             ParseError(ref e) => e.fmt(f),
             InvalidUri(ref e) => e.fmt(f),
             UnsupportedUriScheme => write!(f, "Unsupported URI scheme"),
+            IOError(ref e) => e.fmt(f),
+            BadListenerConfig => write!(f, "Bad listener configuration"),
         }
     }
 }

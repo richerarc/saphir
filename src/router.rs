@@ -3,25 +3,28 @@ use utils::ToRegex;
 use regex::Regex;
 
 use controller::Controller;
+use std::sync::RwLock;
+use std::sync::Arc;
 
 /// A Struct responsible of dispatching request towards controllers
 pub struct Router {
     ///
-    routes: Vec<(Regex, Box<Controller>)>
+    routes: Arc<RwLock<Vec<(Regex, Box<Controller>)>>>
 }
 
 impl Router {
     ///
     pub fn new() -> Self {
         Router {
-            routes: Vec::new(),
+            routes: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
     ///
     pub fn dispatch(&self, req: &SyncRequest, res: &mut SyncResponse) {
         let request_path = req.uri().path();
-        let h: Option<(usize, &(Regex, Box<Controller>))> = self.routes.iter().enumerate().find(
+        let routes = self.routes.read().unwrap();
+        let h: Option<(usize, &(Regex, Box<Controller>))> = routes.iter().enumerate().find(
             move |&(_, &(ref re, _))| {
                 re.is_match(request_path)
             }
@@ -45,7 +48,15 @@ impl Router {
     /// router.add("/test", u8_controller);
     ///
     /// ```
-    pub fn add<C: 'static + Controller, R: ToRegex>(&mut self, route: R, controller: C) {
-        self.routes.push((reg!(route), Box::new(controller)))
+    pub fn add<C: 'static + Controller, R: ToRegex>(&self, route: R, controller: C) {
+        self.routes.write().unwrap().push((reg!(route), Box::new(controller)))
+    }
+}
+
+impl Clone for Router {
+    fn clone(&self) -> Self {
+        Router {
+            routes: self.routes.clone(),
+        }
     }
 }

@@ -17,6 +17,9 @@ extern crate futures;
 extern crate ansi_term;
 extern crate http as http_types;
 extern crate hyperx;
+extern crate tokio;
+extern crate rustls;
+extern crate tokio_rustls;
 pub extern crate regex;
 pub extern crate hyper;
 

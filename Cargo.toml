@@ -1,6 +1,6 @@
 [package]
 name = "saphir"
-version = "0.4.1"
+version = "0.4.2"
 authors = ["richer <richer.arc@gmail.com>"]
 description = "Yet another http server framework based on Hyper-rs"
 documentation = "https://docs.rs/saphir"
@@ -21,6 +21,7 @@ ansi_term = "0.11"
 tokio = "0.1"
 rustls = "0.12"
 tokio-rustls = "0.6"
+parking_lot = "0.6"
 
 [[test]]
 name = "server"

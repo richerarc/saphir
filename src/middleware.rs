@@ -3,7 +3,7 @@ use utils::ToRegex;
 use utils::RequestContinuation;
 use utils::RequestContinuation::*;
 use regex::Regex;
-use std::sync::RwLock;
+use parking_lot::RwLock;
 use std::sync::Arc;
 
 /// Struct representing the layering of middlewares in the server
@@ -23,7 +23,7 @@ impl MiddlewareStack {
     pub fn resolve(&self, req: &SyncRequest, res: &mut SyncResponse) -> RequestContinuation {
         let path = req.uri().path();
 
-        for &(ref rule, ref middleware) in self.middlewares.read().unwrap().iter() {
+        for &(ref rule, ref middleware) in self.middlewares.read().iter() {
             if rule.validate_path(path) {
                 if let None = middleware.resolve(req, res) {
                     return None;
@@ -40,7 +40,7 @@ impl MiddlewareStack {
         let rule = MiddlewareRule::new(include_path, exclude_path);
         let boxed_m = Box::new(m);
 
-        self.middlewares.write().unwrap().push((rule, boxed_m))
+        self.middlewares.write().push((rule, boxed_m))
     }
 }
 

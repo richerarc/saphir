@@ -20,6 +20,7 @@ extern crate hyperx;
 extern crate tokio;
 extern crate rustls;
 extern crate tokio_rustls;
+extern crate parking_lot;
 pub extern crate regex;
 pub extern crate hyper;
 

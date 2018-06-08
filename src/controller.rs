@@ -2,7 +2,7 @@ use http::*;
 use utils::ToRegex;
 use utils::RequestContinuation;
 use regex::Regex;
-use std::sync::RwLock;
+use parking_lot::RwLock;
 
 /// Trait representing a controller
 pub trait Controller: Send + Sync {
@@ -105,7 +105,7 @@ impl<T: Send + Sync> ControllerDispatch<T> {
     /// ```
     pub fn add<F, R: ToRegex>(&self, method: Method, path: R, delegate_func: F)
         where for<'r, 's, 't0> F: 'static + Fn(&'r T, &'s SyncRequest, &'t0 mut SyncResponse) {
-        self.delegates.write().unwrap().push((method, reg!(path), None, Box::new(delegate_func)));
+        self.delegates.write().push((method, reg!(path), None, Box::new(delegate_func)));
     }
 
     /// Add a delegate function to handle a particular request
@@ -119,13 +119,13 @@ impl<T: Send + Sync> ControllerDispatch<T> {
     /// ```
     pub fn add_with_guards<F, R: ToRegex>(&self, method: Method, path: R, guards: RequestGuardCollection, delegate_func: F)
         where for<'r, 's, 't0> F: 'static + Fn(&'r T, &'s SyncRequest, &'t0 mut SyncResponse) {
-        self.delegates.write().unwrap().push((method, reg!(path), Some(guards), Box::new(delegate_func)));
+        self.delegates.write().push((method, reg!(path), Some(guards), Box::new(delegate_func)));
     }
 
     ///
     pub fn dispatch(&self, req: &SyncRequest, res: &mut SyncResponse) {
         use std::iter::FromIterator;
-        let delegates_list = self.delegates.read().unwrap();
+        let delegates_list = self.delegates.read();
         let method = req.method().clone();
 
         let retained_delegate = Vec::from_iter(delegates_list.iter().filter(move |x| {

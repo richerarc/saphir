@@ -3,7 +3,7 @@ use utils::ToRegex;
 use regex::Regex;
 
 use controller::Controller;
-use std::sync::RwLock;
+use parking_lot::RwLock;
 use std::sync::Arc;
 
 /// A Struct responsible of dispatching request towards controllers
@@ -23,7 +23,7 @@ impl Router {
     ///
     pub fn dispatch(&self, req: &SyncRequest, res: &mut SyncResponse) {
         let request_path = req.uri().path();
-        let routes = self.routes.read().unwrap();
+        let routes = self.routes.read();
         let h: Option<(usize, &(Regex, Box<Controller>))> = routes.iter().enumerate().find(
             move |&(_, &(ref re, _))| {
                 re.is_match(request_path)
@@ -49,7 +49,7 @@ impl Router {
     ///
     /// ```
     pub fn add<C: 'static + Controller, R: ToRegex>(&self, route: R, controller: C) {
-        self.routes.write().unwrap().push((reg!(route), Box::new(controller)))
+        self.routes.write().push((reg!(route), Box::new(controller)))
     }
 }
 

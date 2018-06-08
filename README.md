@@ -29,35 +29,35 @@ struct TestControllerContext {
     pub resource: String,
 }
 
-impl Default for TestControllerContext {
-    fn default() -> Self {
+impl TestControllerContext {
+    pub fn new(res: &str) -> Self {
         TestControllerContext {
-            resource: "This is a string".to_string(),
+            resource: res.to_string(),
         }
+    }
+
+    pub fn function_to_receive_any_get_http_call(&self, _req: &SyncRequest, res: &mut SyncResponse) {
+        res.status(StatusCode::OK).body(format!("this is working nicely!\r\n the context string is : {}", self.resource));
     }
 }
 
-fn function_to_receive_any_get_http_call(context: &TestControllerContext, _req: &SyncRequest, res: &mut SyncResponse) {
-    res.status(StatusCode::OK).body(format!("this is working nicely!\r\n the context string is : {}", context.resource));
-}
-
 fn main() {
-    let mut mid_stack = MiddlewareStack::new();
+    let _ = Server::new()
+        .configure_middlewares(|stack| {
+            stack.apply(TestMiddleware {}, vec!("/"), None);
+        })
+        .configure_router(|router| {
+            let basic_test_cont = BasicController::new(TestControllerContext::new("this is a private resource"));
 
-    mid_stack.apply(TestMiddleware {}, vec!("/"), None);
+            basic_test_cont.add(Method::GET, reg!("/"), TestControllerContext::function_to_receive_any_get_http_call);
+            basic_test_cont.add(Method::POST, reg!("/"), |_, _, _| { println!("this was a post request") });
+            basic_test_cont.add_with_guards(Method::PUT, "^/patate", BodyGuard.into(), |_,_,_| {println!("this is only reachable if the request has a body")});
 
-    let basic_test_cont = BasicController::new(TestControllerContext::default());
-
-    basic_test_cont.add(Method::GET, reg!("/"), function_to_receive_any_get_http_call);
-    basic_test_cont.add(Method::POST, reg!("/"), |_, _, _| { println!("this was a post request") });
-    basic_test_cont.add_with_guards(Method::PUT, "^/patate", BodyGuard.into(), |_,_,_| {println!("this is only reachable if the request has a body")});
-
-    let mut router = Router::new();
-
-    router.add("/", basic_test_cont);
-
-    let server = Server::new(router, Some(mid_stack));
-
-    let _ = server.run(12345);
+            router.add("/", basic_test_cont);
+        })
+        .configure_listener(|listener_config| {
+            listener_config.set_uri("http://0.0.0.0:12345");
+        })
+        .run();
 }
 ```

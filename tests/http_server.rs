@@ -9,7 +9,7 @@ impl Middleware for TestMiddleware {
     fn resolve(&self, req: &SyncRequest, _res: &mut SyncResponse) -> RequestContinuation {
         println!("I'm a middleware");
         println!("{:?}", req);
-        RequestContinuation::Next
+        RequestContinuation::Continue(None)
     }
 }
 

@@ -183,9 +183,10 @@ fn http_service(req: Request<Body>, middleware_stack: &MiddlewareStack, router: 
         thread::spawn(move || {
             let req_iat = Instant::now();
             let mut response = SyncResponse::new();
+            let mut request_params = utils::RequestParamCollection::new();
 
-            if let Next = middleware_stack_c.resolve(&request, &mut response) {
-                router_c.dispatch(&request, &mut response);
+            if let Continue(_) = middleware_stack_c.resolve(&request, &mut response, &mut request_params) {
+                router_c.dispatch(&request, &mut response, &mut request_params);
             }
 
             let final_res = response.build_response().unwrap_or_else(|_| {

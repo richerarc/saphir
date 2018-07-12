@@ -1,5 +1,6 @@
 use http_types::response::Builder as ResponseBuilder;
 use http_types::request::Parts as ReqParts;
+use utils::RequestAddonCollection;
 pub use http_types::Extensions;
 pub use hyper::Method;
 pub use hyper::Uri;
@@ -31,6 +32,8 @@ pub struct SyncRequest {
     head: ReqParts,
     /// Body
     body: Vec<u8>,
+    /// Request Params
+    addons: RequestAddonCollection,
 }
 
 impl SyncRequest {
@@ -42,6 +45,7 @@ impl SyncRequest {
         SyncRequest {
             head,
             body,
+            addons: RequestAddonCollection::new(),
         }
     }
 
@@ -247,6 +251,18 @@ impl SyncRequest {
     #[inline]
     pub fn body_mut(&mut self) -> &mut Vec<u8> {
         &mut self.body
+    }
+
+    /// Returns a reference to the request add-ons
+    #[inline]
+    pub fn addons(&self) -> &RequestAddonCollection {
+        &self.addons
+    }
+
+    /// Returns a reference to the request add-ons
+    #[inline]
+    pub fn addons_mut(&mut self) -> &mut RequestAddonCollection {
+        &mut self.addons
     }
 }
 

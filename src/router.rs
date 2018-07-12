@@ -5,7 +5,6 @@ use regex::Regex;
 use controller::Controller;
 use parking_lot::RwLock;
 use std::sync::Arc;
-use utils::RequestParamCollection;
 
 /// A Struct responsible of dispatching request towards controllers
 pub struct Router {
@@ -22,17 +21,16 @@ impl Router {
     }
 
     ///
-    pub fn dispatch(&self, req: &SyncRequest, res: &mut SyncResponse, params: &mut RequestParamCollection) {
-        let request_path = req.uri().path();
+    pub fn dispatch(&self, req: &mut SyncRequest, res: &mut SyncResponse) {
         let routes = self.routes.read();
         let h: Option<(usize, &(Regex, Box<Controller>))> = routes.iter().enumerate().find(
-            move |&(_, &(ref re, _))| {
-                re.is_match(request_path)
+            |&(_, &(ref re, _))| {
+                re.is_match(req.uri().path())
             }
         );
 
         if let Some((_, &(_, ref controller))) = h {
-            controller.handle(req, res, params);
+            controller.handle(req, res);
         } else {
             res.status(StatusCode::NOT_FOUND);
         }

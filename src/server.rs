@@ -179,14 +179,13 @@ fn http_service(req: Request<Body>, middleware_stack: &MiddlewareStack, router: 
     let middleware_stack_c = middleware_stack.clone();
     let router_c = router.clone();
 
-    Box::new(req.load_body().map_err(|e| ServerError::from(e)).and_then(move |request| {
+    Box::new(req.load_body().map_err(|e| ServerError::from(e)).and_then(move |mut request| {
         thread::spawn(move || {
             let req_iat = Instant::now();
             let mut response = SyncResponse::new();
-            let mut request_params = utils::RequestParamCollection::new();
 
-            if let Continue(_) = middleware_stack_c.resolve(&request, &mut response, &mut request_params) {
-                router_c.dispatch(&request, &mut response, &mut request_params);
+            if let Continue = middleware_stack_c.resolve(&mut request, &mut response) {
+                router_c.dispatch(&mut request, &mut response);
             }
 
             let final_res = response.build_response().unwrap_or_else(|_| {

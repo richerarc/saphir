@@ -1,6 +1,5 @@
 use http::*;
 use utils::ToRegex;
-use utils::RequestParamCollection;
 use utils::RequestContinuation;
 use utils::RequestContinuation::*;
 use regex::Regex;
@@ -21,20 +20,18 @@ impl MiddlewareStack {
     }
 
     ///
-    pub fn resolve(&self, req: &SyncRequest, res: &mut SyncResponse, params: &mut RequestParamCollection) -> RequestContinuation {
+    pub fn resolve(&self, req: &mut SyncRequest, res: &mut SyncResponse) -> RequestContinuation {
         let path = req.uri().path();
 
         for &(ref rule, ref middleware) in self.middlewares.read().iter() {
             if rule.validate_path(path) {
-                match middleware.resolve(req, res) {
-                    Continue(Some(p)) => params.add(p),
-                    Stop => return Stop,
-                    _ => continue,
+                if let Stop = middleware.resolve(req, res) {
+                    return Stop;
                 }
             }
         }
 
-        Continue(None)
+        Continue
     }
 
     /// Method to apply a new middleware onto the stack where the `include_path` vec are all path affected by the middleware,

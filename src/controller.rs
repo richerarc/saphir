@@ -1,6 +1,5 @@
 use http::*;
 use utils::ToRegex;
-use utils::RequestParamCollection;
 use utils::RequestContinuation;
 use regex::Regex;
 use parking_lot::RwLock;
@@ -9,7 +8,7 @@ use parking_lot::RwLock;
 pub trait Controller: Send + Sync {
     /// Method invoked if the request gets routed to this controller. Nothing will be processed after a controller `handling` a request.
     /// When returning from this function, the `res` param is the response returned to the client.
-    fn handle(&self, req: &SyncRequest, res: &mut SyncResponse, params: &mut RequestParamCollection);
+    fn handle(&self, req: &mut SyncRequest, res: &mut SyncResponse);
 }
 
 ///
@@ -73,7 +72,7 @@ impl<'a> IntoIterator for &'a RequestGuardCollection {
 /// A trait to provide an other layer of validation before allowing a request into a controller
 pub trait RequestGuard {
     ///
-    fn validate(&self, req: &SyncRequest, res: &mut SyncResponse, params: &mut RequestParamCollection) -> RequestContinuation;
+    fn validate(&self, req: &mut SyncRequest, res: &mut SyncResponse) -> RequestContinuation;
 }
 
 type DelegateFunction<T> = Fn(&T, &SyncRequest, &mut SyncResponse);
@@ -124,7 +123,7 @@ impl<T: Send + Sync> ControllerDispatch<T> {
     }
 
     ///
-    pub fn dispatch(&self, req: &SyncRequest, res: &mut SyncResponse, params: &mut RequestParamCollection) {
+    pub fn dispatch(&self, req: &mut SyncRequest, res: &mut SyncResponse) {
         use std::iter::FromIterator;
         let delegates_list = self.delegates.read();
         let method = req.method().clone();
@@ -145,10 +144,8 @@ impl<T: Send + Sync> ControllerDispatch<T> {
                 if let Some(ref guards) = op_guards {
                     for guard in guards {
                         use RequestContinuation::*;
-                        match guard.validate(req, res, params) {
-                            Continue(Some(p)) => {params.add(p)},
-                            Stop => return,
-                            _ => continue,
+                        if let Stop = guard.validate(req, res) {
+                            return;
                         }
                     }
                 }
@@ -171,8 +168,8 @@ pub struct BasicController<C> {
 }
 
 impl<C: Send + Sync> Controller for BasicController<C> {
-    fn handle(&self, req: &SyncRequest, res: &mut SyncResponse, params: &mut RequestParamCollection) {
-        self.dispatch.dispatch(req, res, params);
+    fn handle(&self, req: &mut SyncRequest, res: &mut SyncResponse) {
+        self.dispatch.dispatch(req, res);
     }
 }
 
@@ -215,12 +212,12 @@ impl<C: Send + Sync> BasicController<C> {
 pub struct BodyGuard;
 
 impl RequestGuard for BodyGuard {
-    fn validate(&self, req: &SyncRequest, _res: &mut SyncResponse, _params: &mut RequestParamCollection) -> RequestContinuation {
+    fn validate(&self, req: &mut SyncRequest, _res: &mut SyncResponse) -> RequestContinuation {
         if req.body().len() <= 0 {
             return RequestContinuation::Stop
         }
 
-        RequestContinuation::Continue(None)
+        RequestContinuation::Continue
     }
 }
 

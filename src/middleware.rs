@@ -20,18 +20,18 @@ impl MiddlewareStack {
     }
 
     ///
-    pub fn resolve(&self, req: &SyncRequest, res: &mut SyncResponse) -> RequestContinuation {
-        let path = req.uri().path();
+    pub fn resolve(&self, req: &mut SyncRequest, res: &mut SyncResponse) -> RequestContinuation {
+        let path = req.uri().path().to_owned();
 
         for &(ref rule, ref middleware) in self.middlewares.read().iter() {
-            if rule.validate_path(path) {
-                if let None = middleware.resolve(req, res) {
-                    return None;
+            if rule.validate_path(&path) {
+                if let Stop = middleware.resolve(req, res) {
+                    return Stop;
                 }
             }
         }
 
-        Next
+        Continue
     }
 
     /// Method to apply a new middleware onto the stack where the `include_path` vec are all path affected by the middleware,
@@ -57,7 +57,7 @@ pub trait Middleware: Send + Sync {
     /// This method will be invoked if the request is targeting an included path, (as defined when "applying" the middleware to the stack)
     /// and doesn't match any exclusion. Returning `RequestContinuation::Next` will allow the request to continue through the stack, and
     /// returning `RequestContinuation::None` will cease the request processing, returning as response the modified `res` param.
-    fn resolve(&self, req: &SyncRequest, res: &mut SyncResponse) -> RequestContinuation;
+    fn resolve(&self, req: &mut SyncRequest, res: &mut SyncResponse) -> RequestContinuation;
 }
 
 struct MiddlewareRule {

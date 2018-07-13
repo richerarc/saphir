@@ -8,7 +8,10 @@ use parking_lot::RwLock;
 pub trait Controller: Send + Sync {
     /// Method invoked if the request gets routed to this controller. Nothing will be processed after a controller `handling` a request.
     /// When returning from this function, the `res` param is the response returned to the client.
-    fn handle(&self, req: &SyncRequest, res: &mut SyncResponse);
+    fn handle(&self, req: &mut SyncRequest, res: &mut SyncResponse);
+
+    /// Method used by the router to know were to route a request addressed at a controller
+    fn base_path(&self) -> &str;
 }
 
 ///
@@ -72,7 +75,7 @@ impl<'a> IntoIterator for &'a RequestGuardCollection {
 /// A trait to provide an other layer of validation before allowing a request into a controller
 pub trait RequestGuard {
     ///
-    fn validate(&self, req: &SyncRequest, res: &mut SyncResponse) -> RequestContinuation;
+    fn validate(&self, req: &mut SyncRequest, res: &mut SyncResponse) -> RequestContinuation;
 }
 
 type DelegateFunction<T> = Fn(&T, &SyncRequest, &mut SyncResponse);
@@ -123,7 +126,7 @@ impl<T: Send + Sync> ControllerDispatch<T> {
     }
 
     ///
-    pub fn dispatch(&self, req: &SyncRequest, res: &mut SyncResponse) {
+    pub fn dispatch(&self, req: &mut SyncRequest, res: &mut SyncResponse) {
         use std::iter::FromIterator;
         let delegates_list = self.delegates.read();
         let method = req.method().clone();
@@ -140,10 +143,11 @@ impl<T: Send + Sync> ControllerDispatch<T> {
         for del in retained_delegate {
             let (_, ref reg, ref op_guards, ref boxed_func) = del;
 
-            if reg.is_match(req.uri().path()) {
+            if req.current_path_match_and_capture(reg) {
                 if let Some(ref guards) = op_guards {
                     for guard in guards {
-                        if let RequestContinuation::None = guard.validate(req, res) {
+                        use RequestContinuation::*;
+                        if let Stop = guard.validate(req, res) {
                             return;
                         }
                     }
@@ -163,19 +167,25 @@ unsafe impl<T> Send for ControllerDispatch<T> {}
 
 /// An helper struct embedding a `ControllerDispatch`.
 pub struct BasicController<C> {
-    dispatch: ControllerDispatch<C>
+    base_path: String,
+    dispatch: ControllerDispatch<C>,
 }
 
 impl<C: Send + Sync> Controller for BasicController<C> {
-    fn handle(&self, req: &SyncRequest, res: &mut SyncResponse) {
+    fn handle(&self, req: &mut SyncRequest, res: &mut SyncResponse) {
         self.dispatch.dispatch(req, res);
+    }
+
+    fn base_path(&self) -> &str {
+        &self.base_path
     }
 }
 
 impl<C: Send + Sync> BasicController<C> {
     ///
-    pub fn new(controller_context: C) -> Self {
+    pub fn new(name: &str, controller_context: C) -> Self {
         BasicController {
+            base_path: name.to_string(),
             dispatch: ControllerDispatch::new(controller_context),
         }
     }
@@ -211,12 +221,12 @@ impl<C: Send + Sync> BasicController<C> {
 pub struct BodyGuard;
 
 impl RequestGuard for BodyGuard {
-    fn validate(&self, req: &SyncRequest, _res: &mut SyncResponse) -> RequestContinuation {
+    fn validate(&self, req: &mut SyncRequest, _res: &mut SyncResponse) -> RequestContinuation {
         if req.body().len() <= 0 {
-            return RequestContinuation::None
+            return RequestContinuation::Stop
         }
 
-        RequestContinuation::Next
+        RequestContinuation::Continue
     }
 }
 

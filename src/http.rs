@@ -34,6 +34,9 @@ pub struct SyncRequest {
     body: Vec<u8>,
     /// Request Params
     addons: RequestAddonCollection,
+
+    current_path: String,
+    captures: Vec<String>,
 }
 
 impl SyncRequest {
@@ -42,10 +45,16 @@ impl SyncRequest {
     pub fn new(head: ReqParts,
                body: Vec<u8>,
     ) -> SyncRequest {
+        let mut cp = head.uri.path().to_owned();
+        if !cp.ends_with('/') {
+            cp.push('/')
+        }
         SyncRequest {
             head,
             body,
             addons: RequestAddonCollection::new(),
+            current_path: cp,
+            captures: Vec::new(),
         }
     }
 
@@ -109,6 +118,43 @@ impl SyncRequest {
     #[inline]
     pub fn uri_mut(&mut self) -> &mut Uri {
         &mut self.head.uri
+    }
+
+    ///
+//    pub(crate) fn current_path(&self) -> &str {
+//        &self.current_path
+//    }
+
+    ///
+    pub(crate) fn current_path_match(&mut self, re: &::regex::Regex) -> bool {
+        let current = self.current_path.clone();
+        re.find(&current).map_or_else(|| false, |ma| {
+            self.current_path = self.current_path.split_off(ma.end());
+            true
+        })
+    }
+
+    ///
+    pub(crate) fn current_path_match_and_capture(&mut self, re: &::regex::Regex) -> bool {
+        let current = self.current_path.clone();
+        re.captures(&current).map_or_else(|| false, |cap| {
+            if let Some(ma) = cap.get(0) {
+                self.current_path = self.current_path.split_off(ma.end());
+            }
+
+            for i in 1..cap.len() {
+                if let Some(ma) = cap.get(i) {
+                    self.captures.push(ma.as_str().to_owned())
+                }
+            }
+
+            true
+        })
+    }
+
+    ///
+    pub fn captures(&self) -> &Vec<String> {
+        &self.captures
     }
 
     /// Returns the associated version.

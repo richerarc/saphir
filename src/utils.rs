@@ -144,11 +144,17 @@ pub enum RequestContinuation {
 pub trait ToRegex {
     ///
     fn to_regex(&self) -> Result<::regex::Regex, ::regex::Error>;
+    ///
+    fn as_str(&self) -> &str;
 }
 
 impl<'a> ToRegex for &'a str {
     fn to_regex(&self) -> Result<::regex::Regex, ::regex::Error> {
         ::regex::Regex::new(self)
+    }
+
+    fn as_str(&self) -> &str {
+        self
     }
 }
 
@@ -156,11 +162,19 @@ impl ToRegex for String {
     fn to_regex(&self) -> Result<::regex::Regex, ::regex::Error> {
         ::regex::Regex::new(self.as_str())
     }
+
+    fn as_str(&self) -> &str {
+        &self
+    }
 }
 
 impl ToRegex for ::regex::Regex {
     fn to_regex(&self) -> Result<::regex::Regex, ::regex::Error> {
         Ok(self.clone())
+    }
+
+    fn as_str(&self) -> &str {
+        self.as_str()
     }
 }
 

@@ -70,7 +70,7 @@ fn simple_http_server() {
             // PUT  /test/patate
             router.add(basic_test_cont);
 
-            let basic_test_cont2 = BasicController::new("^/test2", TestControllerContext::new("this is a second private resource"));
+            let basic_test_cont2 = BasicController::new("^/test2$", TestControllerContext::new("this is a second private resource"));
 
             basic_test_cont2.add(Method::GET, reg!("^/$"), |_, _, _| { println!("this was a get request handled by the second controller") });
 

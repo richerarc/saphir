@@ -45,10 +45,7 @@ impl SyncRequest {
     pub fn new(head: ReqParts,
                body: Vec<u8>,
     ) -> SyncRequest {
-        let mut cp = head.uri.path().to_owned();
-        if !cp.ends_with('/') {
-            cp.push('/')
-        }
+        let cp = head.uri.path().to_owned();
         SyncRequest {
             head,
             body,
@@ -121,15 +118,14 @@ impl SyncRequest {
     }
 
     ///
-//    pub(crate) fn current_path(&self) -> &str {
-//        &self.current_path
-//    }
-
-    ///
     pub(crate) fn current_path_match(&mut self, re: &::regex::Regex) -> bool {
         let current = self.current_path.clone();
         re.find(&current).map_or_else(|| false, |ma| {
-            self.current_path = self.current_path.split_off(ma.end());
+            let mut path = self.current_path.split_off(ma.end());
+            if path.len() < 1 {
+                path.push('/');
+            }
+            self.current_path = path;
             true
         })
     }
@@ -139,7 +135,11 @@ impl SyncRequest {
         let current = self.current_path.clone();
         re.captures(&current).map_or_else(|| false, |cap| {
             if let Some(ma) = cap.get(0) {
-                self.current_path = self.current_path.split_off(ma.end());
+                let mut path = self.current_path.split_off(ma.end());
+                if path.len() < 1 {
+                    path.push('/');
+                }
+                self.current_path = path;
             }
 
             for i in 1..cap.len() {

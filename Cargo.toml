@@ -1,6 +1,6 @@
 [package]
 name = "saphir"
-version = "0.5.1"
+version = "0.5.2"
 authors = ["richer <richer.arc@gmail.com>"]
 description = "Yet another http server framework based on Hyper-rs"
 documentation = "https://docs.rs/saphir"
@@ -9,6 +9,11 @@ repository = "https://github.com/richerarc/saphir"
 readme = "README.md"
 keywords = ["hyper", "http", "server", "web"]
 license = "MIT"
+
+[features]
+
+default = []
+https = ["rustls", "tokio-rustls"]
 
 [dependencies]
 log = "0.4.1"
@@ -19,9 +24,10 @@ futures = "0.1"
 regex = "1.0"
 ansi_term = "0.11"
 tokio = "0.1"
-rustls = "0.12"
-tokio-rustls = "0.6"
 parking_lot = "0.6"
+
+rustls = { version = "0.12", optional = true }
+tokio-rustls = { version = "0.6", optional = true }
 
 [[test]]
 name = "server"

@@ -18,7 +18,9 @@ extern crate ansi_term;
 extern crate http as http_types;
 extern crate hyperx;
 extern crate tokio;
+#[cfg(feature = "https")]
 extern crate rustls;
+#[cfg(feature = "https")]
 extern crate tokio_rustls;
 extern crate parking_lot;
 pub extern crate regex;

@@ -129,37 +129,43 @@ impl Server {
             info!("Saphir successfully started and listening on {}", uri);
             ::hyper::rt::run(server);
         } else if scheme.eq(&::http_types::uri::Scheme::HTTPS) {
-            if let (Some(cert_path), Some(key_path)) = self.listener_config.borrow().ssl_files_path() {
-                use std::sync::Arc;
-                use futures::Stream;
-                use server::ssl_loading_utils::*;
-                use tokio_rustls::ServerConfigExt;
+            #[cfg(feature = "https")]
+            {
+                if let (Some(cert_path), Some(key_path)) = self.listener_config.borrow().ssl_files_path() {
+                    use std::sync::Arc;
+                    use futures::Stream;
+                    use server::ssl_loading_utils::*;
+                    use tokio_rustls::ServerConfigExt;
 
-                let certs = load_certs(cert_path.as_ref());
-                let key = load_private_key(key_path.as_ref());
-                let mut cfg = ::rustls::ServerConfig::new(::rustls::NoClientAuth::new());
-                cfg.set_single_cert(certs, key);
-                let arc_config = Arc::new(cfg);
+                    let certs = load_certs(cert_path.as_ref());
+                    let key = load_private_key(key_path.as_ref());
+                    let mut cfg = ::rustls::ServerConfig::new(::rustls::NoClientAuth::new());
+                    cfg.set_single_cert(certs, key);
+                    let arc_config = Arc::new(cfg);
 
-                let inc = listener.incoming().and_then(move |stream| {
-                    arc_config.clone().accept_async(stream)
-                });
+                    let inc = listener.incoming().and_then(move |stream| {
+                        arc_config.clone().accept_async(stream)
+                    });
 
-                let server = ::hyper::server::Builder::new(inc, ::hyper::server::conn::Http::new())
-                    .serve(move || {
-                        let middleware_stack_clone_svc = middleware_stack_clone.clone();
-                        let router_clone_svc = router_clone.clone();
-                        service_fn(move |req| {
-                            http_service(req, &middleware_stack_clone_svc, &router_clone_svc)
+                    let server = ::hyper::server::Builder::new(inc, ::hyper::server::conn::Http::new())
+                        .serve(move || {
+                            let middleware_stack_clone_svc = middleware_stack_clone.clone();
+                            let router_clone_svc = router_clone.clone();
+                            service_fn(move |req| {
+                                http_service(req, &middleware_stack_clone_svc, &router_clone_svc)
+                            })
                         })
-                    })
-                    .map_err(|e| error!("server error: {}", e));
+                        .map_err(|e| error!("server error: {}", e));
 
-                info!("Saphir successfully started and listening on {}", uri);
-                ::hyper::rt::run(server);
-            } else {
-                return Err(::error::ServerError::BadListenerConfig);
+                    info!("Saphir successfully started and listening on {}", uri);
+                    ::hyper::rt::run(server);
+                } else {
+                    return Err(::error::ServerError::BadListenerConfig);
+                }
             }
+
+            #[cfg(not(feature = "https"))]
+            return Err(::error::ServerError::UnsupportedUriScheme);
         } else {
             return Err(::error::ServerError::UnsupportedUriScheme);
         }
@@ -219,6 +225,7 @@ fn http_service(req: Request<Body>, middleware_stack: &MiddlewareStack, router: 
 }
 
 #[doc(hidden)]
+#[cfg(feature = "https")]
 mod ssl_loading_utils {
     use rustls;
     use std::fs;

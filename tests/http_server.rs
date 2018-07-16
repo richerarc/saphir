@@ -40,7 +40,9 @@ impl TestControllerContext {
 
 #[test]
 fn simple_http_server() {
-    let _ = Server::new()
+    let server = Server::new();
+
+    if let Err(e) = server
         .configure_middlewares(|stack| {
             stack.apply(TestMiddleware {}, vec!("/"), None);
         })
@@ -82,5 +84,8 @@ fn simple_http_server() {
         .configure_listener(|listener_config| {
             listener_config.set_uri("http://0.0.0.0:12345");
         })
-        .run();
+        .run() {
+        println!("{:?}", e);
+        assert!(false);
+    }
 }

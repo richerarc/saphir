@@ -2,6 +2,7 @@
 [![doc](https://docs.rs/saphir/badge.svg)](https://docs.rs/saphir/)
 [![crate](https://img.shields.io/crates/v/saphir.svg)](https://crates.io/crates/saphir)
 [![issue](https://img.shields.io/github/issues/richerarc/saphir.svg)](https://github.com/richerarc/saphir/issues)
+[![Build Status](https://travis-ci.org/richerarc/saphir.svg?branch=master)](https://travis-ci.org/richerarc/saphir)
 ![downloads](https://img.shields.io/crates/d/saphir.svg)
 [![license](https://img.shields.io/crates/l/saphir.svg)](https://github.com/richerarc/saphir/blob/master/LICENSE)
 

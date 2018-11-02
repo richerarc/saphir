@@ -5,6 +5,7 @@
 [![Build Status](https://travis-ci.org/richerarc/saphir.svg?branch=master)](https://travis-ci.org/richerarc/saphir)
 ![downloads](https://img.shields.io/crates/d/saphir.svg)
 [![license](https://img.shields.io/crates/l/saphir.svg)](https://github.com/richerarc/saphir/blob/master/LICENSE)
+[![dependency status](https://deps.rs/repo/github/richerarc/saphir/status.svg)](https://deps.rs/repo/github/richerarc/saphir)
 
 ### Saphir is an attempt to a low-level yet not-painful server side rust framework
 Rust has plenty of great features, but some of them are causing some pain when getting into the web development game. The goal is to give low-level control to your web stack (as hyper does) without the time consuming task of doing everything from scratch.

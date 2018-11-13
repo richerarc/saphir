@@ -5,16 +5,33 @@ use error::ServerError;
 use middleware::MiddlewareStack;
 use router::Router;
 use futures::Future;
+use futures::sync::oneshot::{Sender, channel};
+use tokio::runtime::TaskExecutor;
 use std::cell::RefCell;
+use std::any::Any;
+
+///
+const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 15000;
 
 /// A struct representing listener configuration
 pub struct ListenerConfig {
+    request_timeout_ms: u64,
     uri: Option<String>,
     cert_path: Option<String>,
     key_path: Option<String>,
 }
 
 impl ListenerConfig {
+    pub fn set_panic_handler<PanicHandler>(&mut self, panic_handler: PanicHandler)
+        where PanicHandler: Fn(Box<dyn Any + 'static + Send>) + Send + Sync + 'static {
+        rayon::ThreadPoolBuilder::new().panic_handler(panic_handler).build_global().expect("Setting the panic handler should never fail")
+    }
+
+    /// Set the default timeout for request in milliseconds. 0 means no timeout.
+    pub fn set_request_timeout_ms(&mut self, timeout: u64) {
+        self.request_timeout_ms = timeout;
+    }
+
     /// Set the listener uri (supported format is <scheme>://<interface>:<port>)
     pub fn set_uri(&mut self, uri: &str) {
         self.uri = Some(uri.to_string())
@@ -36,6 +53,7 @@ mod listener_config_ext {
         #[doc(hidden)]
         pub fn new() -> Self {
             ListenerConfig {
+                request_timeout_ms: DEFAULT_REQUEST_TIMEOUT_MS,
                 uri: None,
                 cert_path: None,
                 key_path: None,
@@ -50,6 +68,18 @@ mod listener_config_ext {
         #[doc(hidden)]
         pub fn ssl_files_path(&self) -> (Option<String>, Option<String>) {
             (self.cert_path.clone(), self.key_path.clone())
+        }
+    }
+}
+
+/// Handle to signal the server on termination
+pub struct ServerSpawn(Option<Sender<()>>);
+
+impl ServerSpawn {
+    /// Signal the server to terminate itself gracefully
+    pub fn terminate(mut self) {
+        if let Some(s) = self.0.take(){
+            let _ = s.send(());
         }
     }
 }
@@ -98,7 +128,86 @@ impl Server {
         &self
     }
 
-    /// This method will run untill the server terminates.
+    /// Spawn the server inside the provided executor and return a ServerSpawn context to explicitly terminate it.
+    pub fn spawn(&self, executor: TaskExecutor) -> Result<ServerSpawn, ::error::ServerError> {
+        let uri: Uri = self.listener_config.borrow().uri()
+            .expect("Fatal Error: No uri provided.\n You can fix this error by calling Server::set_uri or by configuring the listener with Server::configure_listener")
+            .parse()?;
+
+        let scheme = uri.scheme_part().expect("Fatal Error: The uri passed to launch the server doesn't contain a scheme.");
+        let addr = uri.authority_part().expect("The uri passed to launch the server doesn't contain an authority.").as_str().parse()?;
+
+        let listener = ::tokio::net::TcpListener::bind(&addr)?;
+
+        let service = HttpService {
+            router: self.router.clone(),
+            middleware_stack: self.middleware_stack.clone(),
+            request_timeout: self.listener_config.borrow().request_timeout_ms,
+        };
+
+        let (sender, receiver) = channel();
+
+        let server_spawn = ServerSpawn(Some(sender));
+
+        if scheme.eq(&::http_types::uri::Scheme::HTTP) {
+            if let (Some(_), _) = self.listener_config.borrow().ssl_files_path() {
+                warn!("SSL certificate paths are provided but the listener was configured to use unsecured HTTP, try changing the uri scheme for https");
+            }
+
+            let server = ::hyper::server::Builder::new(listener.incoming(), ::hyper::server::conn::Http::new()).serve(move || {
+                let handler = service.clone();
+                service_fn(move |req| {
+                    handler.handle(req)
+                })
+            }).with_graceful_shutdown(receiver).map_err(|e| error!("server error: {}", e));
+
+            executor.spawn(server);
+            info!("Saphir successfully started and listening on {}", uri);
+        } else if scheme.eq(&::http_types::uri::Scheme::HTTPS) {
+            #[cfg(feature = "https")]
+                {
+                    if let (Some(cert_path), Some(key_path)) = self.listener_config.borrow().ssl_files_path() {
+                        use std::sync::Arc;
+                        use futures::Stream;
+                        use server::ssl_loading_utils::*;
+                        use tokio_rustls::TlsAcceptor;
+
+                        let certs = load_certs(cert_path.as_ref());
+                        let key = load_private_key(key_path.as_ref());
+                        let mut cfg = ::rustls::ServerConfig::new(::rustls::NoClientAuth::new());
+                        let _ = cfg.set_single_cert(certs, key);
+                        let arc_config = Arc::new(cfg);
+
+                        let acceptor = TlsAcceptor::from(arc_config);
+
+                        let inc = listener.incoming().and_then(move |stream| {
+                            acceptor.accept(stream)
+                        });
+
+                        let server = ::hyper::server::Builder::new(inc, ::hyper::server::conn::Http::new()).serve(move || {
+                            let handler = service.clone();
+                            service_fn(move |req| {
+                                handler.handle(req)
+                            })
+                        }).with_graceful_shutdown(receiver).map_err(|e| error!("server error: {}", e));
+
+                        executor.spawn(server);
+                        info!("Saphir successfully started and listening on {}", uri);
+                    } else {
+                        return Err(::error::ServerError::BadListenerConfig);
+                    }
+                }
+
+            #[cfg(not(feature = "https"))]
+                return Err(::error::ServerError::UnsupportedUriScheme);
+        } else {
+            return Err(::error::ServerError::UnsupportedUriScheme);
+        }
+
+        Ok(server_spawn)
+    }
+
+    /// This method will run until the server terminates.
     pub fn run(&self) -> Result<(), ::error::ServerError> {
         let uri: Uri = self.listener_config.borrow().uri()
             .expect("Fatal Error: No uri provided.\n You can fix this error by calling Server::set_uri or by configuring the listener with Server::configure_listener")
@@ -109,63 +218,63 @@ impl Server {
 
         let listener = ::tokio::net::TcpListener::bind(&addr)?;
 
-        let middleware_stack_clone = self.middleware_stack.clone();
-        let router_clone = self.router.clone();
+        let service = HttpService {
+            router: self.router.clone(),
+            middleware_stack: self.middleware_stack.clone(),
+            request_timeout: self.listener_config.borrow().request_timeout_ms,
+        };
 
         if scheme.eq(&::http_types::uri::Scheme::HTTP) {
             if let (Some(_), _) = self.listener_config.borrow().ssl_files_path() {
                 warn!("SSL certificate paths are provided but the listener was configured to use unsecured HTTP, try changing the uri scheme for https");
             }
-            let server = ::hyper::server::Builder::new(listener.incoming(), ::hyper::server::conn::Http::new())
-                .serve(move || {
-                    let middleware_stack_clone_svc = middleware_stack_clone.clone();
-                    let router_clone_svc = router_clone.clone();
-                    service_fn(move |req| {
-                        http_service(req, &middleware_stack_clone_svc, &router_clone_svc)
-                    })
+
+            let server = ::hyper::server::Builder::new(listener.incoming(), ::hyper::server::conn::Http::new()).serve(move || {
+                let handler = service.clone();
+                service_fn(move |req| {
+                    handler.handle(req)
                 })
-                .map_err(|e| error!("server error: {}", e));
+            }).map_err(|e| error!("server error: {}", e));
 
             info!("Saphir successfully started and listening on {}", uri);
             ::hyper::rt::run(server);
         } else if scheme.eq(&::http_types::uri::Scheme::HTTPS) {
             #[cfg(feature = "https")]
-            {
-                if let (Some(cert_path), Some(key_path)) = self.listener_config.borrow().ssl_files_path() {
-                    use std::sync::Arc;
-                    use futures::Stream;
-                    use server::ssl_loading_utils::*;
-                    use tokio_rustls::ServerConfigExt;
+                {
+                    if let (Some(cert_path), Some(key_path)) = self.listener_config.borrow().ssl_files_path() {
+                        use std::sync::Arc;
+                        use futures::Stream;
+                        use server::ssl_loading_utils::*;
+                        use tokio_rustls::TlsAcceptor;
 
-                    let certs = load_certs(cert_path.as_ref());
-                    let key = load_private_key(key_path.as_ref());
-                    let mut cfg = ::rustls::ServerConfig::new(::rustls::NoClientAuth::new());
-                    cfg.set_single_cert(certs, key);
-                    let arc_config = Arc::new(cfg);
+                        let certs = load_certs(cert_path.as_ref());
+                        let key = load_private_key(key_path.as_ref());
+                        let mut cfg = ::rustls::ServerConfig::new(::rustls::NoClientAuth::new());
+                        let _ = cfg.set_single_cert(certs, key);
+                        let arc_config = Arc::new(cfg);
 
-                    let inc = listener.incoming().and_then(move |stream| {
-                        arc_config.clone().accept_async(stream)
-                    });
+                        let acceptor = TlsAcceptor::from(arc_config);
 
-                    let server = ::hyper::server::Builder::new(inc, ::hyper::server::conn::Http::new())
-                        .serve(move || {
-                            let middleware_stack_clone_svc = middleware_stack_clone.clone();
-                            let router_clone_svc = router_clone.clone();
+                        let inc = listener.incoming().and_then(move |stream| {
+                            acceptor.accept(stream)
+                        });
+
+                        let server = ::hyper::server::Builder::new(inc, ::hyper::server::conn::Http::new()).serve(move || {
+                            let handler = service.clone();
                             service_fn(move |req| {
-                                http_service(req, &middleware_stack_clone_svc, &router_clone_svc)
+                                handler.handle(req)
                             })
-                        })
-                        .map_err(|e| error!("server error: {}", e));
+                        }).map_err(|e| error!("server error: {}", e));
 
-                    info!("Saphir successfully started and listening on {}", uri);
-                    ::hyper::rt::run(server);
-                } else {
-                    return Err(::error::ServerError::BadListenerConfig);
+                        info!("Saphir successfully started and listening on {}", uri);
+                        ::hyper::rt::run(server);
+                    } else {
+                        return Err(::error::ServerError::BadListenerConfig);
+                    }
                 }
-            }
 
             #[cfg(not(feature = "https"))]
-            return Err(::error::ServerError::UnsupportedUriScheme);
+                return Err(::error::ServerError::UnsupportedUriScheme);
         } else {
             return Err(::error::ServerError::UnsupportedUriScheme);
         }
@@ -174,54 +283,81 @@ impl Server {
     }
 }
 
-fn http_service(req: Request<Body>, middleware_stack: &MiddlewareStack, router: &Router)
-                -> Box<Future<Item=Response<Body>, Error=ServerError> + Send> {
-    use std::time::Instant;
-    use server::utils::RequestContinuation::*;
-    use futures::sync::oneshot::channel;
-    use std::thread;
+#[doc(hidden)]
+#[derive(Clone)]
+struct HttpService {
+    router: Router,
+    middleware_stack: MiddlewareStack,
+    request_timeout: u64,
+}
 
-    let (tx, rx) = channel();
-    let middleware_stack_c = middleware_stack.clone();
-    let router_c = router.clone();
+#[doc(hidden)]
+impl HttpService {
+    pub fn handle(&self, req: Request<Body>) -> Box<Future<Item=Response<Body>, Error=ServerError> + Send> {
+        use std::time::{Instant, Duration};
+        use server::utils::RequestContinuation::*;
+        use futures::sync::oneshot::channel;
+        use rayon;
 
-    Box::new(req.load_body().map_err(|e| ServerError::from(e)).and_then(move |mut request| {
-        thread::spawn(move || {
-            let req_iat = Instant::now();
-            let mut response = SyncResponse::new();
+        let (tx, rx) = channel();
 
-            if let Continue = middleware_stack_c.resolve(&mut request, &mut response) {
-                router_c.dispatch(&mut request, &mut response);
-            }
+        let HttpService {
+            router,
+            middleware_stack,
+            request_timeout
+        } = self.clone();
 
-            let final_res = response.build_response().unwrap_or_else(|_| {
-                let empty: &[u8] = b"";
-                Response::new(empty.into())
+        Box::new(req.load_body().map_err(|e| ServerError::from(e)).and_then(move |mut request| {
+            rayon::spawn(move || {
+                let req_iat = Instant::now();
+                let mut response = SyncResponse::new();
+
+                if let Continue = middleware_stack.resolve(&mut request, &mut response) {
+                    router.dispatch(&mut request, &mut response);
+                }
+
+                let final_res = response.build_response().unwrap_or_else(|_| {
+                    let empty: &[u8] = b"";
+                    Response::new(empty.into())
+                });
+
+                let resp_status = final_res.status();
+
+                let _ = tx.send(final_res);
+
+                let elapsed = req_iat.elapsed();
+
+                use ansi_term::Colour::*;
+
+                let status_str = resp_status.to_string();
+
+                let status = match resp_status.as_u16() {
+                    0...199 => Cyan.paint(status_str),
+                    200...299 => Green.paint(status_str),
+                    400...599 => Red.paint(status_str),
+                    _ => Yellow.paint(status_str),
+                };
+
+                info!("{} {} {} - {:.3}ms", request.method(), request.uri().path(), status, (elapsed.as_secs() as f64
+                    + elapsed.subsec_nanos() as f64 * 1e-9) * 1000 as f64);
             });
 
-            let resp_status = final_res.status();
-
-            let _ = tx.send(final_res);
-
-            let elapsed = req_iat.elapsed();
-
-            use ansi_term::Colour::*;
-
-            let status_str = resp_status.to_string();
-
-            let status = match resp_status.as_u16() {
-                0...199 => Cyan.paint(status_str),
-                200...299 => Green.paint(status_str),
-                400...599 => Red.paint(status_str),
-                _ => Yellow.paint(status_str),
+            let timeout = if request_timeout > 0 {
+                Box::new(tokio::timer::Timeout::new(futures::empty::<Response<Body>, ServerError>(), Duration::from_millis(request_timeout)).then(|_| {
+                    let mut resp = Response::new(Body::empty());
+                    *resp.status_mut() = StatusCode::REQUEST_TIMEOUT;
+                    futures::future::ok::<Response<Body>, ServerError>(resp)
+                })) as Box<Future<Item=Response<Body>, Error=ServerError> + Send>
+            } else {
+                Box::new(futures::empty::<Response<Body>, ServerError>()) as Box<Future<Item=Response<Body>, Error=ServerError> + Send>
             };
 
-            info!("{} {} {} - {:.3}ms", request.method(), request.uri().path(), status, (elapsed.as_secs() as f64
-                + elapsed.subsec_nanos() as f64 * 1e-9) * 1000 as f64);
-        });
-
-        rx.map_err(|e| ServerError::from(e))
-    }))
+            rx.map_err(|e| ServerError::from(e))
+                .select(timeout)
+                .map(|(r, _)| r)
+                .map_err(|(e, _)| e)
+        }))
+    }
 }
 
 #[doc(hidden)]

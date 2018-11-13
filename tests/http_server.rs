@@ -53,6 +53,10 @@ fn simple_http_server() {
 
             basic_test_cont.add(Method::POST, reg!("^/$"), |_, _, _| { println!("this was a post request") });
 
+            basic_test_cont.add(Method::GET, reg!("^/panic$"), |_, _, _| { panic!("lol") });
+
+            basic_test_cont.add(Method::GET, reg!("^/timeout"), |_, _, _| { std::thread::sleep(std::time::Duration::from_millis(15000)) });
+
             basic_test_cont.add(Method::GET, reg!("^/query"), |_, req, _| {
                 if let Some(query_params) = req.addons().get("query_params") {
                     if let Some(vec_param) = query_params.borrow_as::<Vec<(String, String)>>() {
@@ -83,6 +87,10 @@ fn simple_http_server() {
         })
         .configure_listener(|listener_config| {
             listener_config.set_uri("http://0.0.0.0:12345");
+            listener_config.set_request_timeout_ms(10000); // 10 sec
+            listener_config.set_panic_handler(|panic| {
+                println!("HA HA! : {:?}", panic);
+            });
         })
         .run() {
         println!("{:?}", e);

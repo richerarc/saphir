@@ -17,7 +17,10 @@ extern crate futures;
 extern crate ansi_term;
 extern crate http as http_types;
 extern crate hyperx;
+extern crate rayon;
 extern crate tokio;
+//extern crate tokio_executor;
+//extern crate tokio_threadpool;
 #[cfg(feature = "https")]
 extern crate rustls;
 #[cfg(feature = "https")]

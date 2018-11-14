@@ -50,5 +50,5 @@ pub use controller::RequestGuard;
 pub use controller::RequestGuardCollection;
 pub use controller::BodyGuard;
 pub use router::Router;
-pub use server::Server;
+pub use server::{Server, ServerSpawn};
 pub use error::ServerError;

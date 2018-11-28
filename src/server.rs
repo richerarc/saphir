@@ -2,16 +2,78 @@ use hyper::service::service_fn;
 use http::*;
 use utils;
 use error::ServerError;
-use middleware::MiddlewareStack;
-use router::Router;
+use middleware::{MiddlewareStack, Builder as MidStackBuilder};
+use router::{Router, Builder as RouterBuilder};
 use futures::Future;
 use futures::sync::oneshot::{Sender, channel};
 use tokio::runtime::TaskExecutor;
-use std::cell::RefCell;
 use std::any::Any;
 
 ///
 const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 15000;
+
+pub struct ListenerBuilder {
+    request_timeout_ms: u64,
+    uri: Option<String>,
+    cert_path: Option<String>,
+    key_path: Option<String>,
+}
+
+impl ListenerBuilder {
+    ///
+    pub fn new() -> Self {
+        ListenerBuilder {
+            request_timeout_ms: DEFAULT_REQUEST_TIMEOUT_MS,
+            uri: None,
+            cert_path: None,
+            key_path: None
+        }
+    }
+
+    /// Sets de default panic handler
+    pub fn set_panic_handler<PanicHandler>(self, panic_handler: PanicHandler) -> Self
+        where PanicHandler: Fn(Box<dyn Any + 'static + Send>) + Send + Sync + 'static {
+        rayon::ThreadPoolBuilder::new().panic_handler(panic_handler).build_global().expect("Setting the panic handler should never fail");
+        self
+    }
+
+    /// Set the default timeout for request in milliseconds. 0 means no timeout.
+    pub fn set_request_timeout_ms(mut self, timeout: u64) -> Self {
+        self.request_timeout_ms = timeout;
+        self
+    }
+
+    /// Set the listener uri (supported format is <scheme>://<interface>:<port>)
+    pub fn set_uri(mut self, uri: &str) -> Self {
+        self.uri = Some(uri.to_string());
+        self
+    }
+
+    /// Set the listener ssl certificates files. The cert needs to be PEM encoded
+    /// while the key can be either RSA or PKCS8
+    pub fn set_ssl_certificates(mut self, cert_path: &str, key_path: &str) -> Self {
+        self.cert_path = Some(cert_path.to_string());
+        self.key_path = Some(key_path.to_string());
+        self
+    }
+
+    /// Builds a new Listener Configuration
+    pub fn build(self) -> ListenerConfig {
+        let ListenerBuilder {
+            request_timeout_ms,
+            uri,
+            cert_path,
+            key_path,
+        } = self;
+
+        ListenerConfig {
+            request_timeout_ms,
+            uri,
+            cert_path,
+            key_path
+        }
+    }
+}
 
 /// A struct representing listener configuration
 pub struct ListenerConfig {
@@ -19,30 +81,6 @@ pub struct ListenerConfig {
     uri: Option<String>,
     cert_path: Option<String>,
     key_path: Option<String>,
-}
-
-impl ListenerConfig {
-    pub fn set_panic_handler<PanicHandler>(&mut self, panic_handler: PanicHandler)
-        where PanicHandler: Fn(Box<dyn Any + 'static + Send>) + Send + Sync + 'static {
-        rayon::ThreadPoolBuilder::new().panic_handler(panic_handler).build_global().expect("Setting the panic handler should never fail")
-    }
-
-    /// Set the default timeout for request in milliseconds. 0 means no timeout.
-    pub fn set_request_timeout_ms(&mut self, timeout: u64) {
-        self.request_timeout_ms = timeout;
-    }
-
-    /// Set the listener uri (supported format is <scheme>://<interface>:<port>)
-    pub fn set_uri(&mut self, uri: &str) {
-        self.uri = Some(uri.to_string())
-    }
-
-    /// Set the listener ssl certificates files. The cert needs to be PEM encoded
-    /// while the key can be either RSA or PKCS8
-    pub fn set_ssl_certificates(&mut self, cert_path: &str, key_path: &str) {
-        self.cert_path = Some(cert_path.to_string());
-        self.key_path = Some(key_path.to_string());
-    }
 }
 
 #[doc(hidden)]
@@ -84,53 +122,73 @@ impl ServerSpawn {
     }
 }
 
-/// The http server
-pub struct Server {
-    middleware_stack: MiddlewareStack,
-    router: Router,
-    listener_config: RefCell<ListenerConfig>,
+pub struct Builder {
+    middleware_stack: Option<MiddlewareStack>,
+    router: Option<Router>,
+    listener_config: Option<ListenerConfig>,
 }
 
-impl Server {
-    /// Create a new http server
+impl Builder {
     pub fn new() -> Self {
-        Server {
-            middleware_stack: MiddlewareStack::new(),
-            router: Router::new(),
-            listener_config: RefCell::new(ListenerConfig::new()),
+        Builder {
+            middleware_stack: None,
+            router: None,
+            listener_config: None,
         }
-    }
-
-    /// Allows to set the listener uri (supported format is <scheme>://<interface>:<port>)
-    pub fn set_uri(&self, uri: &str) -> &Self {
-        self.listener_config.borrow_mut().set_uri(uri);
-        &self
     }
 
     /// This method will call the provided closure with a mutable ref of the router
     /// Once into the closure it is possible to add controllers to the router.
-    pub fn configure_router<F>(&self, config_fn: F) -> &Self where F: Fn(&Router) {
-        config_fn(&self.router);
-        &self
+    pub fn configure_router<F>(mut self, config_fn: F) -> Self where F: Fn(RouterBuilder) -> RouterBuilder {
+        self.router = Some(config_fn(RouterBuilder::new()).build());
+        self
     }
 
     /// This method will call the provided closure with a mutable ref of the middleware_stack
     /// Once into the closure it is possible to add middlewares to the middleware_stack.
-    pub fn configure_middlewares<F>(&self, config_fn: F) -> &Self where F: Fn(&MiddlewareStack) {
-        config_fn(&self.middleware_stack);
-        &self
+    pub fn configure_middlewares<F>(mut self, config_fn: F) -> Self where F: Fn(MidStackBuilder) -> MidStackBuilder {
+        self.middleware_stack = Some(config_fn(MidStackBuilder::new()).build());
+        self
     }
 
     /// This method will call the provided closure with a mutable ref of the listener configurations
     /// Once into the closure it is possible to set the uri and ssl file paths.
-    pub fn configure_listener<F>(&self, config_fn: F) -> &Self where F: Fn(&mut ListenerConfig) {
-        config_fn(&mut *self.listener_config.borrow_mut());
-        &self
+    pub fn configure_listener<F>(mut self, config_fn: F) -> Self where F: Fn(ListenerBuilder) -> ListenerBuilder {
+        self.listener_config = Some(config_fn(ListenerBuilder::new()).build());
+        self
+    }
+
+    pub fn build(self) -> Server {
+        let Builder {
+            middleware_stack,
+            router,
+            listener_config,
+        } = self;
+
+        Server {
+            middleware_stack: middleware_stack.unwrap_or_else(|| MiddlewareStack::new()),
+            router: router.unwrap_or_else(|| Router::new()),
+            listener_config: listener_config.unwrap_or_else(|| ListenerConfig::new())
+        }
+    }
+}
+
+/// The http server
+pub struct Server {
+    middleware_stack: MiddlewareStack,
+    router: Router,
+    listener_config: ListenerConfig,
+}
+
+impl Server {
+    /// Create a new http server
+    pub fn builder() -> Builder {
+        Builder::new()
     }
 
     /// Spawn the server inside the provided executor and return a ServerSpawn context to explicitly terminate it.
     pub fn spawn(&self, executor: TaskExecutor) -> Result<ServerSpawn, ::error::ServerError> {
-        let uri: Uri = self.listener_config.borrow().uri()
+        let uri: Uri = self.listener_config.uri()
             .expect("Fatal Error: No uri provided.\n You can fix this error by calling Server::set_uri or by configuring the listener with Server::configure_listener")
             .parse()?;
 
@@ -142,7 +200,7 @@ impl Server {
         let service = HttpService {
             router: self.router.clone(),
             middleware_stack: self.middleware_stack.clone(),
-            request_timeout: self.listener_config.borrow().request_timeout_ms,
+            request_timeout: self.listener_config.request_timeout_ms,
         };
 
         let (sender, receiver) = channel();
@@ -150,7 +208,7 @@ impl Server {
         let server_spawn = ServerSpawn(Some(sender));
 
         if scheme.eq(&::http_types::uri::Scheme::HTTP) {
-            if let (Some(_), _) = self.listener_config.borrow().ssl_files_path() {
+            if let (Some(_), _) = self.listener_config.ssl_files_path() {
                 warn!("SSL certificate paths are provided but the listener was configured to use unsecured HTTP, try changing the uri scheme for https");
             }
 
@@ -166,7 +224,7 @@ impl Server {
         } else if scheme.eq(&::http_types::uri::Scheme::HTTPS) {
             #[cfg(feature = "https")]
                 {
-                    if let (Some(cert_path), Some(key_path)) = self.listener_config.borrow().ssl_files_path() {
+                    if let (Some(cert_path), Some(key_path)) = self.listener_config.ssl_files_path() {
                         use std::sync::Arc;
                         use futures::Stream;
                         use server::ssl_loading_utils::*;
@@ -209,7 +267,7 @@ impl Server {
 
     /// This method will run until the server terminates.
     pub fn run(&self) -> Result<(), ::error::ServerError> {
-        let uri: Uri = self.listener_config.borrow().uri()
+        let uri: Uri = self.listener_config.uri()
             .expect("Fatal Error: No uri provided.\n You can fix this error by calling Server::set_uri or by configuring the listener with Server::configure_listener")
             .parse()?;
 
@@ -221,11 +279,11 @@ impl Server {
         let service = HttpService {
             router: self.router.clone(),
             middleware_stack: self.middleware_stack.clone(),
-            request_timeout: self.listener_config.borrow().request_timeout_ms,
+            request_timeout: self.listener_config.request_timeout_ms,
         };
 
         if scheme.eq(&::http_types::uri::Scheme::HTTP) {
-            if let (Some(_), _) = self.listener_config.borrow().ssl_files_path() {
+            if let (Some(_), _) = self.listener_config.ssl_files_path() {
                 warn!("SSL certificate paths are provided but the listener was configured to use unsecured HTTP, try changing the uri scheme for https");
             }
 
@@ -241,7 +299,7 @@ impl Server {
         } else if scheme.eq(&::http_types::uri::Scheme::HTTPS) {
             #[cfg(feature = "https")]
                 {
-                    if let (Some(cert_path), Some(key_path)) = self.listener_config.borrow().ssl_files_path() {
+                    if let (Some(cert_path), Some(key_path)) = self.listener_config.ssl_files_path() {
                         use std::sync::Arc;
                         use futures::Stream;
                         use server::ssl_loading_utils::*;

@@ -1,4 +1,3 @@
-#[macro_use]
 extern crate saphir;
 
 use saphir::*;
@@ -40,11 +39,11 @@ impl TestControllerContext {
 
 #[test]
 fn simple_http_server() {
-    let server = Server::new();
+    let server_builder = Server::builder();
 
-    if let Err(e) = server
+    let server = server_builder
         .configure_middlewares(|stack| {
-            stack.apply(TestMiddleware {}, vec!("/"), None);
+            stack.apply(TestMiddleware {}, vec!("/"), None)
         })
         .configure_router(|router| {
             let basic_test_cont = BasicController::new("^/test", TestControllerContext::new("this is a private resource"));
@@ -67,32 +66,33 @@ fn simple_http_server() {
                 }
             });
 
-            basic_test_cont.add_with_guards(Method::PUT, "^/patate", BodyGuard.into(), |_,_,_| {println!("this is only reachable if the request has a body")});
+            basic_test_cont.add_with_guards(Method::PUT, "^/patate", BodyGuard.into(), |_, _, _| { println!("this is only reachable if the request has a body") });
+
+            let basic_test_cont2 = BasicController::new("^/test2$", TestControllerContext::new("this is a second private resource"));
+            basic_test_cont2.add(Method::GET, reg!("^/$"), |_, _, _| { println!("this was a get request handled by the second controller") });
 
             // This will add the controller and so the following method+route will be valid
             // GET  /test/
             // POST /test/
             // GET  /test/query
             // PUT  /test/patate
-            router.add(basic_test_cont);
-
-            let basic_test_cont2 = BasicController::new("^/test2$", TestControllerContext::new("this is a second private resource"));
-
-            basic_test_cont2.add(Method::GET, reg!("^/$"), |_, _, _| { println!("this was a get request handled by the second controller") });
 
             // This will add the controller at the specified route and so the following method+route will be valid
             // GET  /api/test2/
-            router.route("^/api", basic_test_cont2);
 
+            router.add(basic_test_cont)
+                .route("^/api", basic_test_cont2)
         })
         .configure_listener(|listener_config| {
-            listener_config.set_uri("http://0.0.0.0:12345");
-            listener_config.set_request_timeout_ms(10000); // 10 sec
-            listener_config.set_panic_handler(|panic| {
-                println!("HA HA! : {:?}", panic);
-            });
+            listener_config.set_uri("http://0.0.0.0:12345")
+                .set_request_timeout_ms(10000) // 10 sec
+                .set_panic_handler(|panic| {
+                    println!("HA HA! : {:?}", panic);
+                })
         })
-        .run() {
+        .build();
+
+    if let Err(e) = server.run() {
         println!("{:?}", e);
         assert!(false);
     }

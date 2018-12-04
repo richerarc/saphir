@@ -3,19 +3,53 @@ use utils::ToRegex;
 use utils::RequestContinuation;
 use utils::RequestContinuation::*;
 use regex::Regex;
-use parking_lot::RwLock;
 use std::sync::Arc;
+
+pub struct Builder {
+    stack: Vec<(MiddlewareRule, Box<Middleware>)>,
+}
+
+impl Builder {
+    /// Creates a new MiddlewareStack Builder
+    pub fn new() -> Self {
+        Builder {
+            stack: Vec::new()
+        }
+    }
+
+    /// Method to apply a new middleware onto the stack where the `include_path` vec are all path affected by the middleware,
+    /// and `exclude_path` are exclusion amongst the included paths.
+    pub fn apply<M: 'static + Middleware>(mut self, m: M, include_path: Vec<&str>, exclude_path: Option<Vec<&str>>) -> Self {
+        let rule = MiddlewareRule::new(include_path, exclude_path);
+        let boxed_m = Box::new(m);
+
+        self.stack.push((rule, boxed_m));
+
+        self
+    }
+
+    /// Build the middleware stack
+    pub fn build(self) -> MiddlewareStack {
+        let Builder {
+            stack,
+        } = self;
+
+        MiddlewareStack {
+            middlewares: Arc::new(stack),
+        }
+    }
+}
 
 /// Struct representing the layering of middlewares in the server
 pub struct MiddlewareStack {
-    middlewares: Arc<RwLock<Vec<(MiddlewareRule, Box<Middleware>)>>>
+    middlewares: Arc<Vec<(MiddlewareRule, Box<Middleware>)>>
 }
 
 impl MiddlewareStack {
     ///
     pub fn new() -> Self {
         MiddlewareStack {
-            middlewares: Arc::new(RwLock::new(Vec::new())),
+            middlewares: Arc::new(Vec::new())
         }
     }
 
@@ -23,7 +57,7 @@ impl MiddlewareStack {
     pub fn resolve(&self, req: &mut SyncRequest, res: &mut SyncResponse) -> RequestContinuation {
         let path = req.uri().path().to_owned();
 
-        for &(ref rule, ref middleware) in self.middlewares.read().iter() {
+        for &(ref rule, ref middleware) in self.middlewares.iter() {
             if rule.validate_path(&path) {
                 if let Stop = middleware.resolve(req, res) {
                     return Stop;
@@ -32,15 +66,6 @@ impl MiddlewareStack {
         }
 
         Continue
-    }
-
-    /// Method to apply a new middleware onto the stack where the `include_path` vec are all path affected by the middleware,
-    /// and `exclude_path` are exclusion amongst the included paths.
-    pub fn apply<M: 'static + Middleware>(&self, m: M, include_path: Vec<&str>, exclude_path: Option<Vec<&str>>) {
-        let rule = MiddlewareRule::new(include_path, exclude_path);
-        let boxed_m = Box::new(m);
-
-        self.middlewares.write().push((rule, boxed_m))
     }
 }
 
@@ -55,8 +80,8 @@ impl Clone for MiddlewareStack {
 /// The trait a struct need to `impl` to be considered as a middleware
 pub trait Middleware: Send + Sync {
     /// This method will be invoked if the request is targeting an included path, (as defined when "applying" the middleware to the stack)
-    /// and doesn't match any exclusion. Returning `RequestContinuation::Next` will allow the request to continue through the stack, and
-    /// returning `RequestContinuation::None` will cease the request processing, returning as response the modified `res` param.
+    /// and doesn't match any exclusion. Returning `RequestContinuation::Continue` will allow the request to continue through the stack, and
+    /// returning `RequestContinuation::Stop` will cease the request processing, returning as response the modified `res` param.
     fn resolve(&self, req: &mut SyncRequest, res: &mut SyncResponse) -> RequestContinuation;
 }
 

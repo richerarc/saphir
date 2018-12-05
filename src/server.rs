@@ -125,6 +125,7 @@ impl ServerSpawn {
         }
     }
 
+    /// Retrive the inner http request handler of the server
     #[cfg(feature = "request_handler")]
     pub fn get_request_handler(&self) -> &HttpService {
         &self.handler
@@ -216,7 +217,7 @@ impl Server {
 
         let server_spawn = ServerSpawn {
             tx: Some(sender),
-            #[cfg(feature = "https")]
+            #[cfg(feature = "request_handler")]
             handler: service.clone(),
         };
 

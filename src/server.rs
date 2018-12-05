@@ -111,14 +111,23 @@ mod listener_config_ext {
 }
 
 /// Handle to signal the server on termination
-pub struct ServerSpawn(Option<Sender<()>>);
+pub struct ServerSpawn {
+    tx: Option<Sender<()>>,
+    #[cfg(feature = "request_handler")]
+    handler: HttpService,
+}
 
 impl ServerSpawn {
     /// Signal the server to terminate itself gracefully
     pub fn terminate(mut self) {
-        if let Some(s) = self.0.take(){
+        if let Some(s) = self.tx.take(){
             let _ = s.send(());
         }
+    }
+
+    #[cfg(feature = "request_handler")]
+    pub fn get_request_handler(&self) -> &HttpService {
+        &self.handler
     }
 }
 
@@ -205,7 +214,11 @@ impl Server {
 
         let (sender, receiver) = channel();
 
-        let server_spawn = ServerSpawn(Some(sender));
+        let server_spawn = ServerSpawn {
+            tx: Some(sender),
+            #[cfg(feature = "https")]
+            handler: service.clone(),
+        };
 
         if scheme.eq(&::http_types::uri::Scheme::HTTP) {
             if let (Some(_), _) = self.listener_config.ssl_files_path() {

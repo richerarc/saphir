@@ -1,6 +1,6 @@
 [package]
 name = "saphir"
-version = "0.7.0"
+version = "0.7.1"
 authors = ["richer <richer.arc@gmail.com>"]
 description = "Yet another http server framework based on Hyper-rs"
 documentation = "https://docs.rs/saphir"
@@ -13,6 +13,7 @@ license = "MIT"
 [features]
 
 default = []
+request_handler = []
 https = ["rustls", "tokio-rustls"]
 
 [dependencies]

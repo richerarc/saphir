@@ -356,7 +356,7 @@ impl Server {
 
 #[doc(hidden)]
 #[derive(Clone)]
-struct HttpService {
+pub struct HttpService {
     router: Router,
     middleware_stack: MiddlewareStack,
     request_timeout: u64,

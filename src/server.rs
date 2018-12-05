@@ -175,18 +175,22 @@ impl Builder {
             listener_config,
         } = self;
 
+        let listener_config = listener_config.unwrap_or_else(|| ListenerConfig::new());
+
         Server {
-            middleware_stack: middleware_stack.unwrap_or_else(|| MiddlewareStack::new()),
-            router: router.unwrap_or_else(|| Router::new()),
-            listener_config: listener_config.unwrap_or_else(|| ListenerConfig::new())
+            service: HttpService {
+                router: router.unwrap_or_else(|| Router::new()),
+                middleware_stack: middleware_stack.unwrap_or_else(|| MiddlewareStack::new()),
+                request_timeout: listener_config.request_timeout_ms
+            },
+            listener_config
         }
     }
 }
 
 /// The http server
 pub struct Server {
-    middleware_stack: MiddlewareStack,
-    router: Router,
+    service: HttpService,
     listener_config: ListenerConfig,
 }
 
@@ -194,6 +198,12 @@ impl Server {
     /// Create a new http server
     pub fn builder() -> Builder {
         Builder::new()
+    }
+
+    /// Retrive the inner http request handler of the server
+    #[cfg(feature = "request_handler")]
+    pub fn get_request_handler(&self) -> &HttpService {
+        &self.service
     }
 
     /// Spawn the server inside the provided executor and return a ServerSpawn context to explicitly terminate it.
@@ -207,11 +217,7 @@ impl Server {
 
         let listener = ::tokio::net::TcpListener::bind(&addr)?;
 
-        let service = HttpService {
-            router: self.router.clone(),
-            middleware_stack: self.middleware_stack.clone(),
-            request_timeout: self.listener_config.request_timeout_ms,
-        };
+        let service = self.service.clone();
 
         let (sender, receiver) = channel();
 
@@ -290,11 +296,7 @@ impl Server {
 
         let listener = ::tokio::net::TcpListener::bind(&addr)?;
 
-        let service = HttpService {
-            router: self.router.clone(),
-            middleware_stack: self.middleware_stack.clone(),
-            request_timeout: self.listener_config.request_timeout_ms,
-        };
+        let service = self.service.clone();
 
         if scheme.eq(&::http_types::uri::Scheme::HTTP) {
             if let (Some(_), _) = self.listener_config.ssl_files_path() {

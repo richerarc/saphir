@@ -4,7 +4,7 @@ use utils::RequestContinuation;
 use utils::RequestContinuation::*;
 use regex::Regex;
 use std::sync::Arc;
-
+///
 pub struct Builder {
     stack: Vec<(MiddlewareRule, Box<Middleware>)>,
 }

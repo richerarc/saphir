@@ -30,11 +30,16 @@ pub extern crate hyper;
 #[macro_use]
 mod utils;
 mod http;
-mod error;
-mod middleware;
-mod controller;
-mod router;
-mod server;
+/// Modules for the error handling into saphir
+pub mod error;
+/// Modules for the middlewares
+pub mod middleware;
+/// Modules for the controllers
+pub mod controller;
+/// Modules for the router
+pub mod router;
+/// Modules for the http server
+pub mod server;
 
 pub use utils::*;
 pub use http::*;

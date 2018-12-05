@@ -5,10 +5,12 @@ use regex::Regex;
 use controller::Controller;
 use std::sync::Arc;
 
+///
 pub struct Builder {
     routes: Vec<(Regex, Box<Controller>)>
 }
 
+///
 impl Builder {
     /// Create a new router builder
     pub fn new() -> Self {

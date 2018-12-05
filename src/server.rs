@@ -12,6 +12,7 @@ use std::any::Any;
 ///
 const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 15000;
 
+///
 pub struct ListenerBuilder {
     request_timeout_ms: u64,
     uri: Option<String>,
@@ -132,6 +133,7 @@ impl ServerSpawn {
     }
 }
 
+/// Builder for the Server type
 pub struct Builder {
     middleware_stack: Option<MiddlewareStack>,
     router: Option<Router>,
@@ -139,6 +141,7 @@ pub struct Builder {
 }
 
 impl Builder {
+    /// Creates a new builder
     pub fn new() -> Self {
         Builder {
             middleware_stack: None,
@@ -168,6 +171,7 @@ impl Builder {
         self
     }
 
+    /// Converts the builder into the Server type
     pub fn build(self) -> Server {
         let Builder {
             middleware_stack,
@@ -392,7 +396,9 @@ impl HttpService {
 
                 let final_res = response.build_response().unwrap_or_else(|_| {
                     let empty: &[u8] = b"";
-                    Response::new(empty.into())
+                    let mut res = Response::new(empty.into());
+                    *res.status_mut() = StatusCode::from_u16(500).expect("Unable to set status code to 500, this should not happens");
+                    res
                 });
 
                 let resp_status = final_res.status();

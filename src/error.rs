@@ -10,7 +10,7 @@ pub enum ServerError {
     /// A parsing error of addr
     ParseError(::std::net::AddrParseError),
     /// An invalid URI
-    InvalidUri(::http_types::uri::InvalidUri),
+    InvalidUri(crate::http_types::uri::InvalidUri),
     /// Unsupported URI Scheme
     UnsupportedUriScheme,
     /// IO error
@@ -37,8 +37,8 @@ impl From<::futures::Canceled> for ServerError {
     }
 }
 
-impl From<::http_types::uri::InvalidUri> for ServerError {
-    fn from(e: ::http_types::uri::InvalidUri) -> Self {
+impl From<crate::http_types::uri::InvalidUri> for ServerError {
+    fn from(e: crate::http_types::uri::InvalidUri) -> Self {
         ServerError::InvalidUri(e)
     }
 }
@@ -51,7 +51,7 @@ impl From<::std::io::Error> for ServerError {
 
 impl ::std::error::Error for ServerError {
     fn description(&self) -> &str {
-        use ServerError::*;
+        use crate::ServerError::*;
         match self {
             HyperError(ref e) => e.description(),
             FutureCancelledError(ref e) => e.description(),
@@ -66,7 +66,7 @@ impl ::std::error::Error for ServerError {
 
 impl ::std::fmt::Display for ServerError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result<> {
-        use ServerError::*;
+        use crate::ServerError::*;
         match self {
             HyperError(ref e) => e.fmt(f),
             FutureCancelledError(ref e) => e.fmt(f),

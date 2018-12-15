@@ -1,13 +1,16 @@
-use hyper::service::service_fn;
-use http::*;
-use utils;
-use error::ServerError;
-use middleware::{MiddlewareStack, Builder as MidStackBuilder};
-use router::{Router, Builder as RouterBuilder};
+use std::any::Any;
+
 use futures::Future;
 use futures::sync::oneshot::{Sender, channel};
+use hyper::service::service_fn;
+use log::{info, error, warn};
 use tokio::runtime::TaskExecutor;
-use std::any::Any;
+
+use crate::http::*;
+use crate::utils;
+use crate::error::ServerError;
+use crate::middleware::{MiddlewareStack, Builder as MidStackBuilder};
+use crate::router::{Router, Builder as RouterBuilder};
 
 ///
 const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 15000;
@@ -211,7 +214,7 @@ impl Server {
     }
 
     /// Spawn the server inside the provided executor and return a ServerSpawn context to explicitly terminate it.
-    pub fn spawn(&self, executor: TaskExecutor) -> Result<ServerSpawn, ::error::ServerError> {
+    pub fn spawn(&self, executor: TaskExecutor) -> Result<ServerSpawn, crate::error::ServerError> {
         let uri: Uri = self.listener_config.uri()
             .expect("Fatal Error: No uri provided.\n You can fix this error by calling Server::set_uri or by configuring the listener with Server::configure_listener")
             .parse()?;
@@ -231,7 +234,7 @@ impl Server {
             handler: service.clone(),
         };
 
-        if scheme.eq(&::http_types::uri::Scheme::HTTP) {
+        if scheme.eq(&crate::http_types::uri::Scheme::HTTP) {
             if let (Some(_), _) = self.listener_config.ssl_files_path() {
                 warn!("SSL certificate paths are provided but the listener was configured to use unsecured HTTP, try changing the uri scheme for https");
             }
@@ -245,7 +248,7 @@ impl Server {
 
             executor.spawn(server);
             info!("Saphir successfully started and listening on {}", uri);
-        } else if scheme.eq(&::http_types::uri::Scheme::HTTPS) {
+        } else if scheme.eq(&crate::http_types::uri::Scheme::HTTPS) {
             #[cfg(feature = "https")]
                 {
                     if let (Some(cert_path), Some(key_path)) = self.listener_config.ssl_files_path() {
@@ -281,16 +284,16 @@ impl Server {
                 }
 
             #[cfg(not(feature = "https"))]
-                return Err(::error::ServerError::UnsupportedUriScheme);
+                return Err(crate::error::ServerError::UnsupportedUriScheme);
         } else {
-            return Err(::error::ServerError::UnsupportedUriScheme);
+            return Err(crate::error::ServerError::UnsupportedUriScheme);
         }
 
         Ok(server_spawn)
     }
 
     /// This method will run until the server terminates.
-    pub fn run(&self) -> Result<(), ::error::ServerError> {
+    pub fn run(&self) -> Result<(), crate::error::ServerError> {
         let uri: Uri = self.listener_config.uri()
             .expect("Fatal Error: No uri provided.\n You can fix this error by calling Server::set_uri or by configuring the listener with Server::configure_listener")
             .parse()?;
@@ -302,7 +305,7 @@ impl Server {
 
         let service = self.service.clone();
 
-        if scheme.eq(&::http_types::uri::Scheme::HTTP) {
+        if scheme.eq(&crate::http_types::uri::Scheme::HTTP) {
             if let (Some(_), _) = self.listener_config.ssl_files_path() {
                 warn!("SSL certificate paths are provided but the listener was configured to use unsecured HTTP, try changing the uri scheme for https");
             }
@@ -316,7 +319,7 @@ impl Server {
 
             info!("Saphir successfully started and listening on {}", uri);
             ::hyper::rt::run(server);
-        } else if scheme.eq(&::http_types::uri::Scheme::HTTPS) {
+        } else if scheme.eq(&crate::http_types::uri::Scheme::HTTPS) {
             #[cfg(feature = "https")]
                 {
                     if let (Some(cert_path), Some(key_path)) = self.listener_config.ssl_files_path() {
@@ -352,9 +355,9 @@ impl Server {
                 }
 
             #[cfg(not(feature = "https"))]
-                return Err(::error::ServerError::UnsupportedUriScheme);
+                return Err(crate::error::ServerError::UnsupportedUriScheme);
         } else {
-            return Err(::error::ServerError::UnsupportedUriScheme);
+            return Err(crate::error::ServerError::UnsupportedUriScheme);
         }
 
         Ok(())
@@ -373,7 +376,7 @@ pub struct HttpService {
 impl HttpService {
     pub fn handle(&self, req: Request<Body>) -> Box<Future<Item=Response<Body>, Error=ServerError> + Send> {
         use std::time::{Instant, Duration};
-        use server::utils::RequestContinuation::*;
+        use crate::server::utils::RequestContinuation::*;
         use futures::sync::oneshot::channel;
         use rayon;
 

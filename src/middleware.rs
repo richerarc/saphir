@@ -1,9 +1,11 @@
-use http::*;
-use utils::ToRegex;
-use utils::RequestContinuation;
-use utils::RequestContinuation::*;
 use regex::Regex;
 use std::sync::Arc;
+
+use crate::http::*;
+use crate::utils::ToRegex;
+use crate::utils::RequestContinuation;
+use crate::utils::RequestContinuation::*;
+
 ///
 pub struct Builder {
     stack: Vec<(MiddlewareRule, Box<Middleware>)>,

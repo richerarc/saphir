@@ -1,7 +1,3 @@
-use http_types::response::Builder as ResponseBuilder;
-use http_types::request::Parts as ReqParts;
-use utils::RequestAddonCollection;
-pub use http_types::Extensions;
 pub use hyper::Method;
 pub use hyper::Uri;
 pub use hyper::Version;
@@ -11,16 +7,21 @@ pub use hyper::StatusCode;
 pub use hyper::Request;
 pub use hyper::Response;
 
+use crate::http_types::response::Builder as ResponseBuilder;
+use crate::http_types::request::Parts as ReqParts;
+use crate::utils::RequestAddonCollection;
+pub use crate::http_types::Extensions;
+
 /// Headers types re-export
 pub mod header {
-    pub use http_types::header::*;
+    pub use crate::http_types::header::*;
     pub use hyperx::mime;
     pub use hyperx::header::*;
 }
 
 use futures::Future;
 use futures::Stream;
-use http_types::HttpTryFrom;
+use crate::http_types::HttpTryFrom;
 use std::any::Any;
 
 static EMPTY_BODY: &[u8] = b"";
@@ -473,7 +474,7 @@ impl SyncResponse {
     }
 
     ///
-    pub fn build_response(self) -> Result<Response<Body>, ::http_types::Error> {
+    pub fn build_response(self) -> Result<Response<Body>, crate::http_types::Error> {
         let SyncResponse { mut builder, body } = self;
         let b: Body = body.to_body();
         builder.body(b)

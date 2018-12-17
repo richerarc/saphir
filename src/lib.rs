@@ -12,22 +12,6 @@
 //! Futures version will comes with more macro and a nightly experiment is currently being tested to reproduces decorator in rust.
 
 #[macro_use]
-extern crate log;
-extern crate futures;
-extern crate ansi_term;
-extern crate http as http_types;
-extern crate hyperx;
-extern crate rayon;
-extern crate tokio;
-#[cfg(feature = "https")]
-extern crate rustls;
-#[cfg(feature = "https")]
-extern crate tokio_rustls;
-extern crate parking_lot;
-pub extern crate regex;
-pub extern crate hyper;
-
-#[macro_use]
 mod utils;
 mod http;
 /// Modules for the error handling into saphir
@@ -41,17 +25,21 @@ pub mod router;
 /// Modules for the http server
 pub mod server;
 
-pub use utils::*;
-pub use http::*;
-pub use utils::RequestContinuation;
-pub use middleware::Middleware;
-pub use middleware::MiddlewareStack;
-pub use controller::Controller;
-pub use controller::BasicController;
-pub use controller::ControllerDispatch;
-pub use controller::RequestGuard;
-pub use controller::RequestGuardCollection;
-pub use controller::BodyGuard;
-pub use router::Router;
-pub use server::{Server, ServerSpawn};
-pub use error::ServerError;
+use ::http as http_types;
+pub use regex;
+pub use hyper;
+
+pub use crate::utils::*;
+pub use crate::http::*;
+pub use crate::utils::RequestContinuation;
+pub use crate::middleware::Middleware;
+pub use crate::middleware::MiddlewareStack;
+pub use crate::controller::Controller;
+pub use crate::controller::BasicController;
+pub use crate::controller::ControllerDispatch;
+pub use crate::controller::RequestGuard;
+pub use crate::controller::RequestGuardCollection;
+pub use crate::controller::BodyGuard;
+pub use crate::router::Router;
+pub use crate::server::{Server, ServerSpawn};
+pub use crate::error::ServerError;

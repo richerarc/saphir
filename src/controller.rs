@@ -1,8 +1,9 @@
-use http::*;
-use utils::ToRegex;
-use utils::RequestContinuation;
 use regex::Regex;
 use parking_lot::RwLock;
+
+use crate::http::*;
+use crate::utils::ToRegex;
+use crate::utils::RequestContinuation;
 
 /// Trait representing a controller
 pub trait Controller: Send + Sync {
@@ -146,7 +147,7 @@ impl<T: Send + Sync> ControllerDispatch<T> {
             if req.current_path_match_and_capture(reg) {
                 if let Some(ref guards) = op_guards {
                     for guard in guards {
-                        use RequestContinuation::*;
+                        use crate::RequestContinuation::*;
                         if let Stop = guard.validate(req, res) {
                             return;
                         }

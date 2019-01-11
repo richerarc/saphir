@@ -31,7 +31,3 @@ rayon = "1.0.3"
 
 rustls = { version = "~0.14.0", optional = true }
 tokio-rustls = { version = "~0.8.0", optional = true }
-
-[[test]]
-name = "server"
-path = "tests/http_server.rs"

@@ -32,6 +32,11 @@ impl RequestGuardCollection {
     pub fn add<G: 'static + RequestGuard>(&mut self, guard: G) {
         self.guards.push(Box::new(guard));
     }
+
+    ///
+    pub fn add_boxed(&mut self, guard: Box<RequestGuard>) {
+        self.guards.push(guard);
+    }
 }
 
 impl<G: 'static + RequestGuard> From<G> for RequestGuardCollection {
@@ -62,21 +67,11 @@ impl<G: 'static + RequestGuard> From<Vec<G>> for RequestGuardCollection {
     }
 }
 
-impl<'a> From<&'a [Box<RequestGuard + Clone>]> for RequestGuardCollection {
-    fn from(guards: &'a [Box<RequestGuard>]) -> Self {
-        let mut reqg = RequestGuardCollection::new();
-        for guard in guards.to_vec() {
-            reqg.add(guard);
-        }
-        reqg
-    }
-}
-
 impl From<Vec<Box<RequestGuard>>> for RequestGuardCollection {
     fn from(guards: Vec<Box<RequestGuard>>) -> Self {
         let mut reqg = RequestGuardCollection::new();
         for guard in guards {
-            reqg.add(guard);
+            reqg.add_boxed(guard);
         }
         reqg
     }

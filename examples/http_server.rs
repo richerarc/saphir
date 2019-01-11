@@ -37,8 +37,7 @@ impl TestControllerContext {
     }
 }
 
-#[test]
-fn simple_http_server() {
+fn main() {
     let server_builder = Server::builder();
 
     let server = server_builder

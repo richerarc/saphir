@@ -62,6 +62,26 @@ impl<G: 'static + RequestGuard> From<Vec<G>> for RequestGuardCollection {
     }
 }
 
+impl<'a> From<&'a [Box<RequestGuard + Clone>]> for RequestGuardCollection {
+    fn from(guards: &'a [Box<RequestGuard>]) -> Self {
+        let mut reqg = RequestGuardCollection::new();
+        for guard in guards.to_vec() {
+            reqg.add(guard);
+        }
+        reqg
+    }
+}
+
+impl From<Vec<Box<RequestGuard>>> for RequestGuardCollection {
+    fn from(guards: Vec<Box<RequestGuard>>) -> Self {
+        let mut reqg = RequestGuardCollection::new();
+        for guard in guards {
+            reqg.add(guard);
+        }
+        reqg
+    }
+}
+
 use ::std::slice::Iter;
 
 impl<'a> IntoIterator for &'a RequestGuardCollection {

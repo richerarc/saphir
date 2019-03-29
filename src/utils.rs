@@ -1,133 +1,145 @@
 #![allow(dead_code)]
-use std::any::Any;
 
-/// A convenience class to contains RequestParams
+use regex::Regex;
+use std::slice::Iter;
+
 #[derive(Debug)]
-pub struct RequestAddonCollection {
-    inner: Vec<RequestAddon>
+pub(crate) struct UriPathMatcher {
+    inner: Vec<UriPathSegmentMatcher>
 }
 
-impl RequestAddonCollection {
-    ///
-    pub fn new() -> Self {
-        RequestAddonCollection {
-            inner: Vec::new(),
+impl UriPathMatcher {
+    pub fn new(path_str: &str) -> Result<UriPathMatcher, String> {
+        let path_segment_result = path_str.split('/').filter_map(|ps: &str| {
+            if ps.len() > 0 {
+                Some(UriPathSegmentMatcher::new(ps))
+            } else {
+                None
+            }
+        });
+
+        let (ok, mut err): (Vec<Result<UriPathSegmentMatcher, String>>, Vec<Result<UriPathSegmentMatcher, String>>) = path_segment_result.partition(|res| {
+            res.is_ok()
+        });
+
+        if err.len() > 0 {
+            return Err(err.remove(0).err().expect("This is never gonna happens"));
         }
+
+        let inner = ok.into_iter().map(|res| res.unwrap()).collect();
+
+        Ok(UriPathMatcher {
+            inner
+        })
     }
 
-    /// Retrieve a Ref of a param by its name
-    pub fn get(&self, name: &str) -> Option<&RequestAddon> {
-        self.inner.iter().find(|p| p.name.eq(name))
-    }
+    pub fn append(&mut self, append: &str) -> Result<(), String> {
+        let path_segment_result = append.split('/').filter_map(|ps: &str| {
+            if ps.len() > 0 {
+                Some(UriPathSegmentMatcher::new(ps))
+            } else {
+                None
+            }
+        });
 
-    /// Retrieve a RefMut of a param by its name
-    pub fn get_mut(&mut self, name: &str) -> Option<&mut RequestAddon> {
-        self.inner.as_mut_slice().iter_mut().find(|p| p.name.eq(name))
-    }
+        let (ok, mut err): (Vec<Result<UriPathSegmentMatcher, String>>, Vec<Result<UriPathSegmentMatcher, String>>) = path_segment_result.partition(|res| {
+            res.is_ok()
+        });
 
-    /// Add a `RequestAddon` to the collection
-    pub fn add(&mut self, p: RequestAddon) {
-        self.inner.push(p);
-    }
-
-    /// Remove a `RequestAddon` from the collection
-    pub fn remove(&mut self, name: &str) {
-        if let Some((index, _)) = self.inner.iter().enumerate().find(|t| t.1.name.eq(name)) {
-            self.inner.remove(index);
+        if err.len() > 0 {
+            return Err(err.remove(0).err().expect("This is never gonna happens"));
         }
+
+        self.inner.extend(ok.into_iter().map(|res| res.unwrap()));
+
+        Ok(())
+    }
+
+    pub fn match_start(&self, path: &str) -> bool {
+        let mut path_split = path.split('/');
+
+        for segment in &self.inner {
+            if let Some(ref s) = path_split.next() {
+                if !segment.matches(s) {
+                    return false;
+                }
+            }
+        }
+
+        true
+    }
+
+    pub fn iter(&self) -> Iter<UriPathSegmentMatcher> {
+        self.inner.iter()
+    }
+
+    pub fn len(&self) -> usize {
+        self.inner.len()
     }
 }
 
-use std::ops::{Index, IndexMut};
-
-impl Index<usize> for RequestAddonCollection {
-    type Output = RequestAddon;
-
-    fn index(&self, index: usize) -> &RequestAddon {
-        &self.inner[index]
-    }
-}
-
-impl IndexMut<usize> for RequestAddonCollection {
-    fn index_mut(&mut self, index: usize) -> &mut RequestAddon {
-        &mut self.inner[index]
-    }
-}
-
-impl<'a> IntoIterator for &'a mut RequestAddonCollection {
-    type Item = &'a mut RequestAddon;
-    type IntoIter = ::std::slice::IterMut<'a, RequestAddon>;
-
-    fn into_iter(self) -> <Self as IntoIterator>::IntoIter {
-        let inner = &mut self.inner;
-        inner.into_iter()
-    }
-}
-
-impl IntoIterator for RequestAddonCollection {
-    type Item = RequestAddon;
-    type IntoIter = ::std::vec::IntoIter<RequestAddon>;
-
-    fn into_iter(self) -> <Self as IntoIterator>::IntoIter {
-        self.inner.into_iter()
-    }
-}
-
-impl<'a> IntoIterator for &'a RequestAddonCollection {
-    type Item = &'a RequestAddon;
-    type IntoIter = ::std::slice::Iter<'a, RequestAddon>;
-
-    fn into_iter(self) -> <Self as IntoIterator>::IntoIter {
-        let inner = &self.inner;
-        inner.into_iter()
-    }
-}
-
-///
 #[derive(Debug)]
-pub struct RequestAddon {
-    ///
-    name: String,
-    ///
-    data: Box<Any + Send>
+pub(crate) enum UriPathSegmentMatcher {
+    Static { segment: String },
+    Variable { name: Option<String> },
+    Custom { name: Option<String>, segment: Regex },
 }
 
-impl RequestAddon {
-    /// Create a new RequestParam
-    pub fn new<T>(name: String, data: T) -> Self where T: 'static + Any + Send {
-        RequestAddon {
-            name,
-            data: Box::new(data),
+impl UriPathSegmentMatcher {
+    ///
+    pub fn new(segment: &str) -> Result<UriPathSegmentMatcher, String> {
+        if segment.contains('/') {
+            return Err("A path segment should not contain any /".to_string());
+        }
+
+        if segment.starts_with('<') {
+            if segment.ends_with('>') {
+                let s: Vec<&str> = segment.trim_start_matches('<').trim_end_matches('>').splitn(2, "r#").collect();
+                if s.len() < 1 {
+                    return Err("No name was provided for a variable segment".to_string());
+                }
+
+                let name = if s[0].len() <= 1 {
+                    None
+                } else {
+                    Some(s[0].to_string())
+                };
+
+                let name_c = name.clone();
+
+                s.get(1).map(|r| {
+                    let r = r.trim_start_matches('(').trim_end_matches(')');
+                    Regex::new(r).map_err(|e| e.to_string()).map(|r| UriPathSegmentMatcher::Custom { name, segment: r })
+                }).unwrap_or_else(|| Ok(UriPathSegmentMatcher::Variable { name: name_c }))
+            } else {
+                Err("A variable path segment should start with < & end with >".to_string())
+            }
+        } else {
+            Ok(UriPathSegmentMatcher::Static { segment: segment.to_string() })
         }
     }
 
-    /// Check if data is of type T
-    pub fn is<T: 'static + Any + Send>(&self) -> bool {
-        self.data.is::<T>()
+    ///
+    pub fn matches(&self, other: &str) -> bool {
+        match self {
+            UriPathSegmentMatcher::Static { segment: ref s } => s.eq(other),
+            UriPathSegmentMatcher::Variable { name: ref _n } => true,
+            UriPathSegmentMatcher::Custom { name: ref _n, segment: ref s } => s.is_match(other),
+        }
     }
 
-    /// Retrieve RequestParam as Ref of type T, or none if the conversion failed
-    pub fn borrow_as<T: 'static + Any + Send>(&self) -> Option<&T> {
-        self.data.downcast_ref::<T>()
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            UriPathSegmentMatcher::Static { segment: ref _s } => None,
+            UriPathSegmentMatcher::Variable { name: ref n } => n.as_ref().map(|s| s.as_str()),
+            UriPathSegmentMatcher::Custom { name: ref n, segment: ref _s } => n.as_ref().map(|s| s.as_str()),
+        }
     }
 
-    /// Retrieve RequestParam as RefMut of type T, or none if the conversion failed
-    pub fn borrow_mut_as<T: 'static + Any + Send>(&mut self) -> Option<&mut T> {
-        self.data.downcast_mut::<T>()
-    }
-
-    /// Get the name of the request param
-    pub fn name(&self) -> &str {
-        self.name.as_ref()
-    }
-}
-
-impl<S: ToString, T: 'static + Any + Send> From<(S, T)> for RequestAddon {
-    fn from(tup: (S, T)) -> Self {
-        let (name, data) = tup;
-        RequestAddon {
-            name: name.to_string(),
-            data: Box::new(data),
+    pub fn is_static(&self) -> bool {
+        match self {
+            UriPathSegmentMatcher::Static {segment: ref _s} => true,
+            _ => false
         }
     }
 }
@@ -179,6 +191,7 @@ impl ToRegex for ::regex::Regex {
 }
 
 #[macro_export]
+/// Convert a str to a regex
 macro_rules! reg {
     ($str_regex:expr) => {
         $str_regex.to_regex().expect("the parameter passed to reg macro is not a legitimate regex")

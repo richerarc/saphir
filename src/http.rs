@@ -9,8 +9,8 @@ pub use hyper::Response;
 
 use crate::http_types::response::Builder as ResponseBuilder;
 use crate::http_types::request::Parts as ReqParts;
-use crate::utils::RequestAddonCollection;
 pub use crate::http_types::Extensions;
+use hashbrown::HashMap;
 
 /// Headers types re-export
 pub mod header {
@@ -23,6 +23,8 @@ use futures::Future;
 use futures::Stream;
 use crate::http_types::HttpTryFrom;
 use std::any::Any;
+use std::collections::VecDeque;
+use crate::utils::UriPathMatcher;
 
 static EMPTY_BODY: &[u8] = b"";
 
@@ -34,10 +36,8 @@ pub struct SyncRequest {
     /// Body
     body: Vec<u8>,
     /// Request Params
-    addons: RequestAddonCollection,
-
-    current_path: String,
-    captures: Vec<String>,
+    current_path: VecDeque<String>,
+    captures: HashMap<String, String>,
 }
 
 impl SyncRequest {
@@ -46,13 +46,16 @@ impl SyncRequest {
     pub fn new(head: ReqParts,
                body: Vec<u8>,
     ) -> SyncRequest {
-        let cp = head.uri.path().to_owned();
+        let mut cp = head.uri.path().to_owned().split('/').map(|s| s.to_owned()).collect::<VecDeque<String>>();
+        cp.pop_front();
+        if cp.back().map(|s| s.len()).unwrap_or(0) < 1 {
+            cp.pop_back();
+        }
         SyncRequest {
             head,
             body,
-            addons: RequestAddonCollection::new(),
             current_path: cp,
-            captures: Vec::new(),
+            captures: HashMap::new(),
         }
     }
 
@@ -119,42 +122,67 @@ impl SyncRequest {
     }
 
     ///
-    pub(crate) fn current_path_match(&mut self, re: &::regex::Regex) -> bool {
-        let current = self.current_path.clone();
-        re.find(&current).map_or_else(|| false, |ma| {
-            let mut path = self.current_path.split_off(ma.end());
-            if path.len() < 1 {
-                path.push('/');
+    pub(crate) fn current_path_match(&mut self, path: &UriPathMatcher) -> bool {
+        let mut current_path = self.current_path.iter();
+        // validate path
+        for seg in path.iter() {
+            if let Some(current) = current_path.next() {
+                if !seg.matches(current) {
+                    return false;
+                }
+            } else {
+                return false;
             }
-            self.current_path = path;
-            true
-        })
+        }
+
+        // Alter current path and capture path variable
+        {
+            for seg in path.iter() {
+                if let Some(current) = self.current_path.pop_front() {
+                    if let Some(name) = seg.name() {
+                        self.captures.insert(name.to_string(), current);
+                    }
+                }
+            }
+        }
+
+        true
     }
 
     ///
-    pub(crate) fn current_path_match_and_capture(&mut self, re: &::regex::Regex) -> bool {
-        let current = self.current_path.clone();
-        re.captures(&current).map_or_else(|| false, |cap| {
-            if let Some(ma) = cap.get(0) {
-                let mut path = self.current_path.split_off(ma.end());
-                if path.len() < 1 {
-                    path.push('/');
-                }
-                self.current_path = path;
-            }
+    pub(crate) fn current_path_match_all(&mut self, path: &UriPathMatcher) -> bool {
+        if path.len() != self.current_path.len() {
+            return false;
+        }
 
-            for i in 1..cap.len() {
-                if let Some(ma) = cap.get(i) {
-                    self.captures.push(ma.as_str().to_owned())
+        let mut current_path = self.current_path.iter();
+        // validate path
+        for seg in path.iter() {
+            if let Some(current) = current_path.next() {
+                if !seg.matches(current) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+
+        // Alter current path and capture path variable
+        {
+            for seg in path.iter() {
+                if let Some(current) = self.current_path.pop_front() {
+                    if let Some(name) = seg.name() {
+                        self.captures.insert(name.to_string(), current);
+                    }
                 }
             }
+        }
 
-            true
-        })
+        true
     }
 
     ///
-    pub fn captures(&self) -> &Vec<String> {
+    pub fn captures(&self) -> &HashMap<String, String> {
         &self.captures
     }
 
@@ -299,18 +327,6 @@ impl SyncRequest {
     pub fn body_mut(&mut self) -> &mut Vec<u8> {
         &mut self.body
     }
-
-    /// Returns a reference to the request add-ons
-    #[inline]
-    pub fn addons(&self) -> &RequestAddonCollection {
-        &self.addons
-    }
-
-    /// Returns a reference to the request add-ons
-    #[inline]
-    pub fn addons_mut(&mut self) -> &mut RequestAddonCollection {
-        &mut self.addons
-    }
 }
 
 /// A trait allowing the implicit conversion of a Hyper::Request into a SyncRequest
@@ -336,9 +352,8 @@ pub struct SyncResponse {
 }
 
 impl SyncResponse {
-
     ///
-    pub fn new() -> Self{
+    pub fn new() -> Self {
         SyncResponse {
             builder: ResponseBuilder::new(),
             body: Box::new(EMPTY_BODY),

@@ -19,15 +19,16 @@ https = ["rustls", "tokio-rustls"]
 
 [dependencies]
 log = "~0.4.6"
-hyper = "~0.12.14"
-hyperx = "~0.13.1"
-http = "~0.1.13"
+hyper = "~0.12.25"
+hyperx = "~0.14.0"
+http = "~0.1.16"
 futures = "~0.1.25"
-regex = "~1.1.0"
+regex = "~1.1.2"
 ansi_term = "~0.11.0"
-tokio = "~0.1.11"
-parking_lot = "~0.7.0"
-rayon = "1.0.3"
+tokio = "~0.1.18"
+parking_lot = "~0.7.1"
+rayon = "~1.0.3"
+hashbrown = "~0.1.8"
 
-rustls = { version = "~0.14.0", optional = true }
-tokio-rustls = { version = "~0.8.0", optional = true }
+rustls = { version = "~0.15.1", optional = true }
+tokio-rustls = { version = "~0.9.1", optional = true }

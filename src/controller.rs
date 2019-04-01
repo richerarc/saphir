@@ -1,8 +1,7 @@
-use regex::Regex;
 use parking_lot::RwLock;
 
 use crate::http::*;
-use crate::utils::ToRegex;
+use crate::utils::UriPathMatcher;
 use crate::utils::RequestContinuation;
 
 /// Trait representing a controller
@@ -95,7 +94,7 @@ pub trait RequestGuard {
 }
 
 type DelegateFunction<T> = Fn(&T, &SyncRequest, &mut SyncResponse);
-type ControllerDelegate<T> = (Method, Regex, Option<RequestGuardCollection>, Box<DelegateFunction<T>>);
+type ControllerDelegate<T> = (Method, UriPathMatcher, Option<RequestGuardCollection>, Box<DelegateFunction<T>>);
 
 /// Struct to delegate a request to a registered function matching booth a `method` and a `path`
 pub struct ControllerDispatch<T> {
@@ -122,9 +121,9 @@ impl<T: Send + Sync> ControllerDispatch<T> {
     /// let dispatch = ControllerDispatch::new(u8_context);
     /// dispatch.add(Method::Get, "^/test$", |ctx, req, res| { println!("this will handle Get request done on <your_host>/test")});
     /// ```
-    pub fn add<F, R: ToRegex>(&self, method: Method, path: R, delegate_func: F)
+    pub fn add<F>(&self, method: Method, path: &str, delegate_func: F)
         where for<'r, 's, 't0> F: 'static + Fn(&'r T, &'s SyncRequest, &'t0 mut SyncResponse) {
-        self.delegates.write().push((method, reg!(path), None, Box::new(delegate_func)));
+        self.delegates.write().push((method, UriPathMatcher::new(path).expect("Unable to add delegate, path is invalid"), None, Box::new(delegate_func)));
     }
 
     /// Add a delegate function to handle a particular request
@@ -136,9 +135,9 @@ impl<T: Send + Sync> ControllerDispatch<T> {
     /// let dispatch = ControllerDispatch::new(u8_context);
     /// dispatch.add_with_guards(Method::Get, "^/test$", guard.into(), |ctx, req, res| { println!("this will handle Get request done on <your_host>/test")});
     /// ```
-    pub fn add_with_guards<F, R: ToRegex>(&self, method: Method, path: R, guards: RequestGuardCollection, delegate_func: F)
+    pub fn add_with_guards<F>(&self, method: Method, path: &str, guards: RequestGuardCollection, delegate_func: F)
         where for<'r, 's, 't0> F: 'static + Fn(&'r T, &'s SyncRequest, &'t0 mut SyncResponse) {
-        self.delegates.write().push((method, reg!(path), Some(guards), Box::new(delegate_func)));
+        self.delegates.write().push((method, UriPathMatcher::new(path).expect("Unable to add delegate, path is invalid"), Some(guards), Box::new(delegate_func)));
     }
 
     ///
@@ -157,9 +156,9 @@ impl<T: Send + Sync> ControllerDispatch<T> {
         }
 
         for del in retained_delegate {
-            let (_, ref reg, ref op_guards, ref boxed_func) = del;
+            let (_, ref u_p_m, ref op_guards, ref boxed_func) = del;
 
-            if req.current_path_match_and_capture(reg) {
+            if req.current_path_match_all(u_p_m) {
                 if let Some(ref guards) = op_guards {
                     for guard in guards {
                         use crate::RequestContinuation::*;
@@ -173,7 +172,7 @@ impl<T: Send + Sync> ControllerDispatch<T> {
             }
         }
 
-        res.status(StatusCode::BAD_REQUEST);
+        res.status(StatusCode::NOT_FOUND);
     }
 }
 
@@ -214,7 +213,7 @@ impl<C: Send + Sync> BasicController<C> {
     /// let u8_controller = BasicController::new(u8_context);
     /// u8_controller.add(Method::Get, "^/test$", |ctx, req, res| { println!("this will handle Get request done on <your_host>/test")});
     /// ```
-    pub fn add<F, R: ToRegex>(&self, method: Method, path: R, delegate_func: F)
+    pub fn add<F>(&self, method: Method, path: &str, delegate_func: F)
         where for<'r, 's, 't0> F: 'static + Fn(&'r C, &'s SyncRequest, &'t0 mut SyncResponse) {
         self.dispatch.add(method, path, delegate_func);
     }
@@ -227,7 +226,7 @@ impl<C: Send + Sync> BasicController<C> {
     /// let u8_controller = BasicController::new(u8_context);
     /// u8_controller.add(Method::Get, "^/test$", |ctx, req, res| { println!("this will handle Get request done on <your_host>/test")});
     /// ```
-    pub fn add_with_guards<F, R: ToRegex>(&self, method: Method, path: R, guards: RequestGuardCollection, delegate_func: F)
+    pub fn add_with_guards<F>(&self, method: Method, path: &str, guards: RequestGuardCollection, delegate_func: F)
         where for<'r, 's, 't0> F: 'static + Fn(&'r C, &'s SyncRequest, &'t0 mut SyncResponse) {
         self.dispatch.add_with_guards(method, path, guards, delegate_func);
     }

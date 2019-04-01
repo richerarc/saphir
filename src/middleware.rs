@@ -1,9 +1,8 @@
-use regex::Regex;
 use std::sync::Arc;
 
+use log::error;
 use crate::http::*;
-use crate::utils::ToRegex;
-use crate::utils::RequestContinuation;
+use crate::utils::{RequestContinuation, UriPathMatcher};
 use crate::utils::RequestContinuation::*;
 
 ///
@@ -57,10 +56,8 @@ impl MiddlewareStack {
 
     ///
     pub fn resolve(&self, req: &mut SyncRequest, res: &mut SyncResponse) -> RequestContinuation {
-        let path = req.uri().path().to_owned();
-
         for &(ref rule, ref middleware) in self.middlewares.iter() {
-            if rule.validate_path(&path) {
+            if rule.validate_path(req.uri().path()) {
                 if let Stop = middleware.resolve(req, res) {
                     return Stop;
                 }
@@ -88,47 +85,22 @@ pub trait Middleware: Send + Sync {
 }
 
 struct MiddlewareRule {
-    included_path: Vec<Regex>,
-    excluded_path: Option<Vec<Regex>>,
+    included_path: Vec<UriPathMatcher>,
+    excluded_path: Option<Vec<UriPathMatcher>>,
 }
 
 impl MiddlewareRule {
-    pub fn new<R: ToRegex>(include_path: Vec<R>, exclude_path: Option<Vec<R>>) -> Self {
-        let mut included_path = Vec::new();
-        for include in include_path.iter() {
-            included_path.push(reg!(include));
-        }
-
-        let mut excluded_path: Option<Vec<Regex>> = Option::None;
-
-        if let Some(excludes) = exclude_path {
-            let mut excludes_vec = Vec::new();
-            for exclude in excludes.iter() {
-                excludes_vec.push(reg!(exclude));
-            }
-
-            excluded_path = Some(excludes_vec);
-        }
-
+    pub fn new(include_path: Vec<&str>, exclude_path: Option<Vec<&str>>) -> Self {
         MiddlewareRule {
-            included_path,
-            excluded_path,
+            included_path: include_path.iter().filter_map(|p| UriPathMatcher::new(p).map_err(|e| error!("Unable to construct included middleware route: {}", e)).ok()).collect(),
+            excluded_path: exclude_path.map(|ex| ex.iter().filter_map(|p| UriPathMatcher::new(p).map_err(|e| error!("Unable to construct excluded middleware route: {}", e)).ok()).collect()),
         }
     }
 
     pub fn validate_path(&self, path: &str) -> bool {
-        let path_clone = path.clone();
-        if self.included_path.iter().enumerate().find(
-            move |&(_index, r)| {
-                r.is_match(path_clone)
-            }
-        ).is_some() {
+        if self.included_path.iter().any(|m_p| m_p.match_start(path)) {
             if let Some(ref excluded_path) = self.excluded_path {
-                return excluded_path.iter().enumerate().find(
-                    move |&(_index, re)| {
-                        re.is_match(path_clone)
-                    }
-                ).is_none();
+                return excluded_path.iter().any(|m_e_p| m_e_p.match_start(path));
             } else {
                 return true;
             }

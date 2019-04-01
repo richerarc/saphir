@@ -1,14 +1,12 @@
 use std::sync::Arc;
 
-use regex::Regex;
-
 use crate::controller::Controller;
 use crate::http::*;
-use crate::utils::ToRegex;
+use crate::utils::UriPathMatcher;
 
 ///
 pub struct Builder {
-    routes: Vec<(Regex, Box<Controller>)>
+    routes: Vec<(UriPathMatcher, Box<Controller>)>
 }
 
 ///
@@ -32,7 +30,8 @@ impl Builder {
     ///
     /// ```
     pub fn add<C: 'static + Controller>(mut self, controller: C) -> Self {
-        self.routes.push((reg!(controller.base_path()), Box::new(controller)));
+        let path_m = UriPathMatcher::new(controller.base_path()).expect("Unable to construct path");
+        self.routes.push((path_m, Box::new(controller)));
 
         self
     }
@@ -48,14 +47,9 @@ impl Builder {
     /// router.add("/test", u8_controller);
     ///
     /// ```
-    pub fn route<C: 'static + Controller, R: ToRegex>(mut self, route: R, controller: C) -> Self {
-        let mut cont_base_path = controller.base_path().to_string();
-        if cont_base_path.starts_with('^') {
-            cont_base_path.remove(0);
-        }
-        let mut route_str = route.as_str().to_string();
-        route_str.push_str(&cont_base_path);
-        self.routes.push((reg!(route_str), Box::new(controller)));
+    pub fn route<C: 'static + Controller>(mut self, route: &str, controller: C) -> Self {
+        let route_matcher = UriPathMatcher::new(route).and_then(|mut u| {u.append(controller.base_path())?; Ok(u)}).expect("Unable to construct path");
+        self.routes.push((route_matcher, Box::new(controller)));
 
         self
     }
@@ -75,7 +69,7 @@ impl Builder {
 /// A Struct responsible of dispatching request towards controllers
 pub struct Router {
     ///
-    routes: Arc<Vec<(Regex, Box<Controller>)>>
+    routes: Arc<Vec<(UriPathMatcher, Box<Controller>)>>
 }
 
 impl Router {
@@ -88,7 +82,7 @@ impl Router {
 
     ///
     pub fn dispatch(&self, req: &mut SyncRequest, res: &mut SyncResponse) {
-        let h: Option<(usize, &(Regex, Box<Controller>))> = self.routes.iter().enumerate().find(
+        let h: Option<(usize, &(UriPathMatcher, Box<Controller>))> = self.routes.iter().enumerate().find(
             |&(_, &(ref re, _))| {
                 req.current_path_match(re)
             }

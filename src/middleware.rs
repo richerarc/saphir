@@ -56,7 +56,7 @@ impl MiddlewareStack {
 
     ///
     pub fn resolve(&self, req: &mut SyncRequest, res: &mut SyncResponse) -> RequestContinuation {
-                for &(ref rule, ref middleware) in self.middlewares.iter() {
+        for &(ref rule, ref middleware) in self.middlewares.iter() {
             if rule.validate_path(req.uri().path()) {
                 if let Stop = middleware.resolve(req, res) {
                     return Stop;

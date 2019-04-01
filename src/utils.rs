@@ -56,13 +56,15 @@ impl UriPathMatcher {
     }
 
     pub fn match_start(&self, path: &str) -> bool {
-        let mut path_split = path.split('/');
+        let mut path_split = path.trim_start_matches('/').split('/');
 
         for segment in &self.inner {
             if let Some(ref s) = path_split.next() {
                 if !segment.matches(s) {
                     return false;
                 }
+            } else {
+                return false;
             }
         }
 
@@ -94,7 +96,7 @@ impl UriPathSegmentMatcher {
 
         if segment.starts_with('<') {
             if segment.ends_with('>') {
-                let s: Vec<&str> = segment.trim_start_matches('<').trim_end_matches('>').splitn(2, "r#").collect();
+                let s: Vec<&str> = segment.trim_start_matches('<').trim_end_matches('>').splitn(2, "#r").collect();
                 if s.len() < 1 {
                     return Err("No name was provided for a variable segment".to_string());
                 }

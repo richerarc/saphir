@@ -100,7 +100,7 @@ impl MiddlewareRule {
     pub fn validate_path(&self, path: &str) -> bool {
         if self.included_path.iter().any(|m_p| m_p.match_start(path)) {
             if let Some(ref excluded_path) = self.excluded_path {
-                return excluded_path.iter().any(|m_e_p| m_e_p.match_start(path));
+                return !excluded_path.iter().any(|m_e_p| m_e_p.match_start(path));
             } else {
                 return true;
             }

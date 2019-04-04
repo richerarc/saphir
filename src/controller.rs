@@ -144,9 +144,9 @@ impl<T: Send + Sync> ControllerDispatch<T> {
     pub fn dispatch(&self, req: &mut SyncRequest, res: &mut SyncResponse) {
         use std::iter::FromIterator;
         let delegates_list = self.delegates.read();
-        let method = req.method().clone();
+        let method = req.method();
 
-        let retained_delegate = Vec::from_iter(delegates_list.iter().filter(move |x| {
+        let retained_delegate = Vec::from_iter(delegates_list.iter().filter(|x| {
             x.0 == method
         }));
 

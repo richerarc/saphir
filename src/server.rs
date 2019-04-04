@@ -1,5 +1,3 @@
-use std::any::Any;
-
 use futures::Future;
 use futures::sync::oneshot::{Sender, channel};
 use hyper::service::service_fn;
@@ -11,6 +9,8 @@ use crate::utils;
 use crate::error::ServerError;
 use crate::middleware::{MiddlewareStack, Builder as MidStackBuilder};
 use crate::router::{Router, Builder as RouterBuilder};
+use threadpool::ThreadPool;
+use tokio::prelude::stream::Stream;
 
 ///
 const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 15000;
@@ -21,6 +21,7 @@ pub struct ListenerBuilder {
     uri: Option<String>,
     cert_path: Option<String>,
     key_path: Option<String>,
+    thread_pool_size: Option<usize>,
 }
 
 impl ListenerBuilder {
@@ -30,14 +31,14 @@ impl ListenerBuilder {
             request_timeout_ms: DEFAULT_REQUEST_TIMEOUT_MS,
             uri: None,
             cert_path: None,
-            key_path: None
+            key_path: None,
+            thread_pool_size: None
         }
     }
 
-    /// Sets de default panic handler
-    pub fn set_panic_handler<PanicHandler>(self, panic_handler: PanicHandler) -> Self
-        where PanicHandler: Fn(Box<dyn Any + 'static + Send>) + Send + Sync + 'static {
-        rayon::ThreadPoolBuilder::new().panic_handler(panic_handler).build_global().expect("Setting the panic handler should never fail");
+    /// Set the thread_pool size for request handling, default is number of available CPU
+    pub fn set_thread_pool_size(mut self, size: usize) -> Self {
+        self.thread_pool_size = Some(size);
         self
     }
 
@@ -68,13 +69,15 @@ impl ListenerBuilder {
             uri,
             cert_path,
             key_path,
+            thread_pool_size,
         } = self;
 
         ListenerConfig {
             request_timeout_ms,
             uri,
             cert_path,
-            key_path
+            key_path,
+            thread_pool_size
         }
     }
 }
@@ -85,6 +88,7 @@ pub struct ListenerConfig {
     uri: Option<String>,
     cert_path: Option<String>,
     key_path: Option<String>,
+    thread_pool_size: Option<usize>,
 }
 
 #[doc(hidden)]
@@ -99,6 +103,7 @@ mod listener_config_ext {
                 uri: None,
                 cert_path: None,
                 key_path: None,
+                thread_pool_size: None
             }
         }
 
@@ -188,7 +193,8 @@ impl Builder {
             service: HttpService {
                 router: router.unwrap_or_else(|| Router::new()),
                 middleware_stack: middleware_stack.unwrap_or_else(|| MiddlewareStack::new()),
-                request_timeout: listener_config.request_timeout_ms
+                request_timeout: listener_config.request_timeout_ms,
+                thread_pool: ThreadPool::new(listener_config.thread_pool_size.unwrap_or_else(|| num_cpus::get())),
             },
             listener_config
         }
@@ -270,9 +276,8 @@ impl Server {
                         });
 
                         let server = ::hyper::server::Builder::new(inc, ::hyper::server::conn::Http::new()).serve(move || {
-                            let handler = service.clone();
                             service_fn(move |req| {
-                                handler.handle(req)
+                                service.handle(req)
                             })
                         }).with_graceful_shutdown(receiver).map_err(|e| error!("server error: {}", e));
 
@@ -294,71 +299,27 @@ impl Server {
 
     /// This method will run until the server terminates.
     pub fn run(&self) -> Result<(), crate::error::ServerError> {
-        let uri: Uri = self.listener_config.uri()
-            .expect("Fatal Error: No uri provided.\n You can fix this error by calling Server::set_uri or by configuring the listener with Server::configure_listener")
-            .parse()?;
+        use tokio::runtime::Builder;
+        use tokio_signal::unix::{SIGINT, Signal, SIGQUIT, SIGTERM};
 
-        let scheme = uri.scheme_part().expect("Fatal Error: The uri passed to launch the server doesn't contain a scheme.");
-        let addr = uri.authority_part().expect("The uri passed to launch the server doesn't contain an authority.").as_str().parse()?;
+        let runtime = Builder::new().build()?;
 
-        let listener = ::tokio::net::TcpListener::bind(&addr)?;
+        let signals = futures::future::select_all(vec![
+            Signal::new(SIGTERM).flatten_stream().into_future(),
+            Signal::new(SIGQUIT).flatten_stream().into_future(),
+            Signal::new(SIGINT).flatten_stream().into_future()
+        ]);
 
-        let service = self.service.clone();
+        let server_handle = self.spawn(runtime.executor())?;
 
-        if scheme.eq(&crate::http_types::uri::Scheme::HTTP) {
-            if let (Some(_), _) = self.listener_config.ssl_files_path() {
-                warn!("SSL certificate paths are provided but the listener was configured to use unsecured HTTP, try changing the uri scheme for https");
-            }
+        let termination = signals.map(move |((sig, _), _, _)| {
+            // Stop servers
+            info!("Received Unix Signal {}", sig.unwrap_or(0));
+            info!("Terminating Saphir server ...");
+            server_handle.terminate()
+        });
 
-            let server = ::hyper::server::Builder::new(listener.incoming(), ::hyper::server::conn::Http::new()).serve(move || {
-                let handler = service.clone();
-                service_fn(move |req| {
-                    handler.handle(req)
-                })
-            }).map_err(|e| error!("server error: {}", e));
-
-            info!("Saphir successfully started and listening on {}", uri);
-            ::hyper::rt::run(server);
-        } else if scheme.eq(&crate::http_types::uri::Scheme::HTTPS) {
-            #[cfg(feature = "https")]
-                {
-                    if let (Some(cert_path), Some(key_path)) = self.listener_config.ssl_files_path() {
-                        use std::sync::Arc;
-                        use futures::Stream;
-                        use server::ssl_loading_utils::*;
-                        use tokio_rustls::TlsAcceptor;
-
-                        let certs = load_certs(cert_path.as_ref());
-                        let key = load_private_key(key_path.as_ref());
-                        let mut cfg = ::rustls::ServerConfig::new(::rustls::NoClientAuth::new());
-                        let _ = cfg.set_single_cert(certs, key);
-                        let arc_config = Arc::new(cfg);
-
-                        let acceptor = TlsAcceptor::from(arc_config);
-
-                        let inc = listener.incoming().and_then(move |stream| {
-                            acceptor.accept(stream)
-                        });
-
-                        let server = ::hyper::server::Builder::new(inc, ::hyper::server::conn::Http::new()).serve(move || {
-                            let handler = service.clone();
-                            service_fn(move |req| {
-                                handler.handle(req)
-                            })
-                        }).map_err(|e| error!("server error: {}", e));
-
-                        info!("Saphir successfully started and listening on {}", uri);
-                        ::hyper::rt::run(server);
-                    } else {
-                        return Err(::error::ServerError::BadListenerConfig);
-                    }
-                }
-
-            #[cfg(not(feature = "https"))]
-                return Err(crate::error::ServerError::UnsupportedUriScheme);
-        } else {
-            return Err(crate::error::ServerError::UnsupportedUriScheme);
-        }
+        let _ = runtime.block_on_all(termination);
 
         Ok(())
     }
@@ -370,6 +331,7 @@ pub struct HttpService {
     router: Router,
     middleware_stack: MiddlewareStack,
     request_timeout: u64,
+    thread_pool: ThreadPool,
 }
 
 #[doc(hidden)]
@@ -378,18 +340,18 @@ impl HttpService {
         use std::time::{Instant, Duration};
         use crate::server::utils::RequestContinuation::*;
         use futures::sync::oneshot::channel;
-        use rayon;
 
         let (tx, rx) = channel();
 
         let HttpService {
             router,
             middleware_stack,
-            request_timeout
+            request_timeout,
+            thread_pool,
         } = self.clone();
 
         Box::new(req.load_body().map_err(|e| ServerError::from(e)).and_then(move |mut request| {
-            rayon::spawn(move || {
+            thread_pool.execute(move || {
                 let req_iat = Instant::now();
                 let mut response = SyncResponse::new();
 

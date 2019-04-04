@@ -85,9 +85,6 @@ fn main() {
         .configure_listener(|listener_config| {
             listener_config.set_uri("http://0.0.0.0:12345")
                 .set_request_timeout_ms(10000) // 10 sec
-                .set_panic_handler(|panic| {
-                    println!("HA HA! : {:?}", panic);
-                })
         })
         .build();
 

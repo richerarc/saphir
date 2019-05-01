@@ -300,21 +300,27 @@ impl Server {
     /// This method will run until the server terminates.
     pub fn run(&self) -> Result<(), crate::error::ServerError> {
         use tokio::runtime::Builder;
-        use tokio_signal::unix::{SIGINT, Signal, SIGQUIT, SIGTERM};
 
         let runtime = Builder::new().build()?;
 
+        #[cfg(unix)]
+        use tokio_signal::unix::{SIGINT, Signal, SIGQUIT, SIGTERM};
+
+        #[cfg(unix)]
         let signals = futures::future::select_all(vec![
             Signal::new(SIGTERM).flatten_stream().into_future(),
             Signal::new(SIGQUIT).flatten_stream().into_future(),
             Signal::new(SIGINT).flatten_stream().into_future()
         ]);
 
+        #[cfg(not(unix))]
+        let signals = futures::future::select_all(vec![
+            tokio_signal::ctrl_c().flatten_stream().into_future()
+        ]);
+
         let server_handle = self.spawn(runtime.executor())?;
 
-        let termination = signals.map(move |((sig, _), _, _)| {
-            // Stop servers
-            info!("Received Unix Signal {}", sig.unwrap_or(0));
+        let termination = signals.map(move |((_sig, _), _, _)| {
             info!("Terminating Saphir server ...");
             server_handle.terminate()
         });

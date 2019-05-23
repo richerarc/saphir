@@ -29,7 +29,7 @@ tokio = "~0.1.18"
 tokio-signal = "0.2.7"
 parking_lot = "~0.7.1"
 threadpool = "~1.7.1"
-hashbrown = "~0.1.8"
+hashbrown = "~0.3.0"
 num_cpus = "1.10"
 
 rustls = { version = "~0.15.1", optional = true }

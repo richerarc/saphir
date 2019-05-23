@@ -20,7 +20,7 @@ https = ["rustls", "tokio-rustls"]
 [dependencies]
 log = "~0.4.6"
 hyper = "~0.12.25"
-hyperx = "~0.14.0"
+hyperx = "~0.15.0"
 http = "~0.1.16"
 futures = "~0.1.25"
 regex = "~1.1.2"

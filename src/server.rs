@@ -345,7 +345,6 @@ impl HttpService {
     pub fn handle(&self, req: Request<Body>) -> Box<Future<Item=Response<Body>, Error=ServerError> + Send> {
         use std::time::{Instant, Duration};
         use crate::server::utils::RequestContinuation::*;
-        use futures::sync::oneshot::channel;
 
         let (tx, rx) = channel();
 

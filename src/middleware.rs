@@ -7,7 +7,7 @@ use crate::utils::RequestContinuation::*;
 
 ///
 pub struct Builder {
-    stack: Vec<(MiddlewareRule, Box<Middleware>)>,
+    stack: Vec<(MiddlewareRule, Box<dyn Middleware>)>,
 }
 
 impl Builder {
@@ -43,7 +43,7 @@ impl Builder {
 
 /// Struct representing the layering of middlewares in the server
 pub struct MiddlewareStack {
-    middlewares: Arc<Vec<(MiddlewareRule, Box<Middleware>)>>
+    middlewares: Arc<Vec<(MiddlewareRule, Box<dyn Middleware>)>>
 }
 
 impl MiddlewareStack {

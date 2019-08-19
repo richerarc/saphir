@@ -6,7 +6,7 @@ use crate::utils::UriPathMatcher;
 
 ///
 pub struct Builder {
-    routes: Vec<(UriPathMatcher, Box<Controller>)>
+    routes: Vec<(UriPathMatcher, Box<dyn Controller>)>
 }
 
 ///
@@ -69,7 +69,7 @@ impl Builder {
 /// A Struct responsible of dispatching request towards controllers
 pub struct Router {
     ///
-    routes: Arc<Vec<(UriPathMatcher, Box<Controller>)>>
+    routes: Arc<Vec<(UriPathMatcher, Box<dyn Controller>)>>
 }
 
 impl Router {
@@ -82,7 +82,7 @@ impl Router {
 
     ///
     pub fn dispatch(&self, req: &mut SyncRequest, res: &mut SyncResponse) {
-        let h: Option<(usize, &(UriPathMatcher, Box<Controller>))> = self.routes.iter().enumerate().find(
+        let h: Option<(usize, &(UriPathMatcher, Box<dyn Controller>))> = self.routes.iter().enumerate().find(
             |&(_, &(ref re, _))| {
                 req.current_path_match(re)
             }

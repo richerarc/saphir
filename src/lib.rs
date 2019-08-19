@@ -28,6 +28,7 @@ pub mod server;
 use ::http as http_types;
 pub use regex;
 pub use hyper;
+pub use cookie;
 
 pub use crate::utils::*;
 pub use crate::http::*;

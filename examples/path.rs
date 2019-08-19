@@ -7,9 +7,9 @@ extern crate serde_json;
 use saphir::*;
 use parking_lot::RwLock;
 use hashbrown::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-static GLOBAL_USER_COUNT: AtomicUsize = ATOMIC_USIZE_INIT;
+static GLOBAL_USER_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 struct LoggerMiddleware {}
 

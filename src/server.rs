@@ -342,7 +342,7 @@ pub struct HttpService {
 
 #[doc(hidden)]
 impl HttpService {
-    pub fn handle(&self, req: Request<Body>) -> Box<Future<Item=Response<Body>, Error=ServerError> + Send> {
+    pub fn handle(&self, req: Request<Body>) -> Box<dyn Future<Item=Response<Body>, Error=ServerError> + Send> {
         use std::time::{Instant, Duration};
         use crate::server::utils::RequestContinuation::*;
 
@@ -382,9 +382,9 @@ impl HttpService {
                 let status_str = resp_status.to_string();
 
                 let status = match resp_status.as_u16() {
-                    0...199 => Cyan.paint(status_str),
-                    200...299 => Green.paint(status_str),
-                    400...599 => Red.paint(status_str),
+                    0..=199 => Cyan.paint(status_str),
+                    200..=299 => Green.paint(status_str),
+                    400..=599 => Red.paint(status_str),
                     _ => Yellow.paint(status_str),
                 };
 
@@ -397,9 +397,9 @@ impl HttpService {
                     let mut resp = Response::new(Body::empty());
                     *resp.status_mut() = StatusCode::REQUEST_TIMEOUT;
                     futures::future::ok::<Response<Body>, ServerError>(resp)
-                })) as Box<Future<Item=Response<Body>, Error=ServerError> + Send>
+                })) as Box<dyn Future<Item=Response<Body>, Error=ServerError> + Send>
             } else {
-                Box::new(futures::empty::<Response<Body>, ServerError>()) as Box<Future<Item=Response<Body>, Error=ServerError> + Send>
+                Box::new(futures::empty::<Response<Body>, ServerError>()) as Box<dyn Future<Item=Response<Body>, Error=ServerError> + Send>
             };
 
             rx.map_err(|e| ServerError::from(e))

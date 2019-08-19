@@ -1,6 +1,7 @@
 extern crate saphir;
 
 use saphir::*;
+use cookie::{Cookie, SameSite};
 
 struct CustomController {
     inner: CustomInner,
@@ -21,8 +22,13 @@ struct CustomInner {
 }
 
 impl CustomInner {
-    pub fn inner_fuction(&self, _req: &SyncRequest, res: &mut SyncResponse) {
+    pub fn inner_fuction(&self, req: &SyncRequest, res: &mut SyncResponse) {
         // All equest will be handled here
+        if let Some(c) = req.cookies().get("MySuperCookie") {
+            res.cookie(Cookie::build("MySecondSuperCookie", "ThisIsAReallyAwesomeValue").http_only(true).path("/custom").same_site(SameSite::Strict).finish());
+        } else {
+            res.cookie(Cookie::build("MySuperCookie", "ThisIsAnAwesomeValue").http_only(true).path("/custom").same_site(SameSite::Strict).finish());
+        }
         res.status(StatusCode::OK);
     }
 }

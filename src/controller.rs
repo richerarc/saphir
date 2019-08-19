@@ -16,7 +16,7 @@ pub trait Controller: Send + Sync {
 
 ///
 pub struct RequestGuardCollection {
-    guards: Vec<Box<RequestGuard>>
+    guards: Vec<Box<dyn RequestGuard>>
 }
 
 impl RequestGuardCollection {
@@ -33,7 +33,7 @@ impl RequestGuardCollection {
     }
 
     ///
-    pub fn add_boxed(&mut self, guard: Box<RequestGuard>) {
+    pub fn add_boxed(&mut self, guard: Box<dyn RequestGuard>) {
         self.guards.push(guard);
     }
 }
@@ -66,8 +66,8 @@ impl<G: 'static + RequestGuard> From<Vec<G>> for RequestGuardCollection {
     }
 }
 
-impl From<Vec<Box<RequestGuard>>> for RequestGuardCollection {
-    fn from(guards: Vec<Box<RequestGuard>>) -> Self {
+impl From<Vec<Box<dyn RequestGuard>>> for RequestGuardCollection {
+    fn from(guards: Vec<Box<dyn RequestGuard>>) -> Self {
         let mut reqg = RequestGuardCollection::new();
         for guard in guards {
             reqg.add_boxed(guard);
@@ -79,8 +79,8 @@ impl From<Vec<Box<RequestGuard>>> for RequestGuardCollection {
 use ::std::slice::Iter;
 
 impl<'a> IntoIterator for &'a RequestGuardCollection {
-    type Item = &'a Box<RequestGuard>;
-    type IntoIter = Iter<'a, Box<RequestGuard>>;
+    type Item = &'a Box<dyn RequestGuard>;
+    type IntoIter = Iter<'a, Box<dyn RequestGuard>>;
 
     fn into_iter(self) -> <Self as IntoIterator>::IntoIter {
         self.guards.iter()
@@ -93,7 +93,7 @@ pub trait RequestGuard {
     fn validate(&self, req: &mut SyncRequest, res: &mut SyncResponse) -> RequestContinuation;
 }
 
-type DelegateFunction<T> = Fn(&T, &SyncRequest, &mut SyncResponse);
+type DelegateFunction<T> = dyn Fn(&T, &SyncRequest, &mut SyncResponse);
 type ControllerDelegate<T> = (Method, UriPathMatcher, Option<RequestGuardCollection>, Box<DelegateFunction<T>>);
 
 /// Struct to delegate a request to a registered function matching booth a `method` and a `path`

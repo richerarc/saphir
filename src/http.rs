@@ -1,30 +1,67 @@
-pub use hyper::Method;
-pub use hyper::Uri;
-pub use hyper::Version;
+use std::any::Any;
+use std::collections::VecDeque;
+use std::ops::{Deref, DerefMut};
+
+use cookie::Cookie;
+use cookie::CookieJar;
+use futures::Future;
+use futures::Stream;
+use hashbrown::HashMap;
 pub use hyper::Body;
 pub use hyper::body::Payload;
-pub use hyper::StatusCode;
+pub use hyper::Method;
 pub use hyper::Request;
 pub use hyper::Response;
+pub use hyper::StatusCode;
+pub use hyper::Uri;
+pub use hyper::Version;
+use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use crate::http_types::response::Builder as ResponseBuilder;
-use crate::http_types::request::Parts as ReqParts;
 pub use crate::http_types::Extensions;
-use hashbrown::HashMap;
+use crate::http_types::HttpTryFrom;
+use crate::http_types::request::Parts as ReqParts;
+use crate::http_types::response::Builder as ResponseBuilder;
+use crate::utils::UriPathMatcher;
 
 /// Headers types re-export
 pub mod header {
-    pub use crate::http_types::header::*;
-    pub use hyperx::mime;
     pub use hyperx::header::*;
+    pub use hyperx::mime;
+
+    pub use crate::http_types::header::*;
 }
 
-use futures::Future;
-use futures::Stream;
-use crate::http_types::HttpTryFrom;
-use std::any::Any;
-use std::collections::VecDeque;
-use crate::utils::UriPathMatcher;
+/// A Wrapper around the CookieJar Struct
+pub struct Cookies<'a> {
+    inner: RwLockReadGuard<'a, Option<CookieJar>>
+}
+
+/// A Mutable Wrapper around the CookieJar Struct
+pub struct CookiesMut<'a> {
+    inner: RwLockWriteGuard<'a, Option<CookieJar>>
+}
+
+impl<'a> Deref for Cookies<'a> {
+    type Target = CookieJar;
+
+    fn deref(&self) -> &Self::Target {
+        self.inner.as_ref().expect("This struct can not exists if The CookieJar is not initialized")
+    }
+}
+
+impl<'a> Deref for CookiesMut<'a> {
+    type Target = CookieJar;
+
+    fn deref(&self) -> &Self::Target {
+        self.inner.as_ref().expect("This struct can not exists if The CookieJar is not initialized")
+    }
+}
+
+impl<'a> DerefMut for CookiesMut<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.inner.as_mut().expect("This struct can not exists if The CookieJar is not initialized")
+    }
+}
 
 static EMPTY_BODY: &[u8] = b"";
 
@@ -38,6 +75,7 @@ pub struct SyncRequest {
     /// Request Params
     current_path: VecDeque<String>,
     captures: HashMap<String, String>,
+    cookies: RwLock<Option<CookieJar>>,
 }
 
 impl SyncRequest {
@@ -56,6 +94,7 @@ impl SyncRequest {
             body,
             current_path: cp,
             captures: HashMap::new(),
+            cookies: RwLock::new(None),
         }
     }
 
@@ -327,16 +366,62 @@ impl SyncRequest {
     pub fn body_mut(&mut self) -> &mut Vec<u8> {
         &mut self.body
     }
+
+    /// Get the cookies sent by the browsers
+    pub fn cookies(&self) -> Cookies<'_> {
+        {
+            let read = self.cookies.read();
+
+            if read.is_some() {
+                return Cookies {
+                    inner: read
+                };
+            }
+        }
+
+        self.init_cookies_jar(&mut self.cookies.write());
+
+        self.cookies()
+    }
+
+    /// Get the cookies sent by the browsers in a mutable way
+    pub fn cookies_mut(&mut self) -> CookiesMut<'_> {
+        let mut write = self.cookies.write();
+
+        if write.is_some() {
+            return CookiesMut {
+                inner: write
+            };
+        }
+
+        self.init_cookies_jar(&mut write);
+
+        CookiesMut {
+            inner: write
+        }
+    }
+
+    fn init_cookies_jar(&self, jar_guard: &mut RwLockWriteGuard<Option<CookieJar>>) {
+        let mut jar = CookieJar::new();
+
+        self.head.headers.get("Cookie")
+            .and_then(|cookies| cookies.to_str().ok())
+            .map(|cookies_str| cookies_str.split("; "))
+            .map(|cookie_iter| cookie_iter.filter_map(|cookie_s| Cookie::parse(cookie_s.to_string()).ok()))
+            .map(|cookie_iter| cookie_iter.for_each(|c| jar.add_original(c)));
+
+        **jar_guard = Some(jar);
+    }
 }
 
 /// A trait allowing the implicit conversion of a Hyper::Request into a SyncRequest
 pub trait LoadBody {
     ///
-    fn load_body(self) -> Box<Future<Item=SyncRequest, Error=::hyper::Error> + Send>;
+    fn load_body(self) -> Box<dyn Future<Item=SyncRequest, Error=::hyper::Error> + Send>;
 }
 
 impl LoadBody for Request<Body> {
-    fn load_body(self) -> Box<Future<Item=SyncRequest, Error=::hyper::Error> + Send> {
+    fn load_body(self) -> Box<dyn Future<Item=SyncRequest, Error=::hyper::Error> + Send> {
         let (parts, body) = self.into_parts();
         Box::new(body.concat2().map(move |b| {
             let body_vec: Vec<u8> = b.to_vec();
@@ -348,7 +433,8 @@ impl LoadBody for Request<Body> {
 /// A Structure which represent a fully mutable http response
 pub struct SyncResponse {
     builder: ResponseBuilder,
-    body: Box<ToBody>,
+    cookies: Option<CookieJar>,
+    body: Box<dyn ToBody>,
 }
 
 impl SyncResponse {
@@ -356,6 +442,7 @@ impl SyncResponse {
     pub fn new() -> Self {
         SyncResponse {
             builder: ResponseBuilder::new(),
+            cookies: None,
             body: Box::new(EMPTY_BODY),
         }
     }
@@ -470,6 +557,17 @@ impl SyncResponse {
         self
     }
 
+    /// Set a cookie with the Set-Cookie header
+    pub fn cookie(&mut self, cookie: Cookie<'static>) -> &mut SyncResponse {
+        if self.cookies.is_none() {
+            self.cookies = Some(CookieJar::new());
+        }
+
+        self.cookies.as_mut().expect("Should not happens").add(cookie);
+
+        self
+    }
+
     /// Adds a body to a response
     ///
     /// # Examples
@@ -490,7 +588,12 @@ impl SyncResponse {
 
     ///
     pub fn build_response(self) -> Result<Response<Body>, crate::http_types::Error> {
-        let SyncResponse { mut builder, body } = self;
+        let SyncResponse { mut builder, cookies, body } = self;
+        if let Some(cookies) = cookies {
+            cookies.iter().for_each(|c| {
+                builder.header(header::SET_COOKIE, c.to_string());
+            })
+        }
         let b: Body = body.to_body();
         builder.body(b)
     }

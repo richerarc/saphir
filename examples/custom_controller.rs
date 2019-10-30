@@ -24,7 +24,7 @@ struct CustomInner {
 impl CustomInner {
     pub fn inner_fuction(&self, req: &SyncRequest, res: &mut SyncResponse) {
         // All equest will be handled here
-        if let Some(c) = req.cookies().get("MySuperCookie") {
+        if let Some(_c) = req.cookies().get("MySuperCookie") {
             res.cookie(Cookie::build("MySecondSuperCookie", "ThisIsAReallyAwesomeValue").http_only(true).path("/custom").same_site(SameSite::Strict).finish());
         } else {
             res.cookie(Cookie::build("MySuperCookie", "ThisIsAnAwesomeValue").http_only(true).path("/custom").same_site(SameSite::Strict).finish());

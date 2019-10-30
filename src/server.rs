@@ -259,8 +259,7 @@ impl Server {
                 {
                     if let (Some(cert_path), Some(key_path)) = self.listener_config.ssl_files_path() {
                         use std::sync::Arc;
-                        use futures::Stream;
-                        use server::ssl_loading_utils::*;
+                        use crate::server::ssl_loading_utils::*;
                         use tokio_rustls::TlsAcceptor;
 
                         let certs = load_certs(cert_path.as_ref());
@@ -276,15 +275,16 @@ impl Server {
                         });
 
                         let server = ::hyper::server::Builder::new(inc, ::hyper::server::conn::Http::new()).serve(move || {
+                            let handler = service.clone();
                             service_fn(move |req| {
-                                service.handle(req)
+                                handler.handle(req)
                             })
                         }).with_graceful_shutdown(receiver).map_err(|e| error!("server error: {}", e));
 
                         executor.spawn(server);
                         info!("Saphir successfully started and listening on {}", uri);
                     } else {
-                        return Err(::error::ServerError::BadListenerConfig);
+                        return Err(crate::error::ServerError::BadListenerConfig);
                     }
                 }
 

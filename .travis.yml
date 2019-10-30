@@ -2,7 +2,7 @@ language: rust
 cache: cargo
 
 script:
-  - cargo check --verbose
+  - cargo check --all-features --verbose
 
 notifications:
   email:

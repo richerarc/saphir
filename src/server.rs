@@ -19,8 +19,8 @@ const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 15000;
 pub struct ListenerBuilder {
     request_timeout_ms: u64,
     uri: Option<String>,
-    cert_path: Option<String>,
-    key_path: Option<String>,
+    cert_config: Option<SslConfig>,
+    key_config: Option<SslConfig>,
     thread_pool_size: Option<usize>,
 }
 
@@ -30,8 +30,8 @@ impl ListenerBuilder {
         ListenerBuilder {
             request_timeout_ms: DEFAULT_REQUEST_TIMEOUT_MS,
             uri: None,
-            cert_path: None,
-            key_path: None,
+            cert_config: None,
+            key_config: None,
             thread_pool_size: None
         }
     }
@@ -56,9 +56,16 @@ impl ListenerBuilder {
 
     /// Set the listener ssl certificates files. The cert needs to be PEM encoded
     /// while the key can be either RSA or PKCS8
-    pub fn set_ssl_certificates(mut self, cert_path: &str, key_path: &str) -> Self {
-        self.cert_path = Some(cert_path.to_string());
-        self.key_path = Some(key_path.to_string());
+    pub fn set_ssl_certificates(self, cert_path: &str, key_path: &str) -> Self {
+        self.set_ssl_config(SslConfig::FilePath(cert_path.to_string()), SslConfig::FilePath(key_path.to_string()))
+    }
+
+    /// Set the listener ssl config. The cert needs to be PEM encoded
+    /// while the key can be either RSA or PKCS8. The file path can be used or the
+    /// file content directly where all \n and space have been removed.
+    pub fn set_ssl_config(mut self, cert_config: SslConfig, key_config: SslConfig) -> Self {
+        self.cert_config = Some(cert_config);
+        self.key_config = Some(key_config);
         self
     }
 
@@ -67,27 +74,37 @@ impl ListenerBuilder {
         let ListenerBuilder {
             request_timeout_ms,
             uri,
-            cert_path,
-            key_path,
+            cert_config,
+            key_config,
             thread_pool_size,
         } = self;
 
         ListenerConfig {
             request_timeout_ms,
             uri,
-            cert_path,
-            key_path,
+            cert_config,
+            key_config,
             thread_pool_size
         }
     }
+}
+
+/// A struct representing certificate or private key configuration.
+#[derive(Clone)]
+pub enum SslConfig {
+    /// File path
+    FilePath(String),
+
+    /// File content where all \n and space have been removed.
+    FileData(String),
 }
 
 /// A struct representing listener configuration
 pub struct ListenerConfig {
     request_timeout_ms: u64,
     uri: Option<String>,
-    cert_path: Option<String>,
-    key_path: Option<String>,
+    cert_config: Option<SslConfig>,
+    key_config: Option<SslConfig>,
     thread_pool_size: Option<usize>,
 }
 
@@ -101,8 +118,8 @@ mod listener_config_ext {
             ListenerConfig {
                 request_timeout_ms: DEFAULT_REQUEST_TIMEOUT_MS,
                 uri: None,
-                cert_path: None,
-                key_path: None,
+                cert_config: None,
+                key_config: None,
                 thread_pool_size: None
             }
         }
@@ -113,8 +130,8 @@ mod listener_config_ext {
         }
 
         #[doc(hidden)]
-        pub fn ssl_files_path(&self) -> (Option<String>, Option<String>) {
-            (self.cert_path.clone(), self.key_path.clone())
+        pub fn ssl_config(&self) -> (Option<SslConfig>, Option<SslConfig>) {
+            (self.cert_config.clone(), self.key_config.clone())
         }
     }
 }
@@ -241,8 +258,8 @@ impl Server {
         };
 
         if scheme.eq(&crate::http_types::uri::Scheme::HTTP) {
-            if let (Some(_), _) = self.listener_config.ssl_files_path() {
-                warn!("SSL certificate paths are provided but the listener was configured to use unsecured HTTP, try changing the uri scheme for https");
+            if let (Some(_), _) = self.listener_config.ssl_config() {
+                warn!("SSL certificate configuration are provided but the listener was configured to use unsecured HTTP, try changing the uri scheme for https");
             }
 
             let server = ::hyper::server::Builder::new(listener.incoming(), ::hyper::server::conn::Http::new()).serve(move || {
@@ -257,13 +274,13 @@ impl Server {
         } else if scheme.eq(&crate::http_types::uri::Scheme::HTTPS) {
             #[cfg(feature = "https")]
                 {
-                    if let (Some(cert_path), Some(key_path)) = self.listener_config.ssl_files_path() {
+                    if let (Some(cert_config), Some(key_config)) = self.listener_config.ssl_config() {
                         use std::sync::Arc;
                         use crate::server::ssl_loading_utils::*;
                         use tokio_rustls::TlsAcceptor;
 
-                        let certs = load_certs(cert_path.as_ref());
-                        let key = load_private_key(key_path.as_ref());
+                        let certs = load_certs(&cert_config);
+                        let key = load_private_key(&key_config);
                         let mut cfg = ::rustls::ServerConfig::new(::rustls::NoClientAuth::new());
                         let _ = cfg.set_single_cert(certs, key);
                         let arc_config = Arc::new(cfg);
@@ -416,14 +433,46 @@ mod ssl_loading_utils {
     use rustls;
     use std::fs;
     use std::io::BufReader;
+    use crate::server::SslConfig;
 
-    pub fn load_certs(filename: &str) -> Vec<rustls::Certificate> {
-        let certfile = fs::File::open(filename).expect("cannot open certificate file");
-        let mut reader = BufReader::new(certfile);
-        rustls::internal::pemfile::certs(&mut reader).expect("Unable to load certificate")
+    pub fn load_certs(cert_config: &SslConfig) -> Vec<rustls::Certificate> {
+        match cert_config {
+            SslConfig::FilePath(filename) => {
+                let certfile = fs::File::open(filename).expect("cannot open certificate file");
+                let mut reader = BufReader::new(certfile);
+                rustls::internal::pemfile::certs(&mut reader).expect("Unable to load certificate from file")
+            }
+            SslConfig::FileData(data) => {
+                extract_der_data(data.to_string(),
+                                 "-----BEGIN CERTIFICATE-----",
+                                 "-----END CERTIFICATE-----",
+                                 &|v| rustls::Certificate(v))
+                    .expect("Unable to load certificate from data")
+            }
+        }
     }
 
-    pub fn load_private_key(filename: &str) -> rustls::PrivateKey {
+    pub fn load_private_key(key_config: &SslConfig) -> rustls::PrivateKey {
+        match key_config {
+            SslConfig::FilePath(filename) => {
+                load_private_key_from_file(&filename)
+            }
+            SslConfig::FileData(data) => {
+                let pkcs8_keys = load_pkcs8_private_key_from_data(data);
+
+                if !pkcs8_keys.is_empty() {
+                    pkcs8_keys[0].clone()
+                } else {
+                    let rsa_keys = load_rsa_private_key_from_data(data);
+                    assert!(!rsa_keys.is_empty(), "Unable to load key");
+                    rsa_keys[0].clone()
+                }
+
+            }
+        }
+    }
+
+    fn load_private_key_from_file(filename: &str) -> rustls::PrivateKey {
         let rsa_keys = {
             let keyfile = fs::File::open(filename)
                 .expect("cannot open private key file");
@@ -447,5 +496,50 @@ mod ssl_loading_utils {
             assert!(!rsa_keys.is_empty(), "Unable to load key");
             rsa_keys[0].clone()
         }
+    }
+
+    fn load_pkcs8_private_key_from_data(data: &str) -> Vec<rustls::PrivateKey> {
+        extract_der_data(data.to_string(),
+                         "-----BEGIN PRIVATE KEY-----",
+                         "-----END PRIVATE KEY-----",
+                         &|v| rustls::PrivateKey(v))
+            .expect("Unable to load private key from data")
+    }
+
+    fn load_rsa_private_key_from_data(data: &str) -> Vec<rustls::PrivateKey> {
+        extract_der_data(data.to_string(),
+                         "-----BEGIN RSA PRIVATE KEY-----",
+                         "-----END RSA PRIVATE KEY-----",
+                         &|v| rustls::PrivateKey(v))
+            .expect("Unable to load private key from data")
+    }
+
+    fn extract_der_data<A>(mut data: String,
+                           start_mark: &str,
+                           end_mark: &str,
+                           f: &dyn Fn(Vec<u8>) -> A)
+                           -> Result<Vec<A>, ()> {
+        let mut ders = Vec::new();
+
+        loop {
+            if let Some(start_index) = data.find(start_mark) {
+                let drain_index = start_index + start_mark.len();
+                data.drain(..drain_index);
+                if let Some(index) = data.find(end_mark) {
+                    let base64_buf = &data[..index];
+                    let der = base64::decode(&base64_buf).map_err(|_| ())?;
+                    ders.push(f(der));
+
+                    let drain_index = index + end_mark.len();
+                    data.drain(..drain_index);
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        Ok(ders)
     }
 }

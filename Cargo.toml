@@ -1,6 +1,6 @@
 [package]
 name = "saphir"
-version = "0.9.4"
+version = "0.9.5"
 edition = "2018"
 authors = ["richer <richer.arc@gmail.com>"]
 description = "Yet another http server framework based on Hyper-rs"

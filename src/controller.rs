@@ -117,9 +117,11 @@ impl<T: Send + Sync> ControllerDispatch<T> {
     /// # Example
     ///
     /// ```rust,no_run
+    /// use saphir::*;
+    /// 
     /// let u8_context = 1;
     /// let dispatch = ControllerDispatch::new(u8_context);
-    /// dispatch.add(Method::Get, "^/test$", |ctx, req, res| { println!("this will handle Get request done on <your_host>/test")});
+    /// dispatch.add(Method::GET, "^/test$", |ctx, req, res| { println!("this will handle Get request done on <your_host>/test")});
     /// ```
     pub fn add<F>(&self, method: Method, path: &str, delegate_func: F)
         where for<'r, 's, 't0> F: 'static + Fn(&'r T, &'s SyncRequest, &'t0 mut SyncResponse) {
@@ -130,10 +132,12 @@ impl<T: Send + Sync> ControllerDispatch<T> {
     /// # Example
     ///
     /// ```rust,no_run
+    /// use saphir::*;
+    /// 
     /// let u8_context = 1;
     /// let guard = BodyGuard;
     /// let dispatch = ControllerDispatch::new(u8_context);
-    /// dispatch.add_with_guards(Method::Get, "^/test$", guard.into(), |ctx, req, res| { println!("this will handle Get request done on <your_host>/test")});
+    /// dispatch.add_with_guards(Method::GET, "^/test$", guard.into(), |ctx, req, res| { println!("this will handle Get request done on <your_host>/test")});
     /// ```
     pub fn add_with_guards<F>(&self, method: Method, path: &str, guards: RequestGuardCollection, delegate_func: F)
         where for<'r, 's, 't0> F: 'static + Fn(&'r T, &'s SyncRequest, &'t0 mut SyncResponse) {
@@ -209,9 +213,12 @@ impl<C: Send + Sync> BasicController<C> {
     /// # Example
     ///
     /// ```rust,no_run
+    /// use saphir::*;
+    /// use saphir::controller::BasicController;
+    /// 
     /// let u8_context = 1;
-    /// let u8_controller = BasicController::new(u8_context);
-    /// u8_controller.add(Method::Get, "^/test$", |ctx, req, res| { println!("this will handle Get request done on <your_host>/test")});
+    /// let u8_controller = BasicController::new("/test", u8_context);
+    /// u8_controller.add(Method::GET, "^/test$", |ctx, req, res| { println!("this will handle Get request done on <your_host>/test")});
     /// ```
     pub fn add<F>(&self, method: Method, path: &str, delegate_func: F)
         where for<'r, 's, 't0> F: 'static + Fn(&'r C, &'s SyncRequest, &'t0 mut SyncResponse) {
@@ -222,9 +229,12 @@ impl<C: Send + Sync> BasicController<C> {
     /// # Example
     ///
     /// ```rust,no_run
+    /// use saphir::*;
+    /// use saphir::controller::BasicController;
+    /// 
     /// let u8_context = 1;
-    /// let u8_controller = BasicController::new(u8_context);
-    /// u8_controller.add(Method::Get, "^/test$", |ctx, req, res| { println!("this will handle Get request done on <your_host>/test")});
+    /// let u8_controller = BasicController::new("/test", u8_context);
+    /// u8_controller.add(Method::GET, "^/test$", |ctx, req, res| { println!("this will handle Get request done on <your_host>/test")});
     /// ```
     pub fn add_with_guards<F>(&self, method: Method, path: &str, guards: RequestGuardCollection, delegate_func: F)
         where for<'r, 's, 't0> F: 'static + Fn(&'r C, &'s SyncRequest, &'t0 mut SyncResponse) {

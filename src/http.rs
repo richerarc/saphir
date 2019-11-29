@@ -104,7 +104,6 @@ impl SyncRequest {
     ///
     /// ```rust,no_run
     /// # use saphir::*;
-    /// # use saphir::headers::*;
     /// let request: Request<()> = Request::default();
     /// assert_eq!(*request.method(), Method::GET);
     /// ```
@@ -119,7 +118,6 @@ impl SyncRequest {
     ///
     /// ```rust,no_run
     /// # use saphir::*;
-    /// # use saphir::headers::*;
     /// let mut request: Request<()> = Request::default();
     /// *request.method_mut() = Method::PUT;
     /// assert_eq!(*request.method(), Method::PUT);
@@ -135,7 +133,6 @@ impl SyncRequest {
     ///
     /// ```rust,no_run
     /// # use saphir::*;
-    /// # use saphir::headers::*;
     /// let request: Request<()> = Request::default();
     /// assert_eq!(*request.uri(), *"/");
     /// ```
@@ -150,7 +147,6 @@ impl SyncRequest {
     ///
     /// ```rust,no_run
     /// # use saphir::*;
-    /// # use saphir::headers::*;
     /// let mut request: Request<()> = Request::default();
     /// *request.uri_mut() = "/hello".parse().unwrap();
     /// assert_eq!(*request.uri(), *"/hello");
@@ -231,7 +227,6 @@ impl SyncRequest {
     ///
     /// ```rust,no_run
     /// # use saphir::*;
-    /// # use saphir::headers::*;
     /// let request: Request<()> = Request::default();
     /// assert_eq!(request.version(), Version::HTTP_11);
     /// ```
@@ -246,7 +241,6 @@ impl SyncRequest {
     ///
     /// ```rust,no_run
     /// # use saphir::*;
-    /// # use saphir::headers::*;
     /// let mut request: Request<()> = Request::default();
     /// *request.version_mut() = Version::HTTP_2;
     /// assert_eq!(request.version(), Version::HTTP_2);
@@ -261,8 +255,8 @@ impl SyncRequest {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// # use saphir::*;
-    /// # use saphir::headers::*;
+    /// use saphir::*;
+    /// 
     /// let request: Request<()> = Request::default();
     /// assert!(request.headers().is_empty());
     /// ```
@@ -276,8 +270,9 @@ impl SyncRequest {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// # use saphir::*;
-    /// # use saphir::headers::*;
+    /// use saphir::*;
+    /// use saphir::header::*;
+    /// 
     /// let mut request: Request<()> = Request::default();
     /// request.headers_mut().insert(HOST, HeaderValue::from_static("world"));
     /// assert!(!request.headers().is_empty());
@@ -311,7 +306,6 @@ impl SyncRequest {
     ///
     /// ```rust,no_run
     /// # use saphir::*;
-    /// # use saphir::headers::*;
     /// let request: Request<()> = Request::default();
     /// assert!(request.extensions().get::<i32>().is_none());
     /// ```
@@ -326,7 +320,6 @@ impl SyncRequest {
     ///
     /// ```rust,no_run
     /// # use saphir::*;
-    /// # use saphir::headers::*;
     /// let mut request: Request<()> = Request::default();
     /// request.extensions_mut().insert("hello");
     /// assert_eq!(request.extensions().get(), Some(&"hello"));
@@ -342,7 +335,6 @@ impl SyncRequest {
     ///
     /// ```rust,no_run
     /// # use saphir::*;
-    /// # use saphir::headers::*;
     /// let request: Request<String> = Request::default();
     /// assert!(request.body().is_empty());
     /// ```
@@ -357,7 +349,6 @@ impl SyncRequest {
     ///
     /// ```rust,no_run
     /// # use saphir::*;
-    /// # use saphir::headers::*;
     /// let mut request: Request<String> = Request::default();
     /// request.body_mut().push_str("hello world");
     /// assert!(!request.body().is_empty());
@@ -458,7 +449,6 @@ impl SyncResponse {
     ///
     /// ```rust,no_run
     /// # use saphir::*;
-    /// # use saphir::headers::*;
     ///
     /// let response = SyncResponse::new()
     ///     .status(200)
@@ -483,7 +473,6 @@ impl SyncResponse {
     ///
     /// ```rust,no_run
     /// # use saphir::*;
-    /// # use saphir::headers::*;
     ///
     /// let response = SyncResponse::new()
     ///     .version(Version::HTTP_2)
@@ -505,7 +494,6 @@ impl SyncResponse {
     ///
     /// ```rust,no_run
     /// # use saphir::*;
-    /// # use saphir::headers::*;
     ///
     /// let response = SyncResponse::new()
     ///     .header("Content-Type", "text/html")
@@ -540,7 +528,6 @@ impl SyncResponse {
     ///
     /// ```rust,no_run
     /// # use saphir::*;
-    /// # use saphir::headers::*;
     ///
     /// let response = SyncResponse::new()
     ///     .extension("My Extension")
@@ -574,10 +561,9 @@ impl SyncResponse {
     ///
     /// ```rust,no_run
     /// # use saphir::*;
-    /// # use saphir::headers::*;
     ///
     /// let response = SyncResponse::new()
-    ///     .body(b"this is a payload")
+    ///     .body("this is a payload")
     ///     .build_response()
     ///     .unwrap();
     /// ```

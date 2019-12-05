@@ -177,21 +177,21 @@ impl Builder {
 
     /// This method will call the provided closure with a mutable ref of the router
     /// Once into the closure it is possible to add controllers to the router.
-    pub fn configure_router<F>(mut self, config_fn: F) -> Self where F: Fn(RouterBuilder) -> RouterBuilder {
+    pub fn configure_router<F>(mut self, config_fn: F) -> Self where F: FnOnce(RouterBuilder) -> RouterBuilder {
         self.router = Some(config_fn(RouterBuilder::new()).build());
         self
     }
 
     /// This method will call the provided closure with a mutable ref of the middleware_stack
     /// Once into the closure it is possible to add middlewares to the middleware_stack.
-    pub fn configure_middlewares<F>(mut self, config_fn: F) -> Self where F: Fn(MidStackBuilder) -> MidStackBuilder {
+    pub fn configure_middlewares<F>(mut self, config_fn: F) -> Self where F: FnOnce(MidStackBuilder) -> MidStackBuilder {
         self.middleware_stack = Some(config_fn(MidStackBuilder::new()).build());
         self
     }
 
     /// This method will call the provided closure with a mutable ref of the listener configurations
     /// Once into the closure it is possible to set the uri and ssl file paths.
-    pub fn configure_listener<F>(mut self, config_fn: F) -> Self where F: Fn(ListenerBuilder) -> ListenerBuilder {
+    pub fn configure_listener<F>(mut self, config_fn: F) -> Self where F: FnOnce(ListenerBuilder) -> ListenerBuilder {
         self.listener_config = Some(config_fn(ListenerBuilder::new()).build());
         self
     }

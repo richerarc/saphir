@@ -21,12 +21,17 @@ impl Builder {
     /// Add a new controller with its route to the router
     /// # Example
     /// ```rust,no_run
+    /// use saphir::*;
+    /// use saphir::controller::BasicController;
+    /// use saphir::router::Builder;
+    /// 
     /// let u8_context = 1;
-    /// let u8_controller = BasicController::new(u8_context);
-    /// u8_controller.add(Method::Get, "^/test$", |ctx, req, res| { println!("this will handle Get request done on <your_host>/test")});
+    /// let u8_controller = BasicController::new("/test", u8_context);
+    /// u8_controller.add(Method::GET, "^/test$", |ctx, req, res| { println!("this will handle Get request done on <your_host>/test")});
     ///
-    /// let mut router = Router::new();
-    /// router.add("/test", u8_controller);
+    /// let mut router = Builder::new()
+    ///         .add(u8_controller)
+    ///         .build();
     ///
     /// ```
     pub fn add<C: 'static + Controller>(mut self, controller: C) -> Self {
@@ -39,12 +44,17 @@ impl Builder {
     /// Add a new controller with its route to the router
     /// # Example
     /// ```rust,no_run
+    /// use saphir::*;
+    /// use saphir::controller::BasicController;
+    /// use saphir::router::Builder;
+    /// 
     /// let u8_context = 1;
-    /// let u8_controller = BasicController::new(u8_context);
-    /// u8_controller.add(Method::Get, "^/test$", |ctx, req, res| { println!("this will handle Get request done on <your_host>/test")});
+    /// let u8_controller = BasicController::new("/test", u8_context);
+    /// u8_controller.add(Method::GET, "^/test$", |ctx, req, res| { println!("this will handle Get request done on <your_host>/test")});
     ///
-    /// let mut router = Router::new();
-    /// router.add("/test", u8_controller);
+    /// let mut router = Builder::new()
+    ///         .add(u8_controller)
+    ///         .build();
     ///
     /// ```
     pub fn route<C: 'static + Controller>(mut self, route: &str, controller: C) -> Self {

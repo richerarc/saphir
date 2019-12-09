@@ -394,15 +394,21 @@ impl HttpService {
 
                 let elapsed = req_iat.elapsed();
 
-                use ansi_term::Colour::*;
-
                 let status_str = resp_status.to_string();
 
-                let status = match resp_status.as_u16() {
-                    0..=199 => Cyan.paint(status_str),
-                    200..=299 => Green.paint(status_str),
-                    400..=599 => Red.paint(status_str),
-                    _ => Yellow.paint(status_str),
+                let status = {
+                    #[cfg(feature = "colored_logs")]
+                        {
+                            use ansi_term::Colour::*;
+                            match resp_status.as_u16() {
+                                0..=199 => Cyan.paint(status_str),
+                                200..=299 => Green.paint(status_str),
+                                400..=599 => Red.paint(status_str),
+                                _ => Yellow.paint(status_str),
+                            }
+                        }
+                    #[cfg(not(feature = "colored_logs"))]
+                        status_str
                 };
 
                 info!("{} {} {} - {:.3}ms", request.method(), request.uri().path(), status, (elapsed.as_secs() as f64

@@ -21,7 +21,7 @@ colored_logs = ["ansi_term"]
 [dependencies]
 log = "~0.4.6"
 hyper = "~0.12.25"
-hyperx = "~0.15.0"
+hyperx = "~1.0.0"
 http = "~0.1.16"
 futures = "~0.1.25"
 regex = "~1.3.1"

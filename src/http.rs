@@ -98,6 +98,12 @@ impl SyncRequest {
         }
     }
 
+    /// Returns a reference to this request head.
+    #[inline]
+    pub fn head(&self) -> &ReqParts {
+        &self.head
+    }
+
     /// Returns a reference to the associated HTTP method.
     ///
     /// # Examples

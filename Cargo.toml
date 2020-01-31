@@ -29,7 +29,7 @@ tokio = "~0.1.18"
 tokio-signal = "0.2.7"
 parking_lot = "~0.10.0"
 threadpool = "~1.7.1"
-hashbrown = "~0.6.0"
+hashbrown = "~0.7.0"
 num_cpus = "1.10"
 cookie = { package = "saphir-cookie", version = "0.13.0" }
 

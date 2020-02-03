@@ -1,4 +1,6 @@
 # Saphir
+
+## *_!!Version 1.0.0 is no longer maintained!! Please use version 2.x_*
 [![doc](https://docs.rs/saphir/badge.svg)](https://docs.rs/saphir/)
 [![crate](https://img.shields.io/crates/v/saphir.svg)](https://crates.io/crates/saphir)
 [![issue](https://img.shields.io/github/issues/richerarc/saphir.svg)](https://github.com/richerarc/saphir/issues)

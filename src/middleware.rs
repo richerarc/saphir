@@ -1,102 +1,170 @@
-use std::sync::Arc;
+//! A middleware is an object being called before the request is processed by the router, allowing
+//! to continue or stop the processing of a given request by calling / omitting next.
+//!
+//! ```ignore
+//!        chain.next(_)       chain.next(_)
+//!              |               |
+//!              |               |
+//! +---------+  |  +---------+  |  +---------+
+//! |         +--+->+         +--+->+         |
+//! | Middle  |     | Middle  |     |  Router |
+//! | ware1   |     | ware2   |     |         |
+//! |         +<----+         +<----+         |
+//! +---------+     +---------+     +---------+
+//! ```
+//!
+//! Once the request is fully processed by the stack or whenever a middleware returns an error,
+//! the request is terminated and the response is generated, the response then becomes available
+//! to the middleware
+//!
+//! A middleware is defined as the following:
+//!
+//! ```rust
+//!# use saphir::prelude::*;
+//!# struct CustomData;
+//!
+//! async fn example_middleware(data: &CustomData, ctx: HttpContext<Body>, chain: &dyn MiddlewareChain) -> Result<Response<Body>, SaphirError> {
+//!     // Do work before the request is handled by the router
+//!
+//!     let res = chain.next(ctx).await?;
+//!
+//!     // Do work with the response
+//!
+//!     Ok(res)
+//! }
+//! ```
 
-use log::error;
-use crate::http::*;
-use crate::utils::{RequestContinuation, UriPathMatcher};
-use crate::utils::RequestContinuation::*;
+use crate::{error::SaphirError, http_context::HttpContext, response::Response, utils::UriPathMatcher};
+use futures::{future::BoxFuture, FutureExt};
+use futures_util::future::Future;
+use hyper::Body;
 
-///
-pub struct Builder {
-    stack: Vec<(MiddlewareRule, Box<dyn Middleware>)>,
+/// Auto trait implementation over every function that match the definition of a middleware.
+pub trait MiddlewareHandler<Data> {
+    fn next(
+        &self,
+        data: &Data,
+        ctx: HttpContext<Body>,
+        chain: &dyn MiddlewareChain,
+    ) -> BoxFuture<'static, Result<Response<Body>, SaphirError>>;
 }
 
-impl Builder {
-    /// Creates a new MiddlewareStack Builder
-    pub fn new() -> Self {
-        Builder {
-            stack: Vec::new()
-        }
+impl<Data, Fun, Fut> MiddlewareHandler<Data> for Fun
+where
+    Data: 'static,
+    Fun: Fn(&'static Data, HttpContext<Body>, &'static dyn MiddlewareChain) -> Fut,
+    Fut: 'static + Future<Output = Result<Response<Body>, SaphirError>> + Send,
+{
+    #[inline]
+    fn next(
+        &self,
+        data: &Data,
+        ctx: HttpContext<Body>,
+        chain: &dyn MiddlewareChain,
+    ) -> BoxFuture<'static, Result<Response<Body>, SaphirError>> {
+        // # SAFETY #
+        // The middleware chain and data are initialized in static memory when calling run on Server.
+        let (data, chain) = unsafe {
+            (
+                std::mem::transmute::<&'_ Data, &'static Data>(data),
+                std::mem::transmute::<&'_ dyn MiddlewareChain, &'static dyn MiddlewareChain>(chain),
+            )
+        };
+        (*self)(data, ctx, chain).boxed()
     }
+}
 
+/// Builder to apply middleware onto the http stack
+pub struct Builder<Chain: MiddlewareChain> {
+    chain: Chain,
+}
+
+impl Default for Builder<MiddleChainEnd> {
+    fn default() -> Self {
+        Self { chain: MiddleChainEnd }
+    }
+}
+
+impl<Chain: MiddlewareChain + 'static> Builder<Chain> {
     /// Method to apply a new middleware onto the stack where the `include_path` vec are all path affected by the middleware,
     /// and `exclude_path` are exclusion amongst the included paths.
-    pub fn apply<M: 'static + Middleware>(mut self, m: M, include_path: Vec<&str>, exclude_path: Option<Vec<&str>>) -> Self {
-        let rule = MiddlewareRule::new(include_path, exclude_path);
-        let boxed_m = Box::new(m);
-
-        self.stack.push((rule, boxed_m));
-
-        self
+    ///
+    /// ```rust
+    ///# use saphir::prelude::*;
+    ///
+    ///# async fn log_middleware(
+    ///#     prefix: &String,
+    ///#     ctx: HttpContext<Body>,
+    ///#     chain: &dyn MiddlewareChain,
+    ///# ) -> Result<Response<Body>, SaphirError> {
+    ///#     println!("{} | new request on path: {}", prefix, ctx.request.uri().path());
+    ///#     let res = chain.next(ctx).await?;
+    ///#     println!("{} | new response with status: {}", prefix, res.status());
+    ///#     Ok(res)
+    ///# }
+    ///
+    /// let builder = MiddlewareBuilder::default().apply(log_middleware, "LOG".to_string(), vec!["/"], None);
+    /// ```
+    pub fn apply<'a, Data, Handler, E>(
+        self,
+        handler: Handler,
+        data: Data,
+        include_path: Vec<&str>,
+        exclude_path: E,
+    ) -> Builder<MiddlewareChainLink<Data, Handler, Chain>>
+    where
+        Data: Sync + Send,
+        Handler: 'static + MiddlewareHandler<Data> + Sync + Send,
+        E: Into<Option<Vec<&'a str>>>,
+    {
+        let rule = Rule::new(include_path, exclude_path.into());
+        Builder {
+            chain: MiddlewareChainLink {
+                rule,
+                data,
+                handler,
+                rest: self.chain,
+            },
+        }
     }
 
     /// Build the middleware stack
-    pub fn build(self) -> MiddlewareStack {
-        let Builder {
-            stack,
-        } = self;
-
-        MiddlewareStack {
-            middlewares: Arc::new(stack),
-        }
+    pub(crate) fn build(self) -> Box<dyn MiddlewareChain> {
+        Box::new(self.chain)
     }
 }
 
-/// Struct representing the layering of middlewares in the server
-pub struct MiddlewareStack {
-    middlewares: Arc<Vec<(MiddlewareRule, Box<dyn Middleware>)>>
-}
-
-impl MiddlewareStack {
-    ///
-    pub fn new() -> Self {
-        MiddlewareStack {
-            middlewares: Arc::new(Vec::new())
-        }
-    }
-
-    ///
-    pub fn resolve(&self, req: &mut SyncRequest, res: &mut SyncResponse) -> RequestContinuation {
-        for &(ref rule, ref middleware) in self.middlewares.iter() {
-            if rule.validate_path(req.uri().path()) {
-                if let Stop = middleware.resolve(req, res) {
-                    return Stop;
-                }
-            }
-        }
-
-        Continue
-    }
-}
-
-impl Clone for MiddlewareStack {
-    fn clone(&self) -> Self {
-        MiddlewareStack {
-            middlewares: self.middlewares.clone(),
-        }
-    }
-}
-
-/// The trait a struct need to `impl` to be considered as a middleware
-pub trait Middleware: Send + Sync {
-    /// This method will be invoked if the request is targeting an included path, (as defined when "applying" the middleware to the stack)
-    /// and doesn't match any exclusion. Returning `RequestContinuation::Continue` will allow the request to continue through the stack, and
-    /// returning `RequestContinuation::Stop` will cease the request processing, returning as response the modified `res` param.
-    fn resolve(&self, req: &mut SyncRequest, res: &mut SyncResponse) -> RequestContinuation;
-}
-
-struct MiddlewareRule {
+#[doc(hidden)]
+pub(crate) struct Rule {
     included_path: Vec<UriPathMatcher>,
     excluded_path: Option<Vec<UriPathMatcher>>,
 }
 
-impl MiddlewareRule {
+impl Rule {
+    #[doc(hidden)]
     pub fn new(include_path: Vec<&str>, exclude_path: Option<Vec<&str>>) -> Self {
-        MiddlewareRule {
-            included_path: include_path.iter().filter_map(|p| UriPathMatcher::new(p).map_err(|e| error!("Unable to construct included middleware route: {}", e)).ok()).collect(),
-            excluded_path: exclude_path.map(|ex| ex.iter().filter_map(|p| UriPathMatcher::new(p).map_err(|e| error!("Unable to construct excluded middleware route: {}", e)).ok()).collect()),
+        Rule {
+            included_path: include_path
+                .iter()
+                .filter_map(|p| {
+                    UriPathMatcher::new(p)
+                        .map_err(|e| error!("Unable to construct included middleware route: {}", e))
+                        .ok()
+                })
+                .collect(),
+            excluded_path: exclude_path.map(|ex| {
+                ex.iter()
+                    .filter_map(|p| {
+                        UriPathMatcher::new(p)
+                            .map_err(|e| error!("Unable to construct excluded middleware route: {}", e))
+                            .ok()
+                    })
+                    .collect()
+            }),
         }
     }
 
+    #[doc(hidden)]
     pub fn validate_path(&self, path: &str) -> bool {
         if self.included_path.iter().any(|m_p| m_p.match_start(path)) {
             if let Some(ref excluded_path) = self.excluded_path {
@@ -107,5 +175,51 @@ impl MiddlewareRule {
         }
 
         false
+    }
+}
+
+#[doc(hidden)]
+pub trait MiddlewareChain: Sync + Send {
+    fn next(&self, ctx: HttpContext<Body>) -> BoxFuture<'static, Result<Response<Body>, SaphirError>>;
+}
+
+#[doc(hidden)]
+pub struct MiddleChainEnd;
+
+impl MiddlewareChain for MiddleChainEnd {
+    #[doc(hidden)]
+    #[inline]
+    fn next(&self, ctx: HttpContext<Body>) -> BoxFuture<'static, Result<Response<Body>, SaphirError>> {
+        async {
+            let (router, request) = (ctx.router, ctx.request);
+            router.handle(request).await
+        }
+        .boxed()
+    }
+}
+
+#[doc(hidden)]
+pub struct MiddlewareChainLink<Data, Handler: MiddlewareHandler<Data>, Rest: MiddlewareChain> {
+    rule: Rule,
+    data: Data,
+    handler: Handler,
+    rest: Rest,
+}
+
+#[doc(hidden)]
+impl<Data, Handler, Rest> MiddlewareChain for MiddlewareChainLink<Data, Handler, Rest>
+where
+    Data: Sync + Send,
+    Handler: MiddlewareHandler<Data> + Sync + Send,
+    Rest: MiddlewareChain,
+{
+    #[doc(hidden)]
+    #[inline]
+    fn next(&self, ctx: HttpContext<Body>) -> BoxFuture<'static, Result<Response<Body>, SaphirError>> {
+        if self.rule.validate_path(ctx.request.uri().path()) {
+            self.handler.next(&self.data, ctx, &self.rest)
+        } else {
+            self.rest.next(ctx)
+        }
     }
 }

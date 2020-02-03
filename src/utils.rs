@@ -1,7 +1,59 @@
-#![allow(dead_code)]
-
 use regex::Regex;
 use std::slice::Iter;
+use http::Method;
+use crate::request::Request;
+use hyper::Body;
+use crate::error::SaphirError;
+use std::collections::HashSet;
+use std::sync::atomic::AtomicU64;
+
+static ENDPOINT_ID: AtomicU64 = AtomicU64::new(0);
+
+pub enum EndpointResolverResult {
+    InvalidPath,
+    MethodNotAllowed,
+    Match,
+}
+
+pub struct EndpointResolver {
+    path_matcher: UriPathMatcher,
+    methods: HashSet<Method>,
+    id: u64,
+}
+
+impl EndpointResolver {
+    pub fn new(path_str: &str, method: Method) -> Result<EndpointResolver, SaphirError> {
+        let mut methods = HashSet::new();
+        methods.insert(Method::OPTIONS);
+        methods.insert(method);
+
+        Ok(EndpointResolver {
+            path_matcher: UriPathMatcher::new(path_str).map_err(|e| SaphirError::Other(e))?,
+            methods,
+            id: ENDPOINT_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        })
+    }
+
+    pub fn add_method(&mut self, m: Method) {
+        self.methods.insert(m);
+    }
+
+    pub fn resolve(&self, req: &mut Request<Body>) -> EndpointResolverResult {
+        if req.current_path_match_all(&self.path_matcher) {
+            if self.methods.contains(req.method()) {
+                EndpointResolverResult::Match
+            } else {
+                EndpointResolverResult::MethodNotAllowed
+            }
+        } else {
+            EndpointResolverResult::InvalidPath
+        }
+    }
+
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+}
 
 #[derive(Debug)]
 pub(crate) struct UriPathMatcher {
@@ -10,47 +62,37 @@ pub(crate) struct UriPathMatcher {
 
 impl UriPathMatcher {
     pub fn new(path_str: &str) -> Result<UriPathMatcher, String> {
-        let path_segment_result = path_str.split('/').filter_map(|ps: &str| {
-            if ps.len() > 0 {
-                Some(UriPathSegmentMatcher::new(ps))
-            } else {
-                None
-            }
-        });
-
-        let (ok, mut err): (Vec<Result<UriPathSegmentMatcher, String>>, Vec<Result<UriPathSegmentMatcher, String>>) = path_segment_result.partition(|res| {
-            res.is_ok()
-        });
-
-        if err.len() > 0 {
-            return Err(err.remove(0).err().expect("This is never gonna happens"));
-        }
-
-        let inner = ok.into_iter().map(|res| res.unwrap()).collect();
-
-        Ok(UriPathMatcher {
-            inner
-        })
+        let mut uri_path_matcher = UriPathMatcher {
+            inner: Vec::new(),
+        };
+        uri_path_matcher.append(path_str)?;
+        Ok(uri_path_matcher)
     }
 
     pub fn append(&mut self, append: &str) -> Result<(), String> {
-        let path_segment_result = append.split('/').filter_map(|ps: &str| {
-            if ps.len() > 0 {
-                Some(UriPathSegmentMatcher::new(ps))
-            } else {
-                None
-            }
-        });
+        let mut last_err = None;
+        let path_segments: Vec<UriPathSegmentMatcher> = append
+            .split('/')
+            .filter_map(|ps: &str| {
+                if ps.is_empty() {
+                    return None;
+                }
 
-        let (ok, mut err): (Vec<Result<UriPathSegmentMatcher, String>>, Vec<Result<UriPathSegmentMatcher, String>>) = path_segment_result.partition(|res| {
-            res.is_ok()
-        });
+                match UriPathSegmentMatcher::new(ps) {
+                    Ok(seg_matcher) => Some(seg_matcher),
+                    Err(e) => {
+                        last_err = Some(e);
+                        None
+                    }
+                }
+            })
+            .collect();
 
-        if err.len() > 0 {
-            return Err(err.remove(0).err().expect("This is never gonna happens"));
+        if let Some(e) = last_err {
+            return Err(e);
         }
 
-        self.inner.extend(ok.into_iter().map(|res| res.unwrap()));
+        self.inner.extend(path_segments);
 
         Ok(())
     }
@@ -94,28 +136,24 @@ impl UriPathSegmentMatcher {
             return Err("A path segment should not contain any /".to_string());
         }
 
-        if segment.starts_with('<') {
-            if segment.ends_with('>') {
-                let s: Vec<&str> = segment.trim_start_matches('<').trim_end_matches('>').splitn(2, "#r").collect();
-                if s.len() < 1 {
-                    return Err("No name was provided for a variable segment".to_string());
-                }
-
-                let name = if s[0].len() <= 1 {
-                    None
-                } else {
-                    Some(s[0].to_string())
-                };
-
-                let name_c = name.clone();
-
-                s.get(1).map(|r| {
-                    let r = r.trim_start_matches('(').trim_end_matches(')');
-                    Regex::new(r).map_err(|e| e.to_string()).map(|r| UriPathSegmentMatcher::Custom { name, segment: r })
-                }).unwrap_or_else(|| Ok(UriPathSegmentMatcher::Variable { name: name_c }))
-            } else {
-                Err("A variable path segment should start with < & end with >".to_string())
+        if (segment.starts_with('{') && segment.ends_with('}')) || (segment.starts_with('<') && segment.ends_with('>')) {
+            let s: Vec<&str> = segment[1..segment.len() - 1].splitn(2, "#r").collect();
+            if s.len() < 1 {
+                return Err("No name was provided for a variable segment".to_string());
             }
+
+            let name = if s[0].len() <= 1 {
+                None
+            } else {
+                Some(s[0].to_string())
+            };
+
+            let name_c = name.clone();
+
+            s.get(1).map(|r| {
+                let r = r.trim_start_matches('(').trim_end_matches(')');
+                Regex::new(r).map_err(|e| e.to_string()).map(|r| UriPathSegmentMatcher::Custom { name, segment: r })
+            }).unwrap_or_else(|| Ok(UriPathSegmentMatcher::Variable { name: name_c }))
         } else {
             Ok(UriPathSegmentMatcher::Static { segment: segment.to_string() })
         }
@@ -144,59 +182,4 @@ impl UriPathSegmentMatcher {
             _ => false
         }
     }
-}
-
-/// Enum representing whether or not a request should continue to be processed be the server
-pub enum RequestContinuation {
-    /// Next
-    Continue,
-    /// None
-    Stop,
-}
-
-/// Trait to convert string type to regular expressions
-pub trait ToRegex {
-    ///
-    fn to_regex(&self) -> Result<::regex::Regex, ::regex::Error>;
-    ///
-    fn as_str(&self) -> &str;
-}
-
-impl<'a> ToRegex for &'a str {
-    fn to_regex(&self) -> Result<::regex::Regex, ::regex::Error> {
-        ::regex::Regex::new(self)
-    }
-
-    fn as_str(&self) -> &str {
-        self
-    }
-}
-
-impl ToRegex for String {
-    fn to_regex(&self) -> Result<::regex::Regex, ::regex::Error> {
-        ::regex::Regex::new(self.as_str())
-    }
-
-    fn as_str(&self) -> &str {
-        &self
-    }
-}
-
-impl ToRegex for ::regex::Regex {
-    fn to_regex(&self) -> Result<::regex::Regex, ::regex::Error> {
-        Ok(self.clone())
-    }
-
-    fn as_str(&self) -> &str {
-        self.as_str()
-    }
-}
-
-#[macro_export]
-/// Convert a str to a regex
-macro_rules! reg {
-    ($str_regex:expr) => {
-        $str_regex.to_regex().expect("the parameter passed to reg macro is not a legitimate regex")
-    };
-
 }

@@ -61,7 +61,6 @@ impl<T> Request<T> {
     ///# use saphir::prelude::*;
     ///# use hyper::Request as RawRequest;
     ///# let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(()).unwrap(), None);
-    ///
     /// // Parse cookies
     /// req.parse_cookies();
     /// // then use cookies
@@ -81,7 +80,6 @@ impl<T> Request<T> {
     ///# use saphir::prelude::*;
     ///# use hyper::Request as RawRequest;
     ///# let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(()).unwrap(), None);
-    ///
     /// // Parse cookies
     /// req.parse_cookies();
     /// // then use cookies
@@ -99,7 +97,6 @@ impl<T> Request<T> {
     ///# use saphir::prelude::*;
     ///# use hyper::Request as RawRequest;
     ///# let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(()).unwrap(), None);
-    ///
     /// let user_id = req.captures().get("user_id");
     /// // retrieve user by id
     /// ```
@@ -120,7 +117,6 @@ impl<T> Request<T> {
     ///# use saphir::prelude::*;
     ///# use hyper::Request as RawRequest;
     ///# let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(()).unwrap(), None);
-    ///
     /// // req is Request<Body>
     /// let req: Request<String> = req.map(|_ignored_body| "New body".to_string());
     /// ```
@@ -145,12 +141,11 @@ impl<T> Request<T> {
     ///# use saphir::prelude::*;
     ///# use hyper::Request as RawRequest;
     ///# let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(Body::empty()).unwrap(), None);
-    ///
     /// // req is Request<Body>
-    /// let req = req.map_async(|b| async {hyper::body::to_bytes(b).await});
+    /// let req = req.async_map(|b| async {hyper::body::to_bytes(b).await});
     /// ```
     #[inline]
-    pub async fn map_async<F, Fut, U>(self, f: F) -> Request<U>
+    pub async fn async_map<F, Fut, U>(self, f: F) -> Request<U>
         where
             F: FnOnce(T) -> Fut,
             Fut: Future<Output=U>
@@ -220,7 +215,6 @@ impl<T, E> Request<Result<T, E>> {
     ///# use hyper::Request as RawRequest;
     ///# let r: Result<String, String> = Ok("Body".to_string());
     ///# let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(r).unwrap(), None);
-    ///
     /// // req is Request<Result<String, String>>
     /// let res = req.transpose();
     /// assert!(res.is_ok());
@@ -248,7 +242,6 @@ impl<T> Request<Option<T>> {
     ///# use saphir::prelude::*;
     ///# use hyper::Request as RawRequest;
     ///# let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(Some("Body".to_string())).unwrap(), None);
-    ///
     /// // req is Request<Option<String>>
     /// let opt = req.transpose();
     /// assert!(opt.is_some());

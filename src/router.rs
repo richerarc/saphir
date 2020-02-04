@@ -12,6 +12,7 @@ use http::Method;
 use hyper::Body;
 use std::{collections::HashMap, sync::Arc};
 
+/// Builder type for the router
 pub struct Builder<Chain: RouterChain + Send + Unpin + 'static + Sync> {
     resolver: HashMap<String, EndpointResolver>,
     chain: Chain,
@@ -29,6 +30,21 @@ impl Default for Builder<RouterChainEnd> {
 }
 
 impl<Controllers: 'static + RouterChain + Unpin + Send + Sync> Builder<Controllers> {
+    /// Add a simple request handle to a given path
+    ///
+    /// ```rust
+    ///# use saphir::router::Builder as RBuilder;
+    ///# use saphir::prelude::*;
+    ///#
+    ///# let builder = RBuilder::default();
+    /// // Simply declare a handler fn
+    /// async fn simple_handler(req: Request<Body>) -> impl Responder {200}
+    ///
+    /// // Then while building your server
+    /// // ...
+    /// builder.route("/simple", Method::GET, simple_handler);
+    /// // ...
+    /// ```
     pub fn route<H: 'static + DynHandler<Body> + Send + Sync>(
         mut self,
         route: &str,
@@ -50,6 +66,24 @@ impl<Controllers: 'static + RouterChain + Unpin + Send + Sync> Builder<Controlle
         self
     }
 
+    /// Add a simple request handle to a given path
+    ///
+    /// ```rust
+    ///# use saphir::router::Builder as RBuilder;
+    ///# use saphir::prelude::*;
+    ///#
+    ///# let builder = RBuilder::default();
+    /// // Implement controller for your struct
+    /// struct SimpleController;
+    ///# impl Controller for SimpleController {
+    ///#    const BASE_PATH: &'static str = "/basic";
+    ///#    fn handlers(&self) -> Vec<ControllerEndpoint<Self>> where Self: Sized {EndpointsBuilder::new().build()}
+    ///# }
+    /// // Then while building your server
+    /// // ...
+    /// builder.controller(SimpleController);
+    /// // ...
+    /// ```
     pub fn controller<C: Controller + Send + Unpin + Sync>(
         mut self,
         controller: C,
@@ -80,8 +114,8 @@ impl<Controllers: 'static + RouterChain + Unpin + Send + Sync> Builder<Controlle
         }
     }
 
-    /// Builds the router
-    pub fn build(self) -> Router {
+    #[doc(hidden)]
+    pub(crate) fn build(self) -> Router {
         let Builder {
             resolver,
             chain: controllers,
@@ -101,6 +135,7 @@ struct RouterInner {
     chain: Box<dyn RouterChain + Send + Unpin + Sync>,
 }
 
+#[doc(hidden)]
 #[derive(Clone)]
 pub struct Router {
     inner: Arc<RouterInner>,
@@ -144,16 +179,19 @@ impl Router {
     }
 }
 
+#[doc(hidden)]
 pub trait RouterChain {
     fn dispatch(&self, resolver_id: u64, req: Request<Body>) -> Option<BoxFuture<'static, Box<dyn DynResponder>>>;
     fn add_handler(&mut self, endpoint_id: u64, method: Method, handler: Box<dyn DynHandler<Body> + Send + Sync>);
 }
 
+#[doc(hidden)]
 pub struct RouterChainEnd {
     handlers: HashMap<(u64, Method), Box<dyn DynHandler<Body> + Send + Sync>>,
 }
 
 impl RouterChain for RouterChainEnd {
+    #[doc(hidden)]
     #[inline]
     fn dispatch(&self, resolver_id: u64, req: Request<Body>) -> Option<BoxFuture<'static, Box<dyn DynResponder>>> {
         if let Some(handler) = self.handlers.get(&(resolver_id, req.method().clone())) {
@@ -163,12 +201,14 @@ impl RouterChain for RouterChainEnd {
         }
     }
 
+    #[doc(hidden)]
     #[inline]
     fn add_handler(&mut self, endpoint_id: u64, method: Method, handler: Box<dyn DynHandler<Body> + Send + Sync>) {
         self.handlers.insert((endpoint_id, method), handler);
     }
 }
 
+#[doc(hidden)]
 pub struct RouterChainLink<C, Rest: RouterChain> {
     controller: C,
     handlers: HashMap<(u64, Method), Box<dyn DynControllerHandler<C, Body> + Send + Sync>>,
@@ -176,6 +216,7 @@ pub struct RouterChainLink<C, Rest: RouterChain> {
 }
 
 impl<C, Rest: RouterChain> RouterChain for RouterChainLink<C, Rest> {
+    #[doc(hidden)]
     #[inline]
     fn dispatch(&self, resolver_id: u64, req: Request<Body>) -> Option<BoxFuture<'static, Box<dyn DynResponder>>> {
         if let Some(handler) = self.handlers.get(&(resolver_id, req.method().clone())) {
@@ -185,6 +226,7 @@ impl<C, Rest: RouterChain> RouterChain for RouterChainLink<C, Rest> {
         }
     }
 
+    #[doc(hidden)]
     #[inline]
     fn add_handler(&mut self, endpoint_id: u64, method: Method, handler: Box<dyn DynHandler<Body> + Send + Sync>) {
         self.rest.add_handler(endpoint_id, method, handler);

@@ -40,9 +40,24 @@ macro_rules! impl_tuple_responder {
     }
 }
 
+/// Responder defines what type can generate a response
 pub trait Responder {
+    /// Consume self into a builder
+    ///
+    /// ```rust
+    ///# use saphir::prelude::*;
+    /// struct CustomResponder(String);
+    ///
+    /// impl Responder for CustomResponder {
+    ///     fn respond_with_builder(self, builder: Builder) -> Builder {
+    ///         // Put the string as the response body
+    ///         builder.body(self.0)
+    ///     }
+    /// }
+    /// ```
     fn respond_with_builder(self, builder: Builder) -> Builder;
 
+    ///
     fn respond(self) -> Result<Response<Body>, SaphirError> where Self: Sized {
         self.respond_with_builder(Builder::new()).build()
     }
@@ -93,7 +108,9 @@ impl_tuple_responder!(0->A, 1->B, 2->C, 3->D);
 impl_tuple_responder!(0->A, 1->B, 2->C, 3->D, 4->E);
 impl_tuple_responder!(0->A, 1->B, 2->C, 3->D, 4->E, 5->F);
 
+/// Trait used by the server, not meant for manual implementation
 pub trait DynResponder {
+    #[doc(hidden)]
     fn dyn_respond(&mut self) -> Result<Response<Body>, SaphirError>;
 }
 

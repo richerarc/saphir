@@ -21,8 +21,8 @@ impl Controller for MagicController {
     const BASE_PATH: &'static str = "/magic";
 
     fn handlers(&self) -> Vec<ControllerEndpoint<Self>>
-    where
-        Self: Sized,
+        where
+            Self: Sized,
     {
         EndpointsBuilder::new()
             .add(Method::GET, "/{delay}", MagicController::magic_delay)
@@ -43,13 +43,9 @@ impl MagicController {
     }
 
     async fn read_body(&self, req: Request<Body>) -> (u16, Vec<u8>) {
-        let req = req.async_map(|b| async {hyper::body::to_bytes(b).await}).await.transpose().unwrap();
+        let req = req.async_map(|b| async { hyper::body::to_bytes(b).await }).await.transpose().unwrap();
 
-        if let Ok(b) = req.body() {
-            (200, b.to_vec())
-        } else {
-            (400, Vec::new())
-        }
+        (200, req.body().to_vec())
     }
 }
 

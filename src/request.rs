@@ -139,6 +139,16 @@ impl<T> Request<T> {
         }
     }
 
+    /// Convert a request of T in a request of U through a future
+    ///
+    /// ```rust
+    ///# use saphir::prelude::*;
+    ///# use hyper::Request as RawRequest;
+    ///# let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(Body::empty()).unwrap(), None);
+    ///
+    /// // req is Request<Body>
+    /// let req = req.map_async(|b| async {hyper::body::to_bytes(b).await});
+    /// ```
     #[inline]
     pub async fn map_async<F, Fut, U>(self, f: F) -> Request<U>
         where
@@ -199,6 +209,63 @@ impl<T> Request<T> {
             .map(|cookies_str| cookies_str.split("; "))
             .map(|cookie_iter| cookie_iter.filter_map(|cookie_s| Cookie::parse(cookie_s.to_string()).ok()))
             .map(|cookie_iter| cookie_iter.for_each(|c| jar.add_original(c)));
+    }
+}
+
+impl<T, E> Request<Result<T, E>> {
+    /// Convert a request of Result<T, E> in a Result<Request<T>, E>
+    ///
+    /// ```rust
+    ///# use saphir::prelude::*;
+    ///# use hyper::Request as RawRequest;
+    ///# let r: Result<String, String> = Ok("Body".to_string());
+    ///# let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(r).unwrap(), None);
+    ///
+    /// // req is Request<Result<String, String>>
+    /// let res = req.transpose();
+    /// assert!(res.is_ok());
+    /// ```
+    pub fn transpose(self) -> Result<Request<T>, E> {
+        let Request { inner, current_path, captures, cookies, peer_addr } = self;
+        let (head, body) = inner.into_parts();
+
+        body.map(move |b| {
+            Request {
+                inner: RawRequest::from_parts(head, b),
+                current_path,
+                captures,
+                cookies,
+                peer_addr
+            }
+        })
+    }
+}
+
+impl<T> Request<Option<T>> {
+    /// Convert a request of Option<T> in a Option<Request<T>, E>
+    ///
+    /// ```rust
+    ///# use saphir::prelude::*;
+    ///# use hyper::Request as RawRequest;
+    ///# let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(Some("Body".to_string())).unwrap(), None);
+    ///
+    /// // req is Request<Option<String>>
+    /// let opt = req.transpose();
+    /// assert!(opt.is_some());
+    /// ```
+    pub fn transpose(self) -> Option<Request<T>> {
+        let Request { inner, current_path, captures, cookies, peer_addr } = self;
+        let (head, body) = inner.into_parts();
+
+        body.map(move |b| {
+            Request {
+                inner: RawRequest::from_parts(head, b),
+                current_path,
+                captures,
+                cookies,
+                peer_addr
+            }
+        })
     }
 }
 

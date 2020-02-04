@@ -258,14 +258,14 @@ impl Builder {
     /// ```
     /// # use saphir::prelude::*;
     ///
-    /// let cookie = Cookie::new("MyCookie".to_string(), "MyCookieValue".to_string());
+    /// let cookie = Cookie::new("MyCookie", "MyCookieValue");
     ///
     /// let response = Builder::new()
     ///     .cookie(cookie)
     ///     .build()
     ///     .unwrap();
     ///
-    /// assert!(response.cookies().get("MyCookie").is_some());
+    /// assert_eq!(response.cookies().get("MyCookie").map(|c| c.value()), Some("MyCookieValue"))
     /// ```
     #[inline]
     pub fn cookie(mut self, cookie: Cookie<'static>) -> Builder {
@@ -287,19 +287,25 @@ impl Builder {
     /// Finish the builder into Response<Body>
     #[inline]
     pub fn build(self) -> Result<Response<Body>, SaphirError> {
-        self.build_raw_response().map(|r| Response::from_raw(r))
+        let Builder { mut inner, cookies, mut body } = self;
+        let b: Body = body.transmute();
+        let raw = inner.body(b)?;
+
+        Ok(Response {
+            inner: raw,
+            cookies: cookies.unwrap_or_default(),
+        })
     }
 
     #[doc(hidden)]
     pub(crate) fn build_raw_response(self) -> Result<RawResponse<Body>, SaphirError> {
-        let Builder { mut inner, cookies, mut body } = self;
-        if let Some(cookies) = cookies {
-            for c in cookies.iter() {
-                inner = inner.header(http::header::SET_COOKIE, c.to_string());
-            }
+        let Response { mut inner, cookies } = self.build()?;
+
+        for c in cookies.iter() {
+            inner.headers_mut().append(http::header::SET_COOKIE, HeaderValue::from_str(c.to_string().as_str())?);
         }
-        let b: Body = body.transmute();
-        Ok(inner.body(b)?)
+
+        Ok(inner)
     }
 }
 

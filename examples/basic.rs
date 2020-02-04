@@ -43,7 +43,7 @@ impl MagicController {
     }
 
     async fn read_body(&self, req: Request<Body>) -> (u16, Vec<u8>) {
-        let req = req.map_async(|b| async {hyper::body::to_bytes(b).await}).await;
+        let req = req.map_async(|b| async {hyper::body::to_bytes(b).await}).await.transpose().unwrap();
 
         if let Ok(b) = req.body() {
             (200, b.to_vec())

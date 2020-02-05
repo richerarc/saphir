@@ -164,7 +164,6 @@ impl<T> Request<T> {
         }
     }
 
-    #[doc(hidden)]
     pub(crate) fn current_path_match_all(&mut self, path: &UriPathMatcher) -> bool {
         if path.len() != self.current_path.len() {
             return false;

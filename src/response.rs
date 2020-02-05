@@ -24,18 +24,6 @@ impl<T> Response<T> {
         }
     }
 
-    #[doc(hidden)]
-    #[inline]
-    pub(crate) fn from_raw(raw: RawResponse<T>) -> Self {
-        let jar = raw.headers().get("Cookie")
-            .and_then(|cookies| cookies.to_str().ok())
-            .and_then(|cookies_str| CookieJar::from_header_str(cookies_str).ok());
-        Response {
-            inner: raw,
-            cookies: jar.unwrap_or_default(),
-        }
-    }
-
     /// Get the cookies sent by the browsers
     pub fn cookies(&self) -> &CookieJar {
         &self.cookies
@@ -68,7 +56,6 @@ impl<T> Response<T> {
         }
     }
 
-    #[doc(hidden)]
     pub(crate) fn into_raw(self) -> Result<RawResponse<T>, SaphirError> {
         let Response { mut inner, cookies } = self;
         for c in cookies.iter() {
@@ -287,7 +274,7 @@ impl Builder {
     /// Finish the builder into Response<Body>
     #[inline]
     pub fn build(self) -> Result<Response<Body>, SaphirError> {
-        let Builder { mut inner, cookies, mut body } = self;
+        let Builder { inner, cookies, mut body } = self;
         let b: Body = body.transmute();
         let raw = inner.body(b)?;
 
@@ -295,17 +282,6 @@ impl Builder {
             inner: raw,
             cookies: cookies.unwrap_or_default(),
         })
-    }
-
-    #[doc(hidden)]
-    pub(crate) fn build_raw_response(self) -> Result<RawResponse<Body>, SaphirError> {
-        let Response { mut inner, cookies } = self.build()?;
-
-        for c in cookies.iter() {
-            inner.headers_mut().append(http::header::SET_COOKIE, HeaderValue::from_str(c.to_string().as_str())?);
-        }
-
-        Ok(inner)
     }
 }
 

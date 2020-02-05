@@ -136,13 +136,11 @@ impl<Chain: MiddlewareChain + 'static> Builder<Chain> {
         }
     }
 
-    #[doc(hidden)]
     pub(crate) fn build(self) -> Box<dyn MiddlewareChain> {
         Box::new(self.chain)
     }
 }
 
-#[doc(hidden)]
 pub(crate) struct Rule {
     included_path: Vec<UriPathMatcher>,
     excluded_path: Option<Vec<UriPathMatcher>>,

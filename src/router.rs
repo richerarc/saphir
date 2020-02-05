@@ -114,7 +114,6 @@ impl<Controllers: 'static + RouterChain + Unpin + Send + Sync> Builder<Controlle
         }
     }
 
-    #[doc(hidden)]
     pub(crate) fn build(self) -> Router {
         let Builder {
             resolver,

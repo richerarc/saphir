@@ -175,11 +175,4 @@ impl UriPathSegmentMatcher {
             UriPathSegmentMatcher::Custom { name: ref n, segment: ref _s } => n.as_ref().map(|s| s.as_str()),
         }
     }
-
-    pub fn is_static(&self) -> bool {
-        match self {
-            UriPathSegmentMatcher::Static {segment: ref _s} => true,
-            _ => false
-        }
-    }
 }

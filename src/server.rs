@@ -111,7 +111,6 @@ impl ListenerBuilder {
 
 
     #[cfg(feature = "https")]
-    #[doc(hidden)]
     #[inline]
     pub(crate) fn build(self) -> ListenerConfig {
         let ListenerBuilder {
@@ -274,14 +273,14 @@ impl Server {
 
         let http = Http::new();
 
-        let mut listener = TcpListener::bind(listener_config.iface).await?;
+        let mut listener = TcpListener::bind(listener_config.iface.clone()).await?;
         let local_addr = listener.local_addr()?;
 
         let incoming = {
             #[cfg(feature = "https")]
                 {
                     use crate::server::ssl_loading_utils::MaybeTlsAcceptor;
-                    match self.listener_config.ssl_config() {
+                    match listener_config.ssl_config() {
                         (Some(cert_config), Some(key_config)) => {
                             use std::sync::Arc;
                             use crate::server::ssl_loading_utils::*;
@@ -409,32 +408,78 @@ impl Service<hyper::Request<hyper::Body>> for StackHandler {
 #[doc(hidden)]
 #[cfg(feature = "https")]
 mod ssl_loading_utils {
-    pub enum MaybeTlsAcceptor<'a> {
-        Tls(Pin<Box<AndThen<tokio::net::tcp::Incoming<'a>, tokio_rustls::Accept<tokio::net::TcpStream>, fn(tokio::net::TcpStream) -> tokio_rustls::Accept<tokio::net::TcpStream>>>>),
-        Plain(Pin<Box<tokio::net::tcp::Incoming<'a>>>),
-    }
-
-    impl<'a> Stream for MaybeTlsAcceptor<'a> {
-        type Item = Result<tokio::net::TcpStream, tokio::io::Error>;
-
-        fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-            let t = Box::pin(String::new());
-
-            match self.get_mut() {
-                MaybeTlsAcceptor::Tls(tls) => tls.as_mut().poll_next(cx),
-                MaybeTlsAcceptor::Plain(plain) => plain.as_mut().poll_next(cx)
-            }
-        }
-    }
-
     use rustls;
     use std::fs;
     use std::io::BufReader;
     use crate::server::SslConfig;
-    use futures_util::stream::AndThen;
     use futures_util::stream::Stream;
     use futures_util::task::{Context, Poll};
     use std::pin::Pin;
+    use futures::io::Error;
+    use std::net::SocketAddr;
+    use tokio::io::{AsyncRead, AsyncWrite};
+
+    pub enum MaybeTlsStream {
+        Tls(Pin<Box<tokio_rustls::server::TlsStream<tokio::net::TcpStream>>>),
+        Plain(Pin<Box<tokio::net::TcpStream>>),
+    }
+
+    impl MaybeTlsStream {
+        pub fn peer_addr(&self) -> Result<SocketAddr, tokio::io::Error> {
+            match self {
+                MaybeTlsStream::Tls(t) => t.as_ref().get_ref().get_ref().0.peer_addr(),
+                MaybeTlsStream::Plain(p) => p.as_ref().get_ref().peer_addr(),
+            }
+        }
+    }
+
+    impl AsyncRead for MaybeTlsStream {
+        fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<Result<usize, Error>> {
+            match self.get_mut() {
+                MaybeTlsStream::Tls(t) => t.as_mut().poll_read(cx, buf),
+                MaybeTlsStream::Plain(p) => p.as_mut().poll_read(cx, buf),
+            }
+        }
+    }
+
+    impl AsyncWrite for MaybeTlsStream {
+        fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize, Error>> {
+            match self.get_mut() {
+                MaybeTlsStream::Tls(t) => t.as_mut().poll_write(cx, buf),
+                MaybeTlsStream::Plain(p) => p.as_mut().poll_write(cx, buf),
+            }
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
+            match self.get_mut() {
+                MaybeTlsStream::Tls(t) => t.as_mut().poll_flush(cx),
+                MaybeTlsStream::Plain(p) => p.as_mut().poll_flush(cx),
+            }
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
+            match self.get_mut() {
+                MaybeTlsStream::Tls(t) => t.as_mut().poll_shutdown(cx),
+                MaybeTlsStream::Plain(p) => p.as_mut().poll_shutdown(cx),
+            }
+        }
+    }
+
+    pub enum MaybeTlsAcceptor<'a, S: Stream<Item=Result<tokio_rustls::server::TlsStream<tokio::net::TcpStream>, tokio::io::Error>>> {
+        Tls(Pin<Box<S>>),
+        Plain(Pin<Box<tokio::net::tcp::Incoming<'a>>>),
+    }
+
+    impl<'a, S: Stream<Item=Result<tokio_rustls::server::TlsStream<tokio::net::TcpStream>, tokio::io::Error>>> Stream for MaybeTlsAcceptor<'a, S> {
+        type Item = Result<MaybeTlsStream, tokio::io::Error>;
+
+        fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            match self.get_mut() {
+                MaybeTlsAcceptor::Tls(tls) => tls.as_mut().poll_next(cx).map(|t| t.map(|tls_res| tls_res.map(|tls| MaybeTlsStream::Tls(Box::pin(tls))))),
+                MaybeTlsAcceptor::Plain(plain) => plain.as_mut().poll_next(cx).map(|t| t.map(|tls_res| tls_res.map(|tls| MaybeTlsStream::Plain(Box::pin(tls))))),
+            }
+        }
+    }
 
     pub fn load_certs(cert_config: &SslConfig) -> Vec<rustls::Certificate> {
         match cert_config {

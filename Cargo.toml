@@ -1,8 +1,15 @@
 [package]
 name = "saphir"
 version = "2.0.0-alpha"
-authors = ["Richer Archambault <richer.arc@gmail.com>"]
 edition = "2018"
+authors = ["Richer Archambault <richer.arc@gmail.com>"]
+description = "Fully async-await http server framework"
+documentation = "https://docs.rs/saphir"
+homepage = "https://github.com/richerarc/saphir"
+repository = "https://github.com/richerarc/saphir"
+readme = "README.md"
+keywords = ["hyper", "http", "server", "web", "async", "controller"]
+license = "MIT"
 
 [features]
 

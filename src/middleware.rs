@@ -97,7 +97,7 @@ impl<Chain: MiddlewareChain + 'static> Builder<Chain> {
     /// and `exclude_path` are exclusion amongst the included paths.
     ///
     /// ```rust
-    ///# use saphir::middleware::Builder as MBuilder;
+    /// use saphir::middleware::Builder as MBuilder;
     ///# use saphir::prelude::*;
     ///
     ///# async fn log_middleware(

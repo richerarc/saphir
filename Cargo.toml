@@ -10,11 +10,11 @@ default = []
 https = ["base64", "rustls", "tokio-rustls"]
 
 [dependencies]
-log = "~0.4.6"
+log = "0.4"
 hyper = "0.13"
 tokio = { version = "0.2", features = ["full"] }
 futures = "0.3"
-futures-util = "0.3.1"
+futures-util = "0.3"
 tower-service = "0.3"
 cookie = { package = "saphir-cookie", version = "0.13" }
 http = "0.2"
@@ -25,5 +25,5 @@ tokio-rustls = { version = "0.12", optional = true }
 base64 = { version = "0.11", optional = true }
 
 [dev-dependencies]
-tokio-timer = "0.2.12"
+tokio-timer = "0.2.13"
 env_logger = "0.7"

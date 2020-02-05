@@ -1,80 +1,51 @@
-use std::fmt;
+use std::fmt::{Display, Formatter, Error as FmtError};
+use std::error::Error as StdError;
+use http::Error as HttpCrateError;
+use http::header::InvalidHeaderValue;
+use std::io::Error as IoError;
 
-/// Potential server errors
+/// Type representing an internal error inerrant to the underlining logic behind saphir
 #[derive(Debug)]
-pub enum ServerError {
-    /// An Hyper Error
-    HyperError(::hyper::Error),
-    /// A cancellation Error
-    FutureCancelledError(::futures::Canceled),
-    /// A parsing error of addr
-    ParseError(::std::net::AddrParseError),
-    /// An invalid URI
-    InvalidUri(crate::http_types::uri::InvalidUri),
-    /// Unsupported URI Scheme
-    UnsupportedUriScheme,
-    /// IO error
-    IOError(::std::io::Error),
-    /// Bad listener configuration
-    BadListenerConfig,
+pub enum InternalError {
+    Http(HttpCrateError),
+    Stack,
 }
 
-impl From<::std::net::AddrParseError> for ServerError {
-    fn from(e: ::std::net::AddrParseError) -> Self {
-        ServerError::ParseError(e)
+/// Error type throughout the saphir stack
+#[derive(Debug)]
+pub enum SaphirError {
+    ///
+    Internal(InternalError),
+    ///
+    Io(IoError),
+    /// Custom error type to map any other error
+    Custom(Box<dyn StdError + Send + Sync + 'static>),
+    ///
+    Other(String),
+}
+
+impl From<HttpCrateError> for SaphirError {
+    fn from(e: HttpCrateError) -> Self {
+        SaphirError::Internal(InternalError::Http(e))
     }
 }
 
-impl From<::hyper::Error> for ServerError {
-    fn from(e: ::hyper::Error) -> Self {
-        ServerError::HyperError(e)
+impl From<InvalidHeaderValue> for SaphirError {
+    fn from(e: InvalidHeaderValue) -> Self {
+        SaphirError::Internal(InternalError::Http(HttpCrateError::from(e)))
     }
 }
 
-impl From<::futures::Canceled> for ServerError {
-    fn from(e: ::futures::Canceled) -> Self {
-        ServerError::FutureCancelledError(e)
+impl From<IoError> for SaphirError {
+    fn from(e: IoError) -> Self {
+        SaphirError::Io(e)
     }
 }
 
-impl From<crate::http_types::uri::InvalidUri> for ServerError {
-    fn from(e: crate::http_types::uri::InvalidUri) -> Self {
-        ServerError::InvalidUri(e)
+impl Display for SaphirError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
+        f.write_str("saphirError")
     }
 }
 
-impl From<::std::io::Error> for ServerError {
-    fn from(e: ::std::io::Error) -> Self {
-        ServerError::IOError(e)
-    }
-}
-
-impl ::std::error::Error for ServerError {
-    fn description(&self) -> &str {
-        use crate::ServerError::*;
-        match self {
-            HyperError(ref e) => e.description(),
-            FutureCancelledError(ref e) => e.description(),
-            ParseError(ref e) => e.description(),
-            InvalidUri(ref e) => e.description(),
-            UnsupportedUriScheme => "Unsupported URI scheme",
-            IOError(ref e) => e.description(),
-            BadListenerConfig => "Bad listener configuration",
-        }
-    }
-}
-
-impl ::std::fmt::Display for ServerError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result<> {
-        use crate::ServerError::*;
-        match self {
-            HyperError(ref e) => e.fmt(f),
-            FutureCancelledError(ref e) => e.fmt(f),
-            ParseError(ref e) => e.fmt(f),
-            InvalidUri(ref e) => e.fmt(f),
-            UnsupportedUriScheme => write!(f, "Unsupported URI scheme"),
-            IOError(ref e) => e.fmt(f),
-            BadListenerConfig => write!(f, "Bad listener configuration"),
-        }
-    }
-}
+impl StdError for SaphirError {}

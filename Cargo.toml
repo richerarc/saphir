@@ -8,7 +8,7 @@ documentation = "https://docs.rs/saphir"
 homepage = "https://github.com/richerarc/saphir"
 repository = "https://github.com/richerarc/saphir"
 readme = "README.md"
-keywords = ["hyper", "http", "server", "web", "async", "controller"]
+keywords = ["hyper", "http", "server", "web", "async"]
 license = "MIT"
 
 [features]

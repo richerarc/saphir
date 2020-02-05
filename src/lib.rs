@@ -55,6 +55,8 @@ pub mod middleware;
 ///
 pub mod controller;
 ///
+pub mod body;
+///
 pub use cookie;
 ///
 pub use http;
@@ -82,9 +84,7 @@ pub mod prelude {
     ///
     pub use http::header;
     ///
-    pub use hyper::Body as Body;
-    ///
-    pub use hyper::body as body;
+    pub use crate::body::Body;
     ///
     pub use crate::error::SaphirError;
     ///

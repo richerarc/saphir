@@ -5,7 +5,8 @@ use std::ops::{Deref, DerefMut};
 use cookie::{Cookie, CookieJar};
 use http::{HeaderMap, HeaderValue, Response as RawResponse, response::Builder as RawBuilder, StatusCode, Version};
 use http::header::HeaderName;
-use hyper::Body;
+use hyper::body::Body as RawBody;
+use crate::body::{Body, TransmuteBody};
 
 use crate::error::SaphirError;
 
@@ -266,7 +267,7 @@ impl Builder {
     }
 
     #[inline]
-    pub fn body<B: 'static + Into<Body> + Send + Sync>(mut self, body: B) -> Builder {
+    pub fn body<B: 'static + Into<RawBody> + Send + Sync>(mut self, body: B) -> Builder {
         self.body = Box::new(Some(body));
         self
     }
@@ -275,28 +276,12 @@ impl Builder {
     #[inline]
     pub fn build(self) -> Result<Response<Body>, SaphirError> {
         let Builder { inner, cookies, mut body } = self;
-        let b: Body = body.transmute();
+        let b = body.transmute();
         let raw = inner.body(b)?;
 
         Ok(Response {
             inner: raw,
             cookies: cookies.unwrap_or_default(),
         })
-    }
-}
-
-#[doc(hidden)]
-pub trait TransmuteBody {
-    fn transmute(&mut self) -> Body;
-}
-
-#[doc(hidden)]
-impl<T> TransmuteBody for Option<T> where T: Into<Body> {
-    fn transmute(&mut self) -> Body {
-        if let Some(b) = self.take() {
-            b.into()
-        } else {
-            Body::empty()
-        }
     }
 }

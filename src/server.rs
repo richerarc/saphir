@@ -14,7 +14,6 @@ use std::mem::MaybeUninit;
 use futures::prelude::*;
 use futures::stream::StreamExt;
 use futures::task::{Context, Poll};
-use hyper::Body;
 use hyper::server::conn::Http;
 use hyper::service::Service;
 use tokio::net::TcpListener;
@@ -27,6 +26,7 @@ use crate::response::Response;
 use crate::router::{Builder as RouterBuilder, RouterChain, RouterChainEnd};
 use crate::router::Router;
 use crate::middleware::{Builder as MiddlewareStackBuilder, MiddlewareChain, MiddleChainEnd};
+use crate::body::Body;
 
 /// Default time for request handling is 30 seconds
 pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
@@ -396,8 +396,16 @@ impl Service<hyper::Request<hyper::Body>> for StackHandler {
     }
 
     fn call(&mut self, req: hyper::Request<hyper::Body>) -> Self::Future {
-        let req = Request::new(req, self.peer_addr.take());
-        let fut = Box::pin(self.stack.invoke(req).map(|r| r.and_then(|r| r.into_raw())));
+        let req = Request::new(req.map(|raw| Body::from_raw(raw)), self.peer_addr.take());
+        let fut = Box::pin(
+            self.stack
+                .invoke(req)
+                .map(|r| {
+                    r.and_then(|r| {
+                        r.into_raw()
+                            .map(|r| r.map(|b| b.into_raw()))
+                    })
+                }));
 
         Box::new(fut) as Box<dyn Future<Output=Result<hyper::Response<hyper::Body>, SaphirError>> + Send + Unpin>
     }

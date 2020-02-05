@@ -1,7 +1,7 @@
 use crate::response::{Builder, Response};
 use crate::error::SaphirError;
 use http::StatusCode;
-use hyper::Body;
+use crate::body::Body;
 
 macro_rules! impl_status_responder {
     ( $( $x:ty ),+ ) => {

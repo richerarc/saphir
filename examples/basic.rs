@@ -42,10 +42,10 @@ impl MagicController {
         }
     }
 
-    async fn read_body(&self, req: Request<Body>) -> (u16, Vec<u8>) {
-        let req = req.async_map(|b| async { hyper::body::to_bytes(b).await }).await.transpose().unwrap();
+    async fn read_body(&self, mut req: Request<Body>) -> (u16, Vec<u8>) {
+        let body = req.body_mut().take().await.unwrap();
 
-        (200, req.body().to_vec())
+        (200, body.to_vec())
     }
 }
 

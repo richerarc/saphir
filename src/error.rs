@@ -3,11 +3,13 @@ use std::error::Error as StdError;
 use http::Error as HttpCrateError;
 use http::header::InvalidHeaderValue;
 use std::io::Error as IoError;
+use hyper::error::Error as HyperError;
 
 /// Type representing an internal error inerrant to the underlining logic behind saphir
 #[derive(Debug)]
 pub enum InternalError {
     Http(HttpCrateError),
+    Hyper(HyperError),
     Stack,
 }
 
@@ -18,6 +20,8 @@ pub enum SaphirError {
     Internal(InternalError),
     ///
     Io(IoError),
+    /// Body was taken and cannot be polled
+    BodyAlreadyTaken,
     /// Custom error type to map any other error
     Custom(Box<dyn StdError + Send + Sync + 'static>),
     ///
@@ -33,6 +37,12 @@ impl From<HttpCrateError> for SaphirError {
 impl From<InvalidHeaderValue> for SaphirError {
     fn from(e: InvalidHeaderValue) -> Self {
         SaphirError::Internal(InternalError::Http(HttpCrateError::from(e)))
+    }
+}
+
+impl From<HyperError> for SaphirError {
+    fn from(e: HyperError) -> Self {
+        SaphirError::Internal(InternalError::Hyper(e))
     }
 }
 

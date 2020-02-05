@@ -19,7 +19,6 @@ use hyper::server::conn::Http;
 use hyper::service::Service;
 use tokio::net::TcpListener;
 use parking_lot::{Once, OnceState};
-use unchecked_unwrap::UncheckedUnwrap;
 
 use crate::error::SaphirError;
 use crate::http_context::HttpContext;
@@ -269,7 +268,7 @@ impl Server {
 
         // # SAFETY #
         // Memory has been initialized above.
-        let stack = unsafe { STACK.as_ptr().as_ref().unchecked_unwrap() };
+        let stack = unsafe { STACK.as_ptr().as_ref().expect("Memory has been initialized above.") };
 
         let http = Http::new();
 

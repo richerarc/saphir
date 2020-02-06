@@ -2,8 +2,8 @@
 extern crate log;
 
 use futures::future::Ready;
-use tokio::sync::RwLock;
 use saphir::prelude::*;
+use tokio::sync::RwLock;
 
 // == controller == //
 
@@ -21,11 +21,14 @@ impl Controller for MagicController {
     const BASE_PATH: &'static str = "/magic";
 
     fn handlers(&self) -> Vec<ControllerEndpoint<Self>>
-        where
-            Self: Sized,
+    where
+        Self: Sized,
     {
         EndpointsBuilder::new()
             .add(Method::GET, "/{delay}", MagicController::magic_delay)
+            .add_with_guards(Method::GET, "/guarded/{delay}", MagicController::magic_delay, |g| {
+                g.add(numeric_delay_guard, ())
+            })
             .add(Method::GET, "/", magic_handler)
             .add(Method::POST, "/", MagicController::read_body)
             .build()
@@ -43,7 +46,11 @@ impl MagicController {
     }
 
     async fn read_body(&self, req: Request<Body>) -> (u16, Vec<u8>) {
-        let req = req.async_map(|b| async { hyper::body::to_bytes(b).await }).await.transpose().unwrap();
+        let req = req
+            .async_map(|b| async { hyper::body::to_bytes(b).await })
+            .await
+            .transpose()
+            .unwrap();
 
         (200, req.body().to_vec())
     }
@@ -68,17 +75,11 @@ impl StatsData {
         }
     }
 
-    async fn stats_middleware(
-        &self,
-        ctx: HttpContext<Body>,
-        chain: &dyn MiddlewareChain,
-    ) -> Result<Response<Body>, SaphirError> {
+    async fn stats_middleware(&self, ctx: HttpContext<Body>, chain: &dyn MiddlewareChain) -> Result<Response<Body>, SaphirError> {
         {
             let mut entered = self.entered.write().await;
             let exited = self.exited.read().await;
-
             *entered += 1;
-
             info!(
                 "entered stats middleware! Current data: entered={} ; exited={}",
                 *entered, *exited
@@ -90,9 +91,7 @@ impl StatsData {
         {
             let mut exited = self.exited.write().await;
             let entered = self.entered.read().await;
-
             *exited += 1;
-
             info!(
                 "exited stats middleware! Current data: entered={} ; exited={}",
                 *entered, *exited
@@ -124,6 +123,48 @@ async fn hello_world(_: Request<Body>) -> (u16, &'static str) {
     (200, "Hello, World!")
 }
 
+// == guards == //
+
+struct ForbidderData {
+    forbidden: &'static str,
+}
+
+impl ForbidderData {
+    fn filter_forbidden<'a>(&self, v: &'a str) -> Option<&'a str> {
+        if v == self.forbidden {
+            Some(v)
+        } else {
+            None
+        }
+    }
+}
+
+async fn forbidder_guard(data: &ForbidderData, req: Request<Body>) -> Result<Request<Body>, u16> {
+    if req
+        .captures()
+        .get("variable")
+        .and_then(|v| data.filter_forbidden(v))
+        .is_some()
+    {
+        Err(403)
+    } else {
+        Ok(req)
+    }
+}
+
+async fn numeric_delay_guard(_: &(), req: Request<Body>) -> Result<Request<Body>, &'static str> {
+    if req
+        .captures()
+        .get("delay")
+        .and_then(|v| v.parse::<u64>().ok())
+        .is_some()
+    {
+        Ok(req)
+    } else {
+        Err("Guard blocked request: delay is not a valid number.")
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), SaphirError> {
     env_logger::init();
@@ -133,11 +174,15 @@ async fn main() -> Result<(), SaphirError> {
         .configure_router(|r| {
             r.route("/", Method::GET, hello_world)
                 .route("/{variable}/print", Method::GET, test_handler)
+                .route_with_guards("/{variable}/guarded_print", Method::GET, test_handler, |g| {
+                    g.add(forbidder_guard, ForbidderData { forbidden: "forbidden" })
+                     .add(forbidder_guard, ForbidderData { forbidden: "password" })
+                })
                 .controller(MagicController::new("Just Like Magic!"))
         })
         .configure_middlewares(|m| {
             m.apply(log_middleware, "LOG".to_string(), vec!["/"], None)
-                .apply(StatsData::stats_middleware, StatsData::new(), vec!["/"], None)
+             .apply(StatsData::stats_middleware, StatsData::new(), vec!["/"], None)
         })
         .build();
 

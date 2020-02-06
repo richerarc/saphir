@@ -6,8 +6,9 @@ use crate::{
     responder::{DynResponder, Responder},
     response::Response,
     utils::{EndpointResolver, EndpointResolverResult},
+    guard::{Builder as GuardBuilder, GuardChain, GuardChainEnd},
 };
-use futures::future::BoxFuture;
+use futures::{future::BoxFuture, FutureExt};
 use http::Method;
 use hyper::Body;
 use std::{collections::HashMap, sync::Arc};
@@ -45,12 +46,10 @@ impl<Controllers: 'static + RouterChain + Unpin + Send + Sync> Builder<Controlle
     /// builder.route("/simple", Method::GET, simple_handler);
     /// // ...
     /// ```
-    pub fn route<H: 'static + DynHandler<Body> + Send + Sync>(
-        mut self,
-        route: &str,
-        method: Method,
-        handler: H,
-    ) -> Self {
+    pub fn route<H>(mut self, route: &str, method: Method, handler: H) -> Self
+    where
+        H: 'static + DynHandler<Body> + Send + Sync,
+    {
         let endpoint_id = if let Some(er) = self.resolver.get_mut(route) {
             er.add_method(method.clone());
             er.id()
@@ -61,7 +60,28 @@ impl<Controllers: 'static + RouterChain + Unpin + Send + Sync> Builder<Controlle
             er_id
         };
 
-        self.chain.add_handler(endpoint_id, method, Box::new(handler));
+        self.chain.add_handler(endpoint_id, method, Box::new(handler), crate::guard::Builder::default().build());
+
+        self
+    }
+
+    pub fn route_with_guards<H, F, Chain>(mut self, route: &str, method: Method, handler: H, guards: F) -> Self
+    where
+        H: 'static + DynHandler<Body> + Send + Sync,
+        F: FnOnce(GuardBuilder<GuardChainEnd>) -> GuardBuilder<Chain>,
+        Chain: GuardChain + 'static,
+    {
+        let endpoint_id = if let Some(er) = self.resolver.get_mut(route) {
+            er.add_method(method.clone());
+            er.id()
+        } else {
+            let er = EndpointResolver::new(route, method.clone()).expect("Unable to construct endpoint resolver");
+            let er_id = er.id();
+            self.resolver.insert(route.to_string(), er);
+            er_id
+        };
+
+        self.chain.add_handler(endpoint_id, method, Box::new(handler), guards(GuardBuilder::default()).build());
 
         self
     }
@@ -89,7 +109,7 @@ impl<Controllers: 'static + RouterChain + Unpin + Send + Sync> Builder<Controlle
         controller: C,
     ) -> Builder<RouterChainLink<C, Controllers>> {
         let mut handlers = HashMap::new();
-        for (method, subroute, handler) in controller.handlers() {
+        for (method, subroute, handler, guard_chain) in controller.handlers() {
             let route = format!("{}{}", C::BASE_PATH, subroute);
             let endpoint_id = if let Some(er) = self.resolver.get_mut(&route) {
                 er.add_method(method.clone());
@@ -101,7 +121,7 @@ impl<Controllers: 'static + RouterChain + Unpin + Send + Sync> Builder<Controlle
                 er_id
             };
 
-            handlers.insert((endpoint_id, method), handler);
+            handlers.insert((endpoint_id, method), (handler, guard_chain));
         }
 
         Builder {
@@ -170,7 +190,10 @@ impl Router {
     }
 
     pub async fn dispatch(&self, resolver_id: u64, req: Request<Body>) -> Result<Response<Body>, SaphirError> {
-        if let Some(responder) = self.inner.chain.dispatch(resolver_id, req) {
+        // # SAFETY #
+        // The router is initialized in static memory when calling run on Server.
+        let static_self = unsafe { std::mem::transmute::<&'_ Self, &'static Self>(self) };
+        if let Some(responder) = static_self.inner.chain.dispatch(resolver_id, req) {
             responder.await.dyn_respond()
         } else {
             404.respond()
@@ -180,54 +203,72 @@ impl Router {
 
 #[doc(hidden)]
 pub trait RouterChain {
-    fn dispatch(&self, resolver_id: u64, req: Request<Body>) -> Option<BoxFuture<'static, Box<dyn DynResponder>>>;
-    fn add_handler(&mut self, endpoint_id: u64, method: Method, handler: Box<dyn DynHandler<Body> + Send + Sync>);
+    fn dispatch(&'static self, resolver_id: u64, req: Request<Body>) -> Option<BoxFuture<'static, Box<dyn DynResponder + Send>>>;
+    fn add_handler(&mut self, endpoint_id: u64, method: Method, handler: Box<dyn DynHandler<Body> + Send + Sync>, guards: Box<dyn GuardChain>);
 }
 
 #[doc(hidden)]
 pub struct RouterChainEnd {
-    handlers: HashMap<(u64, Method), Box<dyn DynHandler<Body> + Send + Sync>>,
+    handlers: HashMap<(u64, Method), (Box<dyn DynHandler<Body> + Send + Sync>, Box<dyn GuardChain>)>,
 }
 
 impl RouterChain for RouterChainEnd {
-    #[doc(hidden)]
     #[inline]
-    fn dispatch(&self, resolver_id: u64, req: Request<Body>) -> Option<BoxFuture<'static, Box<dyn DynResponder>>> {
+    fn dispatch(&'static self, resolver_id: u64, req: Request<Body>) -> Option<BoxFuture<'static, Box<dyn DynResponder + Send>>> {
         if let Some(handler) = self.handlers.get(&(resolver_id, req.method().clone())) {
-            Some(handler.dyn_handle(req))
+            if handler.1.is_end() {
+                Some(handler.0.dyn_handle(req))
+            } else {
+                let fut = handler.1.validate(req)
+                    .then(move |req| async move {
+                        match req {
+                            Ok(req) => handler.0.dyn_handle(req).await,
+                            Err(resp) => resp,
+                        }
+                    } );
+                Some(fut.boxed())
+            }
         } else {
             None
         }
     }
 
-    #[doc(hidden)]
     #[inline]
-    fn add_handler(&mut self, endpoint_id: u64, method: Method, handler: Box<dyn DynHandler<Body> + Send + Sync>) {
-        self.handlers.insert((endpoint_id, method), handler);
+    fn add_handler(&mut self, endpoint_id: u64, method: Method, handler: Box<dyn DynHandler<Body> + Send + Sync>, guards: Box<dyn GuardChain>) {
+        self.handlers.insert((endpoint_id, method), (handler, guards));
     }
 }
 
 #[doc(hidden)]
 pub struct RouterChainLink<C, Rest: RouterChain> {
     controller: C,
-    handlers: HashMap<(u64, Method), Box<dyn DynControllerHandler<C, Body> + Send + Sync>>,
+    handlers: HashMap<(u64, Method), (Box<dyn DynControllerHandler<C, Body> + Send + Sync>, Box<dyn GuardChain>)>,
     rest: Rest,
 }
 
-impl<C, Rest: RouterChain> RouterChain for RouterChainLink<C, Rest> {
-    #[doc(hidden)]
+impl<C: Sync + Send, Rest: RouterChain + Sync + Send> RouterChain for RouterChainLink<C, Rest> {
     #[inline]
-    fn dispatch(&self, resolver_id: u64, req: Request<Body>) -> Option<BoxFuture<'static, Box<dyn DynResponder>>> {
+    fn dispatch(&'static self, resolver_id: u64, req: Request<Body>) -> Option<BoxFuture<'static, Box<dyn DynResponder + Send>>> {
         if let Some(handler) = self.handlers.get(&(resolver_id, req.method().clone())) {
-            Some(handler.dyn_handle(&self.controller, req))
+            if handler.1.is_end() {
+                Some(handler.0.dyn_handle(&self.controller, req))
+            } else {
+                let fut = handler.1.validate(req)
+                    .then(move |req| async move {
+                        match req {
+                            Ok(req) => handler.0.dyn_handle(&self.controller, req).await,
+                            Err(resp) => resp,
+                        }
+                    } );
+                Some(fut.boxed())
+            }
         } else {
             self.rest.dispatch(resolver_id, req)
         }
     }
 
-    #[doc(hidden)]
     #[inline]
-    fn add_handler(&mut self, endpoint_id: u64, method: Method, handler: Box<dyn DynHandler<Body> + Send + Sync>) {
-        self.rest.add_handler(endpoint_id, method, handler);
+    fn add_handler(&mut self, endpoint_id: u64, method: Method, handler: Box<dyn DynHandler<Body> + Send + Sync>, guards: Box<dyn GuardChain>) {
+        self.rest.add_handler(endpoint_id, method, handler, guards);
     }
 }

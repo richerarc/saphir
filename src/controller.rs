@@ -38,6 +38,7 @@
 use crate::{
     request::Request,
     responder::{DynResponder, Responder},
+    guard::{GuardChain, Builder as GuardBuilder, GuardChainEnd},
 };
 use futures::future::BoxFuture;
 use futures_util::future::{Future, FutureExt};
@@ -49,6 +50,7 @@ pub type ControllerEndpoint<C> = (
     Method,
     &'static str,
     Box<dyn DynControllerHandler<C, Body> + Send + Sync>,
+    Box<dyn GuardChain>
 );
 
 /// Trait that defines how a controller handles its requests
@@ -61,26 +63,26 @@ pub trait Controller {
     /// Each [`ControllerEndpoint`](type.ControllerEndpoint.html) is then added to the router, which
     /// will dispatch requests accordingly
     fn handlers(&self) -> Vec<ControllerEndpoint<Self>>
-        where
-            Self: Sized;
+    where
+        Self: Sized;
 }
 
-/// Trait the defines a handle within a controller.
+/// Trait that defines a handler within a controller.
 /// This trait is not meant to be implemented manually as there is a blanket implementation for Async Fns
 pub trait ControllerHandler<C, B> {
     /// An instance of a [`Responder`](../responder/trait.Responder.html) being returned by the handler
     type Responder: Responder;
     ///
-    type Future: Future<Output=Self::Responder>;
+    type Future: Future<Output = Self::Responder>;
 
     /// Handle the request dispatched from the [`Router`](../router/struct.Router.html)
-    fn handle(&self, controller: &C, req: Request<B>) -> Self::Future;
+    fn handle(&self, controller: &'static C, req: Request<B>) -> Self::Future;
 }
 
 ///
 pub trait DynControllerHandler<C, B> {
     ///
-    fn dyn_handle(&self, controller: &C, req: Request<B>) -> BoxFuture<'static, Box<dyn DynResponder>>;
+    fn dyn_handle(&self, controller: &'static C, req: Request<B>) -> BoxFuture<'static, Box<dyn DynResponder + Send>>;
 }
 
 /// Builder to simplify returning a list of endpoint in the `handlers` method of the controller trait
@@ -125,10 +127,22 @@ impl<C: Controller> EndpointsBuilder<C> {
     /// ```
     #[inline]
     pub fn add<H>(mut self, method: Method, route: &'static str, handler: H) -> Self
-        where
-            H: 'static + DynControllerHandler<C, Body> + Send + Sync,
+    where
+        H: 'static + DynControllerHandler<C, Body> + Send + Sync,
     {
-        self.handlers.push((method, route, Box::new(handler)));
+        self.handlers.push((method, route, Box::new(handler), GuardBuilder::default().build()));
+        self
+    }
+
+    /// Add a guarded endpoint the the builder
+    #[inline]
+    pub fn add_with_guards<H, F, Chain>(mut self, method: Method, route: &'static str, handler: H, guards: F) -> Self
+    where
+        H: 'static + DynControllerHandler<C, Body> + Send + Sync,
+        F: FnOnce(GuardBuilder<GuardChainEnd>) -> GuardBuilder<Chain>,
+        Chain: GuardChain + 'static,
+    {
+        self.handlers.push((method, route, Box::new(handler), guards(GuardBuilder::default()).build()));
         self
     }
 
@@ -139,36 +153,32 @@ impl<C: Controller> EndpointsBuilder<C> {
     }
 }
 
-
 impl<C, B, Fun, Fut, R> ControllerHandler<C, B> for Fun
-    where
-        C: 'static,
-        Fun: Fn(&'static C, Request<B>) -> Fut,
-        Fut: 'static + Future<Output=R> + Send,
-        R: Responder,
+where
+    C: 'static,
+    Fun: Fn(&'static C, Request<B>) -> Fut,
+    Fut: 'static + Future<Output = R> + Send,
+    R: Responder,
 {
     type Responder = R;
-    type Future = Box<dyn Future<Output=Self::Responder> + Unpin + Send>;
+    type Future = Box<dyn Future<Output = Self::Responder> + Unpin + Send>;
 
     #[inline]
-    fn handle(&self, controller: &C, req: Request<B>) -> Self::Future {
-        // # SAFETY #
-        // The controller is initialized in static memory when calling run on Server.
-        let controller = unsafe { std::mem::transmute::<&'_ C, &'static C>(controller) };
+    fn handle(&self, controller: &'static C, req: Request<B>) -> Self::Future {
         Box::new(Box::pin((*self)(controller, req)))
     }
 }
 
 impl<C, T, H, Fut, R> DynControllerHandler<C, T> for H
-    where
-        R: 'static + Responder,
-        Fut: 'static + Future<Output=R> + Unpin + Send,
-        H: ControllerHandler<C, T, Future=Fut, Responder=R>,
+where
+    R: 'static + Responder + Send,
+    Fut: 'static + Future<Output = R> + Unpin + Send,
+    H: ControllerHandler<C, T, Future = Fut, Responder = R>,
 {
     #[inline]
-    fn dyn_handle(&self, controller: &C, req: Request<T>) -> BoxFuture<'static, Box<dyn DynResponder>> {
+    fn dyn_handle(&self, controller: &'static C, req: Request<T>) -> BoxFuture<'static, Box<dyn DynResponder + Send>> {
         self.handle(controller, req)
-            .map(|r| Box::new(Some(r)) as Box<dyn DynResponder>)
+            .map(|r| Box::new(Some(r)) as Box<dyn DynResponder + Send>)
             .boxed()
     }
 }

@@ -53,6 +53,8 @@ pub mod router;
 ///
 pub mod middleware;
 ///
+pub mod guard;
+///
 pub mod controller;
 ///
 pub use cookie;

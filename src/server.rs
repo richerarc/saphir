@@ -189,7 +189,8 @@ impl<Controllers, Middlewares> Builder<Controllers, Middlewares>
 {
     #[inline]
     pub fn configure_listener<F>(mut self, f: F) -> Self
-        where F: FnOnce(ListenerBuilder) -> ListenerBuilder {
+        where F: FnOnce(ListenerBuilder) -> ListenerBuilder
+    {
         let l = if let Some(builder) = self.listener.take() {
             builder
         } else {

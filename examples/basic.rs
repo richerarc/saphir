@@ -24,8 +24,15 @@ impl Controller for MagicController {
         where
             Self: Sized,
     {
-        EndpointsBuilder::new()
-            .add(Method::GET, "/{delay}", MagicController::magic_delay)
+        let b = EndpointsBuilder::new();
+
+        #[cfg(feature = "json")]
+        let b = b.add(Method::POST, "/json", MagicController::user_json);
+
+        #[cfg(feature = "form")]
+        let b = b.add(Method::POST, "/form", MagicController::user_form);
+
+        b.add(Method::GET, "/delay/{delay}", MagicController::magic_delay)
             .add(Method::GET, "/", magic_handler)
             .add(Method::POST, "/", MagicController::read_body)
             .build()
@@ -33,7 +40,7 @@ impl Controller for MagicController {
 }
 
 impl MagicController {
-    async fn magic_delay(&self, req: Request<Body>) -> (u16, String) {
+    async fn magic_delay(&self, req: Request) -> (u16, String) {
         if let Some(delay) = req.captures().get("delay").and_then(|t| t.parse::<u64>().ok()) {
             tokio::time::delay_for(tokio::time::Duration::from_secs(delay)).await;
             (200, format!("Delayed of {} secs: {}", delay, self.label))
@@ -42,14 +49,50 @@ impl MagicController {
         }
     }
 
-    async fn read_body(&self, mut req: Request<Body>) -> (u16, Vec<u8>) {
-        let body = req.body_mut().take().await.unwrap();
+    async fn read_body(&self, mut req: Request) -> (u16, String) {
+        let body = req.body_mut().take_as::<String>().await.unwrap();
 
-        (200, body.to_vec())
+        (200, body)
+    }
+
+    #[cfg(feature = "json")]
+    async fn user_json(&self, mut req: Request) -> (u16, String) {
+        use saphir::body::json::Json;
+        use serde_derive::Deserialize;
+
+        #[derive(Deserialize)]
+        struct User {
+            username: String,
+            age: i64,
+        }
+
+        if let Ok(user) = req.body_mut().take_as::<Json<User>>().await {
+            (200, format!("New user with username: {} and age: {} read from JSON", user.username, user.age))
+        } else {
+            (400, "Bad user format".to_string())
+        }
+    }
+
+    #[cfg(feature = "form")]
+    async fn user_form(&self, mut req: Request) -> (u16, String) {
+        use saphir::body::form::Form;
+        use serde_derive::Deserialize;
+
+        #[derive(Deserialize)]
+        struct User {
+            username: String,
+            age: i64,
+        }
+
+        if let Ok(user) = req.body_mut().take_as::<Form<User>>().await {
+            (200, format!("New user with username: {} and age: {} read from Form data", user.username, user.age))
+        } else {
+            (400, "Bad user format".to_string())
+        }
     }
 }
 
-fn magic_handler(controller: &MagicController, _: Request<Body>) -> Ready<(u16, String)> {
+fn magic_handler(controller: &MagicController, _: Request) -> Ready<(u16, String)> {
     futures::future::ready((200, controller.label.clone()))
 }
 

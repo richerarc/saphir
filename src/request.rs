@@ -8,9 +8,11 @@ use http::Request as RawRequest;
 use crate::utils::UriPathMatcher;
 use std::net::SocketAddr;
 use futures_util::future::Future;
+use hyper::body::Bytes;
+use crate::body::Body;
 
 /// Struct that wraps a hyper request + some magic
-pub struct Request<T> {
+pub struct Request<T = Body<Bytes>> {
     #[doc(hidden)]
     inner: RawRequest<T>,
     #[doc(hidden)]

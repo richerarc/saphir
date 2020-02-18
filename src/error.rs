@@ -26,6 +26,26 @@ pub enum SaphirError {
     Custom(Box<dyn StdError + Send + Sync + 'static>),
     ///
     Other(String),
+    /// Error from (de)serializing json data
+    #[cfg(feature = "json")]
+    SerdeJson(serde_json::error::Error),
+    /// Error from (de)serializing form data
+    #[cfg(feature = "json")]
+    SerdeUrl(serde_urlencoded::de::Error),
+}
+
+#[cfg(feature = "json")]
+impl From<serde_json::error::Error> for SaphirError {
+    fn from(e: serde_json::error::Error) -> Self {
+        SaphirError::SerdeJson(e)
+    }
+}
+
+#[cfg(feature = "json")]
+impl From<serde_urlencoded::de::Error> for SaphirError {
+    fn from(e: serde_urlencoded::de::Error) -> Self {
+        SaphirError::SerdeUrl(e)
+    }
 }
 
 impl From<HttpCrateError> for SaphirError {

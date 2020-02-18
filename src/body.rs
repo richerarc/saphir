@@ -1,14 +1,25 @@
-use hyper::body::Body as RawBody;
+use hyper::body::{Body as RawBody, HttpBody};
 use hyper::body::Bytes;
 use hyper::body::to_bytes;
 use futures::{Future, TryFutureExt};
 use futures::task::{Context, Poll};
 use std::pin::Pin;
 use crate::error::SaphirError;
+use http::HeaderMap;
+use http_body::SizeHint;
 
 pub struct Body<T = Bytes> where T: FromBytes {
     inner: Option<RawBody>,
     fut: Option<Pin<Box<dyn Future<Output=Result<T::Out, SaphirError>> + Send + Sync + 'static>>>,
+}
+
+impl Body<Bytes> {
+    pub fn empty() -> Self {
+        Body {
+            inner: Some(RawBody::empty()),
+            fut: None
+        }
+    }
 }
 
 impl<T: 'static> Body<T> where T: FromBytes {
@@ -124,6 +135,64 @@ pub mod form {
         fn from_bytes(bytes: Bytes) -> Result<Self::Out, SaphirError> where Self: Sized {
             Ok(serde_urlencoded::from_bytes(bytes.as_ref())?)
         }
+    }
+}
+
+impl<T: FromBytes + Unpin> HttpBody for Body<T> {
+    type Data = Bytes;
+    type Error = SaphirError;
+
+    fn poll_data(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Self::Data, SaphirError>>> {
+        if self.inner.is_none() {
+            return Poll::Ready(Some(Err(SaphirError::BodyAlreadyTaken)));
+        }
+
+        let p = unsafe {
+            self.map_unchecked_mut(|s| s.inner.as_mut().expect("This won't happen since checked in the lines above")).poll_data(cx)
+        };
+
+        match p {
+            Poll::Ready(Some(res)) => Poll::Ready(Some(res.map_err(|e| SaphirError::from(e)))),
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+
+    fn poll_trailers(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<Option<HeaderMap>, Self::Error>> {
+        if self.inner.is_none() {
+            return Poll::Ready(Err(SaphirError::BodyAlreadyTaken));
+        }
+
+        let p = unsafe {
+            self.map_unchecked_mut(|s| s.inner.as_mut().expect("This won't happen since checked in the lines above")).poll_trailers(cx)
+        };
+
+        match p {
+            Poll::Ready(res) => Poll::Ready(res.map_err(|e| SaphirError::from(e))),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+
+    fn is_end_stream(&self) -> bool {
+        if self.inner.is_none() {
+            return true;
+        }
+
+        self.inner.as_ref().expect("This won't happen since checked in the lines above").is_end_stream()
+    }
+
+    fn size_hint(&self) -> SizeHint {
+        if self.inner.is_none() {
+            return SizeHint::with_exact(0);
+        }
+
+        self.inner.as_ref().expect("This won't happen since checked in the lines above").size_hint()
     }
 }
 

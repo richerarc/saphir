@@ -36,7 +36,7 @@ use crate::{
 use futures::future::BoxFuture;
 use futures_util::future::{Future, FutureExt};
 use http::Method;
-use hyper::Body;
+use crate::body::Body;
 
 /// Type definition to represent a endpoint within a controller
 pub type ControllerEndpoint<C> = (

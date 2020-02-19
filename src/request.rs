@@ -8,9 +8,12 @@ use http::Request as RawRequest;
 use crate::utils::UriPathMatcher;
 use std::net::SocketAddr;
 use futures_util::future::Future;
+use hyper::body::Bytes;
+use crate::body::{Body, FromBytes};
+use crate::error::SaphirError;
 
 /// Struct that wraps a hyper request + some magic
-pub struct Request<T> {
+pub struct Request<T = Body<Bytes>> {
     #[doc(hidden)]
     inner: RawRequest<T>,
     #[doc(hidden)]
@@ -36,7 +39,7 @@ impl<T> Request<T> {
             current_path: cp,
             captures: Default::default(),
             cookies: Default::default(),
-            peer_addr
+            peer_addr,
         }
     }
 
@@ -131,7 +134,7 @@ impl<T> Request<T> {
             current_path,
             captures,
             cookies,
-            peer_addr
+            peer_addr,
         }
     }
 
@@ -160,8 +163,18 @@ impl<T> Request<T> {
             current_path,
             captures,
             cookies,
-            peer_addr
+            peer_addr,
         }
+    }
+
+    /// Parse cookies from the Cookie header
+    pub fn parse_cookies(&mut self) {
+        let jar = &mut self.cookies;
+        self.inner.headers().get("Cookie")
+            .and_then(|cookies| cookies.to_str().ok())
+            .map(|cookies_str| cookies_str.split("; "))
+            .map(|cookie_iter| cookie_iter.filter_map(|cookie_s| Cookie::parse(cookie_s.to_string()).ok()))
+            .map(|cookie_iter| cookie_iter.for_each(|c| jar.add_original(c)));
     }
 
     pub(crate) fn current_path_match_all(&mut self, path: &UriPathMatcher) -> bool {
@@ -194,15 +207,38 @@ impl<T> Request<T> {
 
         true
     }
+}
 
-    /// Parse cookies from the Cookie header
-    pub fn parse_cookies(&mut self) {
-        let jar = &mut self.cookies;
-        self.inner.headers().get("Cookie")
-            .and_then(|cookies| cookies.to_str().ok())
-            .map(|cookies_str| cookies_str.split("; "))
-            .map(|cookie_iter| cookie_iter.filter_map(|cookie_s| Cookie::parse(cookie_s.to_string()).ok()))
-            .map(|cookie_iter| cookie_iter.for_each(|c| jar.add_original(c)));
+impl<T: FromBytes + Unpin + 'static> Request<Body<T>> {
+    /// Convert a request of T in a request of U through a future
+    ///
+    /// ```rust
+    ///# use saphir::prelude::*;
+    ///# use hyper::Request as RawRequest;
+    ///# async {
+    ///# let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(Body::empty()).unwrap(), None);
+    /// // req is Request<Body<Bytes>>
+    /// let req = req.load_body().await.unwrap();
+    /// // req is now Request<Bytes>
+    ///# };
+    /// ```
+    #[inline]
+    pub async fn load_body(self) -> Result<Request<T::Out>, SaphirError>
+    {
+        let Request { inner, current_path, captures, cookies, peer_addr } = self;
+        let (head, body) = inner.into_parts();
+
+        let t = body.await?;
+
+        let mapped_r = RawRequest::from_parts(head, t);
+
+        Ok(Request {
+            inner: mapped_r,
+            current_path,
+            captures,
+            cookies,
+            peer_addr,
+        })
     }
 }
 
@@ -228,7 +264,7 @@ impl<T, E> Request<Result<T, E>> {
                 current_path,
                 captures,
                 cookies,
-                peer_addr
+                peer_addr,
             }
         })
     }
@@ -255,9 +291,35 @@ impl<T> Request<Option<T>> {
                 current_path,
                 captures,
                 cookies,
-                peer_addr
+                peer_addr,
             }
         })
+    }
+}
+
+#[cfg(feature = "json")]
+mod json {
+    use super::*;
+    use crate::body::Json;
+    use serde::Deserialize;
+
+    impl Request<Body<Bytes>> {
+        pub async fn json<T>(&mut self) -> Result<T, SaphirError> where T: for<'a> Deserialize<'a> + Unpin + 'static {
+            self.body_mut().take_as::<Json<T>>().await
+        }
+    }
+}
+
+#[cfg(feature = "form")]
+mod form {
+    use super::*;
+    use crate::body::Form;
+    use serde::Deserialize;
+
+    impl Request<Body<Bytes>> {
+        pub async fn form<T>(&mut self) -> Result<T, SaphirError> where T: for<'a> Deserialize<'a> + Unpin + 'static {
+            self.body_mut().take_as::<Form<T>>().await
+        }
     }
 }
 

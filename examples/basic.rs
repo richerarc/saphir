@@ -3,6 +3,7 @@ extern crate log;
 
 use futures::future::Ready;
 use saphir::prelude::*;
+use serde_derive::{Serialize, Deserialize};
 use tokio::sync::RwLock;
 
 // == controller == //
@@ -24,8 +25,19 @@ impl Controller for MagicController {
     where
         Self: Sized,
     {
-        EndpointsBuilder::new()
-            .add(Method::GET, "/{delay}", MagicController::magic_delay)
+        let b = EndpointsBuilder::new();
+
+        #[cfg(feature = "json")]
+            let b = b.add(Method::POST, "/json", MagicController::user_json);
+        #[cfg(feature = "json")]
+            let b = b.add(Method::GET, "/json", MagicController::get_user_json);
+
+        #[cfg(feature = "form")]
+            let b = b.add(Method::POST, "/form", MagicController::user_form);
+        #[cfg(feature = "form")]
+            let b = b.add(Method::GET, "/form", MagicController::get_user_form);
+
+        b.add(Method::GET, "/delay/{delay}", MagicController::magic_delay)
             .add_with_guards(Method::GET, "/guarded/{delay}", MagicController::magic_delay, |g| {
                 g.add(numeric_delay_guard, ())
             })
@@ -36,7 +48,7 @@ impl Controller for MagicController {
 }
 
 impl MagicController {
-    async fn magic_delay(&self, req: Request<Body>) -> (u16, String) {
+    async fn magic_delay(&self, req: Request) -> (u16, String) {
         if let Some(delay) = req.captures().get("delay").and_then(|t| t.parse::<u64>().ok()) {
             tokio::time::delay_for(tokio::time::Duration::from_secs(delay)).await;
             (200, format!("Delayed of {} secs: {}", delay, self.label))
@@ -45,19 +57,60 @@ impl MagicController {
         }
     }
 
-    async fn read_body(&self, req: Request<Body>) -> (u16, Vec<u8>) {
-        let req = req
-            .async_map(|b| async { hyper::body::to_bytes(b).await })
-            .await
-            .transpose()
-            .unwrap();
+    async fn read_body(&self, mut req: Request) -> (u16, String) {
+        let body = req.body_mut().take_as::<String>().await.unwrap();
+        (200, body)
+    }
 
-        (200, req.body().to_vec())
+    #[cfg(feature = "json")]
+    async fn user_json(&self, mut req: Request) -> (u16, String) {
+        if let Ok(user) = req.body_mut().take_as::<Json<User>>().await {
+            (200, format!("New user with username: {} and age: {} read from JSON", user.username, user.age))
+        } else {
+            (400, "Bad user format".to_string())
+        }
+    }
+
+    #[cfg(feature = "form")]
+    async fn user_form(&self, mut req: Request) -> (u16, String) {
+        if let Ok(user) = req.body_mut().take_as::<Form<User>>().await {
+            (200, format!("New user with username: {} and age: {} read from Form data", user.username, user.age))
+        } else {
+            (400, "Bad user format".to_string())
+        }
+    }
+
+    #[cfg(feature = "json")]
+    async fn get_user_json(&self, _req: Request) -> (u16, Json<User>) {
+        (
+            200,
+            Json(User {
+                username: "john.doe@example.net".to_string(),
+                age: 42,
+            })
+        )
+    }
+
+    #[cfg(feature = "form")]
+    async fn get_user_form(&self, _req: Request) -> (u16, Form<User>) {
+        (
+            200,
+            Form(User {
+                username: "john.doe@example.net".to_string(),
+                age: 42,
+            })
+        )
     }
 }
 
-fn magic_handler(controller: &MagicController, _: Request<Body>) -> Ready<(u16, String)> {
+fn magic_handler(controller: &MagicController, _: Request) -> Ready<(u16, String)> {
     futures::future::ready((200, controller.label.clone()))
+}
+
+#[derive(Serialize, Deserialize)]
+struct User {
+    username: String,
+    age: i64,
 }
 
 // == middleware == //

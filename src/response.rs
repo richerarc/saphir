@@ -5,7 +5,8 @@ use std::ops::{Deref, DerefMut};
 use cookie::{Cookie, CookieJar};
 use http::{HeaderMap, HeaderValue, Response as RawResponse, response::Builder as RawBuilder, StatusCode, Version};
 use http::header::HeaderName;
-use hyper::Body;
+use hyper::body::Body as RawBody;
+use crate::body::{Body, TransmuteBody};
 
 use crate::error::SaphirError;
 
@@ -266,7 +267,7 @@ impl Builder {
     }
 
     #[inline]
-    pub fn body<B: 'static + Into<Body> + Send + Sync>(mut self, body: B) -> Builder {
+    pub fn body<B: 'static + Into<RawBody> + Send + Sync>(mut self, body: B) -> Builder {
         self.body = Box::new(Some(body));
         self
     }
@@ -275,7 +276,7 @@ impl Builder {
     #[inline]
     pub fn build(self) -> Result<Response<Body>, SaphirError> {
         let Builder { inner, cookies, mut body } = self;
-        let b: Body = body.transmute();
+        let b = body.transmute();
         let raw = inner.body(b)?;
 
         Ok(Response {
@@ -285,18 +286,32 @@ impl Builder {
     }
 }
 
-#[doc(hidden)]
-pub trait TransmuteBody {
-    fn transmute(&mut self) -> Body;
+#[cfg(feature = "json")]
+mod json {
+    use super::*;
+    use serde::Serialize;
+
+    impl Builder {
+        pub fn json<T: Serialize>(self, t: &T) -> Result<Builder, (Builder, SaphirError)> {
+            match serde_json::to_vec(t) {
+                Ok(v) => Ok(self.body(v)),
+                Err(e) => Err((self, e.into())),
+            }
+        }
+    }
 }
 
-#[doc(hidden)]
-impl<T> TransmuteBody for Option<T> where T: Into<Body> {
-    fn transmute(&mut self) -> Body {
-        if let Some(b) = self.take() {
-            b.into()
-        } else {
-            Body::empty()
+#[cfg(feature = "form")]
+mod form {
+    use super::*;
+    use serde::Serialize;
+
+    impl Builder {
+        pub fn form<T: Serialize>(self, t: &T) -> Result<Builder, (Builder, SaphirError)> {
+            match serde_urlencoded::to_string(t) {
+                Ok(v) => Ok(self.body(v)),
+                Err(e) => Err((self, e.into())),
+            }
         }
     }
 }

@@ -19,7 +19,7 @@ use crate::{
 };
 use futures::{future::BoxFuture, FutureExt};
 use http::Method;
-use hyper::Body;
+use crate::body::Body;
 use std::{collections::HashMap, sync::Arc};
 
 /// Builder type for the router

@@ -57,6 +57,8 @@ pub mod guard;
 ///
 pub mod controller;
 ///
+pub mod body;
+///
 pub use cookie;
 ///
 pub use http;
@@ -84,9 +86,13 @@ pub mod prelude {
     ///
     pub use http::header;
     ///
-    pub use hyper::Body as Body;
+    pub use crate::body::Body;
     ///
-    pub use hyper::body as body;
+    #[cfg(feature = "json")]
+    pub use crate::body::Json;
+    ///
+    #[cfg(feature = "form")]
+    pub use crate::body::Form;
     ///
     pub use crate::error::SaphirError;
     ///

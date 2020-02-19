@@ -44,7 +44,7 @@
 use crate::{error::SaphirError, http_context::HttpContext, response::Response, utils::UriPathMatcher};
 use futures::{future::BoxFuture, FutureExt};
 use futures_util::future::Future;
-use hyper::Body;
+use crate::body::Body;
 
 /// Auto trait implementation over every function that match the definition of a middleware.
 pub trait MiddlewareHandler<Data> {

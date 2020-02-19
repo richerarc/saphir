@@ -2,7 +2,7 @@ use regex::Regex;
 use std::slice::Iter;
 use http::Method;
 use crate::request::Request;
-use hyper::Body;
+use crate::body::Body;
 use crate::error::SaphirError;
 use std::collections::HashSet;
 use std::sync::atomic::AtomicU64;

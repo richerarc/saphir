@@ -7,7 +7,7 @@ use crate::{
 };
 use futures::{future::BoxFuture, FutureExt};
 use futures_util::future::Future;
-use hyper::Body;
+use crate::body::Body;
 
 /// Auto trait implementation over every function that match the definition of a guard.
 pub trait GuardHandler<Data> {

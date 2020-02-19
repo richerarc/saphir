@@ -100,6 +100,43 @@ impl Responder for Builder {
     }
 }
 
+#[cfg(feature = "json")]
+mod json {
+    use super::*;
+    use crate::body::Json;
+    use serde::Serialize;
+
+    impl<T: Serialize> Responder for Json<T> {
+        fn respond_with_builder(self, builder: Builder) -> Builder {
+            match builder.json(&self.0) {
+                Ok(b) => b,
+                Err((b, _e)) => {
+                    b.status(500).body("Unable to serialize json data")
+                },
+            }
+        }
+    }
+}
+
+#[cfg(feature = "form")]
+mod form {
+    use super::*;
+    use crate::body::Form;
+    use serde::Serialize;
+
+    impl<T: Serialize> Responder for Form<T> {
+        fn respond_with_builder(self, builder: Builder) -> Builder {
+            match builder.form(&self.0) {
+                Ok(b) => b,
+                Err((b, _e)) => {
+                    b.status(500).body("Unable to serialize form data")
+                },
+            }
+        }
+    }
+}
+
+
 impl_status_responder!(u16, i16, u32, i32, u64, i64, usize, isize);
 impl_body_responder!(String, &'static str, Vec<u8>, &'static [u8], hyper::body::Bytes);
 impl_tuple_responder!(0->A, 1->B);

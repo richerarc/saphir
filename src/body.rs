@@ -8,6 +8,11 @@ use crate::error::SaphirError;
 use http::HeaderMap;
 use http_body::SizeHint;
 
+#[cfg(feature = "json")]
+pub use json::Json;
+#[cfg(feature = "form")]
+pub use form::Form;
+
 pub struct Body<T = Bytes> where T: FromBytes {
     inner: Option<RawBody>,
     fut: Option<Pin<Box<dyn Future<Output=Result<T::Out, SaphirError>> + Send + Sync + 'static>>>,
@@ -23,10 +28,12 @@ impl Body<Bytes> {
 }
 
 impl<T: 'static> Body<T> where T: FromBytes {
+    #[inline]
     pub(crate) async fn generate(raw: RawBody) -> Result<T::Out, SaphirError> {
         T::from_bytes(to_bytes(raw).map_err(|e| SaphirError::from(e)).await?)
     }
 
+    #[inline]
     pub(crate) fn from_raw(raw: RawBody) -> Self {
         Body {
             inner: Some(raw),
@@ -34,11 +41,13 @@ impl<T: 'static> Body<T> where T: FromBytes {
         }
     }
 
+    #[inline]
     pub(crate) fn into_raw(self) -> RawBody {
         self.inner.unwrap_or_else(|| RawBody::empty())
     }
 
     /// Performing `take` will give your a owned version of the body, leaving a empty one behind
+    #[inline]
     pub fn take(&mut self) -> Self {
         Body {
             inner: self.inner.take(),
@@ -47,6 +56,7 @@ impl<T: 'static> Body<T> where T: FromBytes {
     }
 
     /// Performing `take_as` will give your a owned version of the body as U, leaving a empty one behind
+    #[inline]
     pub fn take_as<U: FromBytes>(&mut self) -> Body<U> {
         Body {
             inner: self.inner.take(),
@@ -79,6 +89,7 @@ impl<T: 'static + Unpin> Future for Body<T> where T: FromBytes {
 impl FromBytes for Bytes {
     type Out = Bytes;
 
+    #[inline]
     fn from_bytes(bytes: Bytes) -> Result<Self, SaphirError> where Self: Sized {
         Ok(bytes)
     }
@@ -87,6 +98,7 @@ impl FromBytes for Bytes {
 impl FromBytes for String {
     type Out = String;
 
+    #[inline]
     fn from_bytes(bytes: Bytes) -> Result<Self, SaphirError> where Self: Sized {
         String::from_utf8(bytes.to_vec()).map_err(|e| SaphirError::Custom(Box::new(e)))
     }
@@ -95,6 +107,7 @@ impl FromBytes for String {
 impl FromBytes for Vec<u8> {
     type Out = Vec<u8>;
 
+    #[inline]
     fn from_bytes(bytes: Bytes) -> Result<Self, SaphirError> where Self: Sized {
         Ok(bytes.to_vec())
     }
@@ -102,17 +115,17 @@ impl FromBytes for Vec<u8> {
 
 #[cfg(feature = "json")]
 pub mod json {
-    use serde::Deserialize;
-    use std::marker::PhantomData;
+    use serde::{Deserialize, Serialize};
     use crate::body::FromBytes;
-    use hyper::body::Bytes;
+    use hyper::body::{Bytes, Body as RawBody};
     use crate::error::SaphirError;
 
-    pub struct Json<T>(PhantomData<T>);
+    pub struct Json<T>(pub T);
 
     impl<T> FromBytes for Json<T> where T: for<'a> Deserialize<'a> {
         type Out = T;
 
+        #[inline]
         fn from_bytes(bytes: Bytes) -> Result<Self::Out, SaphirError> where Self: Sized {
             Ok(serde_json::from_slice(bytes.as_ref())?)
         }
@@ -122,16 +135,16 @@ pub mod json {
 #[cfg(feature = "form")]
 pub mod form {
     use serde::Deserialize;
-    use std::marker::PhantomData;
     use crate::body::FromBytes;
     use hyper::body::Bytes;
     use crate::error::SaphirError;
 
-    pub struct Form<T>(PhantomData<T>);
+    pub struct Form<T>(pub T);
 
     impl<T> FromBytes for Form<T> where T: for<'a> Deserialize<'a> {
         type Out = T;
 
+        #[inline]
         fn from_bytes(bytes: Bytes) -> Result<Self::Out, SaphirError> where Self: Sized {
             Ok(serde_urlencoded::from_bytes(bytes.as_ref())?)
         }
@@ -203,11 +216,20 @@ pub trait TransmuteBody {
 
 #[doc(hidden)]
 impl<T> TransmuteBody for Option<T> where T: Into<RawBody> {
+    #[inline]
     fn transmute(&mut self) -> Body<Bytes> {
         Body::from_raw(if let Some(b) = self.take() {
             b.into()
         } else {
             RawBody::empty()
         })
+    }
+}
+
+impl<T: FromBytes> Into<RawBody> for Body<T> {
+    #[inline]
+    fn into(self) -> RawBody {
+        let Body { inner, fut: _ } = self;
+        inner.unwrap_or_else(|| RawBody::empty())
     }
 }

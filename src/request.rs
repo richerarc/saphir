@@ -297,6 +297,32 @@ impl<T> Request<Option<T>> {
     }
 }
 
+#[cfg(feature = "json")]
+mod json {
+    use super::*;
+    use crate::body::Json;
+    use serde::Deserialize;
+
+    impl Request<Body<Bytes>> {
+        pub async fn json<T>(&mut self) -> Result<T, SaphirError> where T: for<'a> Deserialize<'a> {
+            self.body_mut().take_as::<Json<T>>().await
+        }
+    }
+}
+
+#[cfg(feature = "form")]
+mod form {
+    use super::*;
+    use crate::body::Form;
+    use serde::Deserialize;
+
+    impl Request<Body<Bytes>> {
+        pub async fn form<T>(&mut self) -> Result<T, SaphirError> where T: for<'a> Deserialize<'a> {
+            self.body_mut().take_as::<Form<T>>().await
+        }
+    }
+}
+
 impl<T> Deref for Request<T> {
     type Target = RawRequest<T>;
 

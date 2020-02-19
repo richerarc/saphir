@@ -86,6 +86,12 @@ pub mod prelude {
     ///
     pub use crate::body::Body;
     ///
+    #[cfg(feature = "json")]
+    pub use crate::body::Json;
+    ///
+    #[cfg(feature = "form")]
+    pub use crate::body::Form;
+    ///
     pub use crate::error::SaphirError;
     ///
     pub use crate::handler::Handler;

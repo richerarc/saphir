@@ -285,3 +285,31 @@ impl Builder {
         })
     }
 }
+
+#[cfg(feature = "json")]
+mod json {
+    use super::*;
+    use crate::body::Json;
+    use serde::Serialize;
+
+    impl Builder {
+        pub fn json<T: Serialize>(mut self, t: &T) -> Result<Builder, (Builder, SaphirError)> {
+            let v = serde_json::to_vec(t).map_err(|e| (self, SaphirError::from(e)))?;
+            Ok(self.body(v))
+        }
+    }
+}
+
+#[cfg(feature = "form")]
+mod json {
+    use super::*;
+    use crate::body::Form;
+    use serde::Serialize;
+
+    impl Builder {
+        pub fn form<T: Serialize>(mut self, t: &T) -> Result<Builder, (Builder, SaphirError)> {
+            let v = serde_urlencoded::to_string(t).map_err(|e| (self, SaphirError::from(e)))?;
+            Ok(self.body(v))
+        }
+    }
+}

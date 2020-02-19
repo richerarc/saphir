@@ -4,6 +4,7 @@ extern crate log;
 use futures::future::Ready;
 use tokio::sync::RwLock;
 use saphir::prelude::*;
+use serde_derive::{Serialize, Deserialize};
 
 // == controller == //
 
@@ -27,10 +28,14 @@ impl Controller for MagicController {
         let b = EndpointsBuilder::new();
 
         #[cfg(feature = "json")]
-        let b = b.add(Method::POST, "/json", MagicController::user_json);
+            let b = b.add(Method::POST, "/json", MagicController::user_json);
+        #[cfg(feature = "json")]
+            let b = b.add(Method::GET, "/json", MagicController::get_user_json);
 
         #[cfg(feature = "form")]
-        let b = b.add(Method::POST, "/form", MagicController::user_form);
+            let b = b.add(Method::POST, "/form", MagicController::user_form);
+        #[cfg(feature = "form")]
+            let b = b.add(Method::GET, "/form", MagicController::get_user_form);
 
         b.add(Method::GET, "/delay/{delay}", MagicController::magic_delay)
             .add(Method::GET, "/", magic_handler)
@@ -57,15 +62,6 @@ impl MagicController {
 
     #[cfg(feature = "json")]
     async fn user_json(&self, mut req: Request) -> (u16, String) {
-        use saphir::body::json::Json;
-        use serde_derive::Deserialize;
-
-        #[derive(Deserialize)]
-        struct User {
-            username: String,
-            age: i64,
-        }
-
         if let Ok(user) = req.body_mut().take_as::<Json<User>>().await {
             (200, format!("New user with username: {} and age: {} read from JSON", user.username, user.age))
         } else {
@@ -75,25 +71,44 @@ impl MagicController {
 
     #[cfg(feature = "form")]
     async fn user_form(&self, mut req: Request) -> (u16, String) {
-        use saphir::body::form::Form;
-        use serde_derive::Deserialize;
-
-        #[derive(Deserialize)]
-        struct User {
-            username: String,
-            age: i64,
-        }
-
         if let Ok(user) = req.body_mut().take_as::<Form<User>>().await {
             (200, format!("New user with username: {} and age: {} read from Form data", user.username, user.age))
         } else {
             (400, "Bad user format".to_string())
         }
     }
+
+    #[cfg(feature = "json")]
+    async fn get_user_json(&self, mut req: Request) -> (u16, Json<User>) {
+        (
+            200,
+            Json(User {
+                username: "john.doe@example.net".to_string(),
+                age: 42,
+            })
+        )
+    }
+
+    #[cfg(feature = "form")]
+    async fn get_user_form(&self, mut req: Request) -> (u16, Form<User>) {
+        (
+            200,
+            Form(User {
+                username: "john.doe@example.net".to_string(),
+                age: 42,
+            })
+        )
+    }
 }
 
 fn magic_handler(controller: &MagicController, _: Request) -> Ready<(u16, String)> {
     futures::future::ready((200, controller.label.clone()))
+}
+
+#[derive(Serialize, Deserialize)]
+struct User {
+    username: String,
+    age: i64,
 }
 
 // == middleware == //

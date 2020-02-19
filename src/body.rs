@@ -115,9 +115,9 @@ impl FromBytes for Vec<u8> {
 
 #[cfg(feature = "json")]
 pub mod json {
-    use serde::{Deserialize, Serialize};
+    use serde::Deserialize;
     use crate::body::FromBytes;
-    use hyper::body::{Bytes, Body as RawBody};
+    use hyper::body::Bytes;
     use crate::error::SaphirError;
 
     pub struct Json<T>(pub T);

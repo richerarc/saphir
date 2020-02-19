@@ -29,9 +29,12 @@ pub enum SaphirError {
     /// Error from (de)serializing json data
     #[cfg(feature = "json")]
     SerdeJson(serde_json::error::Error),
-    /// Error from (de)serializing form data
-    #[cfg(feature = "json")]
-    SerdeUrl(serde_urlencoded::de::Error),
+    /// Error from deserializing form data
+    #[cfg(feature = "form")]
+    SerdeUrlDe(serde_urlencoded::de::Error),
+    /// Error from serializing form data
+    #[cfg(feature = "form")]
+    SerdeUrlSer(serde_urlencoded::ser::Error),
 }
 
 #[cfg(feature = "json")]
@@ -41,10 +44,17 @@ impl From<serde_json::error::Error> for SaphirError {
     }
 }
 
-#[cfg(feature = "json")]
+#[cfg(feature = "form")]
 impl From<serde_urlencoded::de::Error> for SaphirError {
     fn from(e: serde_urlencoded::de::Error) -> Self {
-        SaphirError::SerdeUrl(e)
+        SaphirError::SerdeUrlDe(e)
+    }
+}
+
+#[cfg(feature = "form")]
+impl From<serde_urlencoded::ser::Error> for SaphirError {
+    fn from(e: serde_urlencoded::ser::Error) -> Self {
+        SaphirError::SerdeUrlSer(e)
     }
 }
 

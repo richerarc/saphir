@@ -289,27 +289,29 @@ impl Builder {
 #[cfg(feature = "json")]
 mod json {
     use super::*;
-    use crate::body::Json;
     use serde::Serialize;
 
     impl Builder {
-        pub fn json<T: Serialize>(mut self, t: &T) -> Result<Builder, (Builder, SaphirError)> {
-            let v = serde_json::to_vec(t).map_err(|e| (self, SaphirError::from(e)))?;
-            Ok(self.body(v))
+        pub fn json<T: Serialize>(self, t: &T) -> Result<Builder, (Builder, SaphirError)> {
+            match serde_json::to_vec(t) {
+                Ok(v) => Ok(self.body(v)),
+                Err(e) => Err((self, e.into())),
+            }
         }
     }
 }
 
 #[cfg(feature = "form")]
-mod json {
+mod form {
     use super::*;
-    use crate::body::Form;
     use serde::Serialize;
 
     impl Builder {
-        pub fn form<T: Serialize>(mut self, t: &T) -> Result<Builder, (Builder, SaphirError)> {
-            let v = serde_urlencoded::to_string(t).map_err(|e| (self, SaphirError::from(e)))?;
-            Ok(self.body(v))
+        pub fn form<T: Serialize>(self, t: &T) -> Result<Builder, (Builder, SaphirError)> {
+            match serde_urlencoded::to_string(t) {
+                Ok(v) => Ok(self.body(v)),
+                Err(e) => Err((self, e.into())),
+            }
         }
     }
 }

@@ -81,7 +81,7 @@ impl MagicController {
     }
 
     #[cfg(feature = "json")]
-    async fn get_user_json(&self, mut req: Request) -> (u16, Json<User>) {
+    async fn get_user_json(&self, _req: Request) -> (u16, Json<User>) {
         (
             200,
             Json(User {
@@ -92,7 +92,7 @@ impl MagicController {
     }
 
     #[cfg(feature = "form")]
-    async fn get_user_form(&self, mut req: Request) -> (u16, Form<User>) {
+    async fn get_user_form(&self, _req: Request) -> (u16, Form<User>) {
         (
             200,
             Form(User {

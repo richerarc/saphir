@@ -43,6 +43,7 @@ impl Controller for MagicController {
             })
             .add(Method::GET, "/", magic_handler)
             .add(Method::POST, "/", MagicController::read_body)
+            .add(Method::GET, "/match/*/**", MagicController::match_any_route)
             .build()
     }
 }
@@ -60,6 +61,10 @@ impl MagicController {
     async fn read_body(&self, mut req: Request) -> (u16, String) {
         let body = req.body_mut().take_as::<String>().await.unwrap();
         (200, body)
+    }
+
+    async fn match_any_route(&self, req: Request)  -> (u16, String) {
+        (200, req.uri().path().to_string())
     }
 
     #[cfg(feature = "json")]

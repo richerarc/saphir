@@ -1,0 +1,22 @@
+[package]
+name = "saphir_macro"
+version = "1.0.0"
+authors = ["Richer Archambault <richer.arc@gmail.com>"]
+edition = "2018"
+description = "Macro generation for http server framework"
+documentation = "https://docs.rs/saphir"
+homepage = "https://github.com/richerarc/saphir"
+repository = "https://github.com/richerarc/saphir"
+readme = "README.md"
+keywords = ["hyper", "http", "server", "web", "async"]
+license = "MIT"
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "saphir_macro"
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "1.0", features = ["full", "extra-traits"] }

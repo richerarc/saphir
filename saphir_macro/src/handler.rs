@@ -103,12 +103,30 @@ pub fn gen_handlers_fn(attr: &ControllerAttr, handlers: Vec<ImplItemMethod>) -> 
             };
             handler_e.to_tokens(&mut handler_stream);
         } else {
-            // let handler_e = quote! {
-            //     let b = b.add_with_guards(Method::#method, #path, #ctrl_ident::#handler_ident, |g| {
-            //         g.add(numeric_delay_guard, ())
-            //     });
-            // };
-            // handler_e.to_tokens(&mut handler_stream);
+            let mut guard_stream = TokenStream::new();
+
+            for (fn_path, data) in guards {
+                let guard_e = if let Some(data) = data {
+                    quote! {
+                        let g = g.add(#fn_path, #data(self));
+                    }
+                } else {
+                    quote! {
+                        let g = g.add(#fn_path, ());
+                    }
+                };
+
+                guard_e.to_tokens(&mut guard_stream);
+
+            }
+
+            let handler_e = quote! {
+                let b = b.add_with_guards(Method::#method, #path, #ctrl_ident::#handler_ident, |g| {
+                    #guard_stream
+                    g
+                });
+            };
+            handler_e.to_tokens(&mut handler_stream);
         }
     }
 

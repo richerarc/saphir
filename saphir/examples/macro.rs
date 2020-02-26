@@ -1,6 +1,16 @@
 use saphir::prelude::*;
 use saphir_macro::controller;
 
+fn guard_string(_controller: &UserController) -> String {
+    UserController::BASE_PATH.to_string()
+}
+
+async fn print_string_guard(string: &String, req: Request<Body>) -> Result<Request<Body>, &'static str> {
+    println!("{}", string);
+
+    Ok(req)
+}
+
 struct UserController {
 
 }
@@ -12,7 +22,7 @@ impl UserController {
         (200, "Yo".to_string())
     }
 
-    #[guard(fn="my_fn")]
+    #[guard(fn="print_string_guard", data="guard_string")]
     #[get("/")]
     async fn list_user(&self, req: Request) -> (u16, String) {
         (200, "Yo".to_string())

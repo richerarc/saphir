@@ -12,6 +12,7 @@ impl UserController {
         (200, "Yo".to_string())
     }
 
+    #[guard(fn="my_fn")]
     #[get("/")]
     async fn list_user(&self, req: Request) -> (u16, String) {
         (200, "Yo".to_string())

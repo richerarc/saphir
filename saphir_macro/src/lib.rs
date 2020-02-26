@@ -41,12 +41,14 @@
 
 extern crate proc_macro;
 
-use proc_macro::{TokenStream as TokenStream1};
+use proc_macro::TokenStream as TokenStream1;
 
 use proc_macro2::{Ident, TokenStream, Span};
-use quote::quote;
-use syn::{AttributeArgs, ItemImpl, Meta, NestedMeta, parse_macro_input, Type, MetaList, MetaNameValue, Lit};
+use quote::{quote, ToTokens};
+use syn::{AttributeArgs, ItemImpl, Meta, NestedMeta, parse_macro_input, Type, MetaList, MetaNameValue, Lit, ImplItemMethod, Attribute};
 use crate::controller::ControllerAttr;
+use http::Method;
+use std::str::FromStr;
 
 mod controller;
 mod handler;
@@ -58,16 +60,21 @@ pub fn controller(args: TokenStream1, input: TokenStream1) -> TokenStream1 {
     let controller_attr = ControllerAttr::new(args, &input);
 
     let base_path = gen_base_path_const(&controller_attr);
-    let handlers_fn = gen_handlers_fn(&controller_attr);
+    let mut handlers = handler::parse_handlers(&input);
+    let handlers_fn = gen_handlers_fn(&controller_attr, handlers.clone());
     let controller_implementation = gen_controller_implementation(&controller_attr, base_path, handlers_fn);
-
-    let _ = handler::parse_handlers(&input);
+    let struct_implementaion = gen_struct_implementation(controller_attr.ident.clone(), handlers.iter_mut().map(|handler| {
+        handler.attrs = Vec::new();
+        handler.clone()
+    }).collect());
 
     let mod_ident = Ident::new(&format!("SAPHIR_GEN_CONTROLLER_{}", &controller_attr.name), Span::call_site());
     let expanded = quote! {
         mod #mod_ident {
             use super::*;
             use saphir::prelude::*;
+            #struct_implementaion
+
             #controller_implementation
         }
     };
@@ -98,16 +105,58 @@ fn gen_base_path_const(attr: &ControllerAttr) -> TokenStream {
     e
 }
 
-fn gen_handlers_fn(_attr: &ControllerAttr) -> TokenStream {
+fn gen_handlers_fn(attr: &ControllerAttr, handlers: Vec<ImplItemMethod>) -> TokenStream {
+    let mut handler_stream = TokenStream::new();
+    let ctrl_ident = attr.ident.clone();
+    for handler in handlers {
+        let (method, path) = parse_fn_metas(handler.attrs);
+        let method = Ident::new(method.as_str(), Span::call_site());
+        let handler_ident = handler.sig.ident;
+
+        let handler_e = quote! {
+            let b = b.add(Method::#method, #path, #ctrl_ident::#handler_ident);
+        };
+        handler_e.to_tokens(&mut handler_stream);
+    }
+
     let e = quote! {
         fn handlers(&self) -> Vec<ControllerEndpoint<Self>> where Self: Sized {
             let b = EndpointsBuilder::new();
-            // handle dispatch logic here
+
+            #handler_stream
+
             b.build()
         }
     };
 
     e
+}
+
+fn parse_fn_metas(mut attrs: Vec<Attribute>) -> (Method, String) {
+    let mut method = None;
+    let mut path = String::new();
+
+    let metas = attrs.iter_mut().map(|attr| attr.parse_meta().expect("Invalid function arguments")).collect::<Vec<Meta>>();
+    for meta in metas {
+        match meta {
+            Meta::List(l) => {
+                if let Some(ident) = l.path.get_ident() {
+                    method = Some(Method::from_str(ident.to_string().to_uppercase().as_str()).expect("Invalid HTTP method"));
+                }
+
+                if let Some(NestedMeta::Lit(Lit::Str(str))) = l.nested.first() {
+                    path = str.value();
+                    if !path.starts_with("/") {
+                        panic!("Path must start with '/'")
+                    }
+                }
+            }
+            Meta::NameValue(_) => { panic!("Invalid format") }
+            Meta::Path(_) => { panic!("Invalid format") }
+        }
+    }
+
+    (method.expect("HTTP method is missing"), path)
 }
 
 fn gen_controller_implementation(attr: &ControllerAttr, base_path: TokenStream, handler_fn: TokenStream) -> TokenStream {
@@ -117,6 +166,21 @@ fn gen_controller_implementation(attr: &ControllerAttr, base_path: TokenStream, 
             #base_path
 
             #handler_fn
+        }
+    };
+
+    e
+}
+
+fn gen_struct_implementation(controller_ident: Ident, handlers: Vec<ImplItemMethod>) -> TokenStream {
+    let mut handler_tokens = TokenStream::new();
+    for handler in handlers {
+        handler.to_tokens(&mut handler_tokens);
+    }
+
+    let e = quote! {
+        impl #controller_ident {
+            #handler_tokens
         }
     };
 

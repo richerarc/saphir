@@ -7,12 +7,11 @@ use syn::parse::{Parse, ParseBuffer, Result};
 use quote::quote;
 use std::collections::{HashMap, HashSet};
 
-pub fn parse_handlers(input: &ItemImpl) -> Vec<&ImplItemMethod> {
+pub fn parse_handlers(input: &ItemImpl) -> Vec<ImplItemMethod> {
     let mut vec = Vec::new();
     for item in &input.items {
         if let ImplItem::Method(m) = item {
-            let ImplItemMethod { attrs, vis, defaultness, sig, block } = m;
-            vec.push(m);
+            vec.push(m.clone());
         }
     }
 

@@ -2,7 +2,7 @@
 //!
 //! The base macro attribule look like this : `#[controller]` and is to be put on top of a Controller's method impl block
 //!
-//! ```rust
+//! ```ignore
 //! #use saphir::prelude::*;
 //! #use saphir_macro::controller;
 //!
@@ -21,7 +21,7 @@
 //!
 //! ##Example
 //!
-//! ```rust
+//! ```ignore
 //! use saphir::prelude::*;
 //! use saphir_macro::controller;
 //!

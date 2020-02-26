@@ -61,7 +61,7 @@ pub fn controller(args: TokenStream1, input: TokenStream1) -> TokenStream1 {
 
     let base_path = gen_base_path_const(&controller_attr);
     let mut handlers = handler::parse_handlers(&input);
-    let handlers_fn = gen_handlers_fn(&controller_attr, handlers.clone());
+    let handlers_fn = handler::gen_handlers_fn(&controller_attr, handlers.clone());
     let controller_implementation = gen_controller_implementation(&controller_attr, base_path, handlers_fn);
     let struct_implementaion = gen_struct_implementation(controller_attr.ident.clone(), handlers.iter_mut().map(|handler| {
         handler.attrs = Vec::new();
@@ -103,60 +103,6 @@ fn gen_base_path_const(attr: &ControllerAttr) -> TokenStream {
     };
 
     e
-}
-
-fn gen_handlers_fn(attr: &ControllerAttr, handlers: Vec<ImplItemMethod>) -> TokenStream {
-    let mut handler_stream = TokenStream::new();
-    let ctrl_ident = attr.ident.clone();
-    for handler in handlers {
-        let (method, path) = parse_fn_metas(handler.attrs);
-        let method = Ident::new(method.as_str(), Span::call_site());
-        let handler_ident = handler.sig.ident;
-
-        let handler_e = quote! {
-            let b = b.add(Method::#method, #path, #ctrl_ident::#handler_ident);
-        };
-        handler_e.to_tokens(&mut handler_stream);
-    }
-
-    let e = quote! {
-        fn handlers(&self) -> Vec<ControllerEndpoint<Self>> where Self: Sized {
-            let b = EndpointsBuilder::new();
-
-            #handler_stream
-
-            b.build()
-        }
-    };
-
-    e
-}
-
-fn parse_fn_metas(mut attrs: Vec<Attribute>) -> (Method, String) {
-    let mut method = None;
-    let mut path = String::new();
-
-    let metas = attrs.iter_mut().map(|attr| attr.parse_meta().expect("Invalid function arguments")).collect::<Vec<Meta>>();
-    for meta in metas {
-        match meta {
-            Meta::List(l) => {
-                if let Some(ident) = l.path.get_ident() {
-                    method = Some(Method::from_str(ident.to_string().to_uppercase().as_str()).expect("Invalid HTTP method"));
-                }
-
-                if let Some(NestedMeta::Lit(Lit::Str(str))) = l.nested.first() {
-                    path = str.value();
-                    if !path.starts_with("/") {
-                        panic!("Path must start with '/'")
-                    }
-                }
-            }
-            Meta::NameValue(_) => { panic!("Invalid format") }
-            Meta::Path(_) => { panic!("Invalid format") }
-        }
-    }
-
-    (method.expect("HTTP method is missing"), path)
 }
 
 fn gen_controller_implementation(attr: &ControllerAttr, base_path: TokenStream, handler_fn: TokenStream) -> TokenStream {

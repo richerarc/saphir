@@ -22,6 +22,11 @@ impl UserController {
         (200, "Yo".to_string())
     }
 
+    #[get("/sync")]
+    fn get_user_sync(&self, req: Request) -> (u16, String) {
+        (200, "Yo".to_string())
+    }
+
     #[guard(fn="print_string_guard", data="guard_string")]
     #[get("/")]
     async fn list_user(&self, req: Request) -> (u16, String) {

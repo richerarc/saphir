@@ -1,7 +1,8 @@
 use http::Method;
 use proc_macro2::Ident;
-use syn::{Attribute, AttrStyle, Error, ImplItem, ImplItemMethod, ItemFn, ItemImpl, AttributeArgs, NestedMeta, Lit, Meta, Path, MetaNameValue};
+use syn::{Attribute, AttrStyle, Error, ImplItem, ImplItemMethod, ItemFn, ItemImpl, AttributeArgs, NestedMeta, Lit, Meta, Path, MetaNameValue, ReturnType};
 use syn::parse_macro_input;
+use syn::parse_quote;
 use syn::parse::{Parse, ParseBuffer, Result};
 
 use quote::quote;
@@ -82,7 +83,15 @@ pub fn parse_handlers(input: &ItemImpl) -> Vec<ImplItemMethod> {
         if let ImplItem::Method(m) = item {
             let mut owned_m = m.clone();
             if owned_m.sig.asyncness.is_none() {
-                
+                let owned_m_ident = owned_m.sig.ident.clone();
+                let owned_m_return = owned_m.sig.output.to_token_stream();
+                let owned_m_clone = owned_m.clone();
+
+                owned_m = parse_quote! {
+                    async fn #owned_m_ident(&self, mut req: Request) -> Result<#owned_m_return> {
+                        #owned_m_clone
+                    }
+                };
             }
 
             vec.push(owned_m);
@@ -95,7 +104,7 @@ pub fn parse_handlers(input: &ItemImpl) -> Vec<ImplItemMethod> {
 pub fn gen_handlers_fn(attr: &ControllerAttr, handlers: Vec<ImplItemMethod>) -> TokenStream {
     let mut handler_stream = TokenStream::new();
     let ctrl_ident = attr.ident.clone();
-    
+
     for handler in handlers {
         let HandlerAttrs { method, path, guards } = HandlerAttrs::new(handler.attrs);
         let method = Ident::new(method.as_str(), Span::call_site());

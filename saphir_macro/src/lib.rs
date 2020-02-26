@@ -1,105 +1,124 @@
+//! Saphir macro for auto trait implementation on controllers
+//!
+//! The base macro attribule look like this : `#[controller]` and is to be put on top of a Controller's method impl block
+//!
+//! ```rust
+//! #use saphir::prelude::*;
+//! #use saphir_macro::controller;
+//!
+//! #struct ExampleController;
+//!
+//! #[controller]
+//! impl ExampleController {
+//!     // ....
+//! }
+//! ```
+//!
+//! Different arguments can be passed to the controller macro:
+//! - `name="<newName>"` will take place of the default controller name (by default the controller name is the struct name, lowercase, with the "controller keyword stripped"). the name will result as the basepath of the controller.
+//! - `version=<u16>` use for api version, the version will be added before the name as the controller basepath
+//! - `prefix="<prefix>"` add a prefix before the basepath and the version.
+//!
+//! ##Example
+//!
+//! ```rust
+//! use saphir::prelude::*;
+//! use saphir_macro::controller;
+//!
+//! struct ExampleController;
+//!
+//! #[controller(name="test", version=1, prefix="api")]
+//! impl ExampleController {
+//!     // ....
+//! }
+//! ```
+//!
+//! This will result in the Example controller being routed to `/api/v1/test`
+//!
+
 // The `quote!` macro requires deep recursion.
 #![recursion_limit = "512"]
 
-#[macro_use]
-extern crate quote;
-#[macro_use]
-extern crate syn;
-
 extern crate proc_macro;
-extern crate proc_macro2;
 
+use proc_macro::{TokenStream as TokenStream1};
+
+use proc_macro2::{Ident, TokenStream, Span};
 use quote::quote;
-use proc_macro::{TokenStream, TokenTree, Literal as Literal1, Ident as Ident1};
-use proc_macro2::{Ident, TokenStream as TokenStream2, Span};
-use syn::{parse_macro_input, ItemImpl, Type};
-use syn::token::Token;
+use syn::{AttributeArgs, ItemImpl, Meta, NestedMeta, parse_macro_input, Type, MetaList, MetaNameValue, Lit};
+use crate::controller::ControllerAttr;
+
+mod controller;
+mod handler;
 
 #[proc_macro_attribute]
-pub fn controller(attr: TokenStream, input: TokenStream) -> TokenStream {
-    // let attr = parse_macro_input!(attr as Attribute);
-    dbg!(attr);
-    dbg!(input.to_string());
+pub fn controller(args: TokenStream1, input: TokenStream1) -> TokenStream1 {
+    let args = parse_macro_input!(args as AttributeArgs);
     let input = parse_macro_input!(input as ItemImpl);
+    let controller_attr = ControllerAttr::new(args, &input);
 
-    let ident = parse_controller_ident(&input).expect("Unable to locate controller Ident, don't use path in your impl");
+    let base_path = gen_base_path_const(&controller_attr);
+    let handlers_fn = gen_handlers_fn(&controller_attr);
+    let controller_implementation = gen_controller_implementation(&controller_attr, base_path, handlers_fn);
 
-    let base_path = gen_base_path_const(None, &ident);
+    let _ = handler::parse_handlers(&input);
 
-    dbg!(base_path);
-
+    let mod_ident = Ident::new(&format!("SAPHIR_GEN_CONTROLLER_{}", &controller_attr.name), Span::call_site());
     let expanded = quote! {
-        // ...
+        mod #mod_ident {
+            use super::*;
+            use saphir::prelude::*;
+            #controller_implementation
+        }
     };
 
-    TokenStream::from(expanded)
+    TokenStream1::from(expanded)
 }
 
-fn gen_base_path_const(base_path: Option<String>, ident: &Ident) -> TokenStream2 {
-    let mut base_path = base_path.unwrap_or_else(|| {
-        ident.to_string().to_lowercase().trim_end_matches("controller").to_string()
-    });
+fn gen_base_path_const(attr: &ControllerAttr) -> TokenStream {
+    let mut path = "/".to_string();
 
-    base_path.insert(0, '/');
-
-    let expanded = quote! {
-        const BASE_PATH: &'static str = #base_path;
-    };
-
-    expanded
-}
-
-fn parse_controller_ident(input: &ItemImpl) -> Option<Ident> {
-    match input.self_ty.as_ref() {
-        Type::Path(p) => {
-            if let Some(f) = p.path.segments.first() {
-                return Some(f.ident.clone());
-            }
-        },
-        _ => {}
+    if let Some(prefix) = attr.prefix.as_ref() {
+        path.push_str(prefix);
+        path.push('/');
     }
 
-    None
+    if let Some(version) = attr.version {
+        path.push('v');
+        path.push_str(&format!("{}", version));
+        path.push('/');
+    }
+
+    path.push_str(attr.name.as_str());
+
+    let e = quote! {
+        const BASE_PATH: &'static str = #path;
+    };
+
+    e
 }
 
-// fn parse_controller_attr(attr: TokenStream) -> ControllerAttr {
-//     let (idents, lits): (Vec<AttrPairType>, Vec<AttrPairType>) = attr.into_iter().filter_map(|t| {
-//         match t {
-//             TokenTree::Group(g) => {
-//                 match g.stream() {
-//                     TokenTree::Literal(l) => Some(AttrPairType::L(l)),
-//                     _ => None,
-//                 }
-//             },
-//             TokenTree::Ident(i) => Some(AttrPairType::I(i)),
-//             TokenTree::Literal(l) => Some(AttrPairType::L(l)),
-//             _ => None
-//         }
-//     }).partition(|a| {
-//         match a {
-//             AttrPairType::I(_) => true,
-//             AttrPairType::L(_) => false,
-//         }
-//     });
-//
-//     let mut base_path = None;
-//     let mut version = None;
-//     let mut prefix = None;
-//
-//     ControllerAttr {
-//         base_path: None,
-//         version: None,
-//         prefix: None
-//     }
-// }
+fn gen_handlers_fn(_attr: &ControllerAttr) -> TokenStream {
+    let e = quote! {
+        fn handlers(&self) -> Vec<ControllerEndpoint<Self>> where Self: Sized {
+            let b = EndpointsBuilder::new();
+            // handle dispatch logic here
+            b.build()
+        }
+    };
 
-struct ControllerAttr {
-    base_path: Option<String>,
-    version: Option<u16>,
-    prefix: Option<String>
+    e
 }
 
-enum AttrPairType {
-    I(Ident1),
-    L(Literal1)
+fn gen_controller_implementation(attr: &ControllerAttr, base_path: TokenStream, handler_fn: TokenStream) -> TokenStream {
+    let ident = attr.ident.clone();
+    let e = quote! {
+        impl Controller for #ident {
+            #base_path
+
+            #handler_fn
+        }
+    };
+
+    e
 }

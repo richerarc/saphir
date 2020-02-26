@@ -6,6 +6,12 @@ use crate::body::Body;
 use crate::error::SaphirError;
 use std::collections::{HashSet, HashMap, VecDeque};
 use std::sync::atomic::AtomicU64;
+use std::str::FromStr;
+
+// TODO: Add possibility to match any route like /page/<path..>/view
+// this will match any route that begins with /page and ends with /view, the in between path will be saved in the capture
+
+// TODO: Add prefix and suffix literal to match if some path segment start or end with something
 
 static ENDPOINT_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -19,29 +25,35 @@ pub struct EndpointResolver {
     path_matcher: UriPathMatcher,
     methods: HashSet<Method>,
     id: u64,
+    allow_any_method: bool,
 }
 
 impl EndpointResolver {
     pub fn new(path_str: &str, method: Method) -> Result<EndpointResolver, SaphirError> {
         let mut methods = HashSet::new();
-        methods.insert(Method::OPTIONS);
+        let allow_any_method = method.is_any();
         methods.insert(method);
+
 
         Ok(EndpointResolver {
             path_matcher: UriPathMatcher::new(path_str).map_err(|e| SaphirError::Other(e))?,
             methods,
-            id: ENDPOINT_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            id: ENDPOINT_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
+            allow_any_method
         })
     }
 
     pub fn add_method(&mut self, m: Method) {
+        if !self.allow_any_method && m.is_any() {
+            self.allow_any_method = true;
+        }
         self.methods.insert(m);
     }
 
     pub fn resolve(&self, req: &mut Request<Body>) -> EndpointResolverResult {
         let path = req.uri().path().to_string();
         if self.path_matcher.match_all_and_capture(path, req.captures_mut()) {
-            if self.methods.contains(req.method()) {
+            if self.allow_any_method || self.methods.contains(req.method()) {
                 EndpointResolverResult::Match
             } else {
                 EndpointResolverResult::MethodNotAllowed
@@ -245,5 +257,22 @@ impl UriPathSegmentMatcher {
             UriPathSegmentMatcher::Wildcard { segment_only } => *segment_only,
             _ => false
         }
+    }
+}
+
+pub trait MethodExtension {
+    fn any() -> Self;
+    fn is_any(&self) -> bool;
+}
+
+impl MethodExtension for Method {
+    /// Represent a method for which any Http method will be accepted
+    #[inline]
+    fn any() -> Self {
+        Method::from_str("ANY").expect("This is a valid method str")
+    }
+
+    fn is_any(&self) -> bool {
+        self.as_str() == "ANY"
     }
 }

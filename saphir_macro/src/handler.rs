@@ -15,7 +15,6 @@ pub struct HandlerAttrs {
     method: Method,
     path: String,
     guards: Vec<Ident>,
-    is_async: bool,
 }
 
 impl HandlerAttrs {
@@ -47,7 +46,6 @@ impl HandlerAttrs {
             method: method.expect("HTTP method is missing"),
             path,
             guards: vec![],
-            is_async: true,
         }
     }
 }
@@ -56,7 +54,12 @@ pub fn parse_handlers(input: &ItemImpl) -> Vec<ImplItemMethod> {
     let mut vec = Vec::new();
     for item in &input.items {
         if let ImplItem::Method(m) = item {
-            vec.push(m.clone());
+            let mut owned_m = m.clone();
+            if owned_m.sig.asyncness.is_none() {
+                
+            }
+
+            vec.push(owned_m);
         }
     }
 
@@ -67,9 +70,13 @@ pub fn gen_handlers_fn(attr: &ControllerAttr, handlers: Vec<ImplItemMethod>) -> 
     let mut handler_stream = TokenStream::new();
     let ctrl_ident = attr.ident.clone();
     for handler in handlers {
-        let HandlerAttrs { method, path, guards: _, is_async: _ } = HandlerAttrs::new(handler.attrs);
+        let HandlerAttrs { method, path, guards: _, is_async } = HandlerAttrs::new(handler.attrs);
         let method = Ident::new(method.as_str(), Span::call_site());
         let handler_ident = handler.sig.ident;
+
+        if !is_async {
+
+        }
 
         let handler_e = quote! {
             let b = b.add(Method::#method, #path, #ctrl_ident::#handler_ident);

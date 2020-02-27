@@ -23,7 +23,7 @@ impl UserController {
     }
 
     #[get("/sync")]
-    fn get_user_sync(&self, req: Request) -> (u16, String) {
+    fn get_user_sync(&self, req: Request<Bytes>) -> (u16, String) {
         (200, "Yo".to_string())
     }
 

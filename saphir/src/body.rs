@@ -1,5 +1,4 @@
 use hyper::body::{Body as RawBody, HttpBody};
-use hyper::body::Bytes;
 use hyper::body::to_bytes;
 use futures::{Future, TryFutureExt};
 use futures::task::{Context, Poll};
@@ -7,6 +6,8 @@ use std::pin::Pin;
 use crate::error::SaphirError;
 use http::HeaderMap;
 use http_body::SizeHint;
+
+pub use hyper::body::Bytes;
 
 #[cfg(feature = "json")]
 pub use json::Json;

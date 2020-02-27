@@ -1,5 +1,9 @@
-use proc_macro2::Ident;
+use proc_macro2::{Ident, TokenStream};
 use syn::{AttributeArgs, ItemImpl, NestedMeta, Meta, MetaList, MetaNameValue, Type, Lit};
+use crate::handler::{HandlerRepr, HandlerAttrs};
+
+use quote::quote;
+use syn::export::{Span, ToTokens};
 
 #[derive(Debug)]
 pub struct ControllerAttr {
@@ -79,4 +83,98 @@ fn parse_controller_ident(input: &ItemImpl) -> Option<Ident> {
     }
 
     None
+}
+
+pub fn gen_controller_trait_implementation(attrs: &ControllerAttr, handlers: &[HandlerRepr]) -> TokenStream {
+    let controller_base_path = gen_controller_base_path_const(attrs);
+    let controller_handlers_fn = gen_controller_handlers_fn(attrs, handlers);
+
+    let ident = &attrs.ident;
+    let e = quote! {
+        impl Controller for #ident {
+            #controller_base_path
+
+            #controller_handlers_fn
+        }
+    };
+
+    e
+}
+
+fn gen_controller_base_path_const(attr: &ControllerAttr) -> TokenStream {
+    let mut path = "/".to_string();
+
+    if let Some(prefix) = attr.prefix.as_ref() {
+        path.push_str(prefix);
+        path.push('/');
+    }
+
+    if let Some(version) = attr.version {
+        path.push('v');
+        path.push_str(&format!("{}", version));
+        path.push('/');
+    }
+
+    path.push_str(attr.name.as_str());
+
+    let e = quote! {
+        const BASE_PATH: &'static str = #path;
+    };
+
+    e
+}
+
+fn gen_controller_handlers_fn(attr: &ControllerAttr, handlers: &[HandlerRepr]) -> TokenStream {
+    let mut handler_stream = TokenStream::new();
+    let ctrl_ident = attr.ident.clone();
+
+    for handler in handlers {
+        let HandlerAttrs { method, path, guards } = &handler.attrs;
+        let method = Ident::new(method.as_str(), Span::call_site());
+        let handler_ident = handler.original_method.sig.ident.clone();
+
+        if guards.is_empty() {
+            let handler_e = quote! {
+                let b = b.add(Method::#method, #path, #ctrl_ident::#handler_ident);
+            };
+            handler_e.to_tokens(&mut handler_stream);
+        } else {
+            let mut guard_stream = TokenStream::new();
+
+            for (fn_path, data) in guards {
+                let guard_e = if let Some(data) = data {
+                    quote! {
+                        let g = g.add(#fn_path, #data(self));
+                    }
+                } else {
+                    quote! {
+                        let g = g.add(#fn_path, ());
+                    }
+                };
+
+                guard_e.to_tokens(&mut guard_stream);
+
+            }
+
+            let handler_e = quote! {
+                let b = b.add_with_guards(Method::#method, #path, #ctrl_ident::#handler_ident, |g| {
+                    #guard_stream
+                    g
+                });
+            };
+            handler_e.to_tokens(&mut handler_stream);
+        }
+    }
+
+    let e = quote! {
+        fn handlers(&self) -> Vec<ControllerEndpoint<Self>> where Self: Sized {
+            let b = EndpointsBuilder::new();
+
+            #handler_stream
+
+            b.build()
+        }
+    };
+
+    e
 }

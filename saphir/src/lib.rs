@@ -88,6 +88,8 @@ pub mod prelude {
     ///
     pub use crate::body::Body;
     ///
+    pub use crate::body::Bytes;
+    ///
     #[cfg(feature = "json")]
     pub use crate::body::Json;
     ///

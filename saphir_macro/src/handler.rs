@@ -1,6 +1,6 @@
 use http::Method;
 use proc_macro2::Ident;
-use syn::{Attribute, AttrStyle, Error, ImplItem, ImplItemMethod, ItemFn, ItemImpl, AttributeArgs, NestedMeta, Lit, Meta, Path, MetaNameValue, ReturnType};
+use syn::{Attribute, AttrStyle, Error, ImplItem, ImplItemMethod, ItemFn, ItemImpl, AttributeArgs, NestedMeta, Lit, Meta, Path, MetaNameValue, ReturnType, Type, FnArg, PathArguments, AngleBracketedGenericArguments, GenericArgument, TypePath};
 use syn::parse_macro_input;
 use syn::parse_quote;
 use syn::parse::{Parse, ParseBuffer, Result};
@@ -8,14 +8,83 @@ use syn::parse::{Parse, ParseBuffer, Result};
 use quote::quote;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
-use syn::export::{Span, ToTokens};
+use syn::export::{Span, ToTokens, TokenStreamExt};
 use proc_macro2::TokenStream;
 use crate::controller::ControllerAttr;
 
+#[derive(Clone, Debug)]
+pub struct HandlerWrapperOpt {
+    pub sync_handler: bool,
+    pub need_body_load: bool,
+    pub body_type_map: Option<TypePath>,
+}
+
+impl HandlerWrapperOpt {
+    pub fn new(m: &ImplItemMethod) -> Self {
+        let mut sync_handler = false;
+        let mut need_body_load = false;
+
+        if m.sig.asyncness.is_none() {
+            sync_handler = true
+        }
+
+        m.sig.inputs.iter().for_each(|fn_arg| {
+            if let FnArg::Typed(t) = fn_arg {
+                if let Type::Path(p) = &*t.ty {
+                    let f = p.path.segments.first();
+                    if let Some((true, PathArguments::AngleBracketed(a))) = f.map(|s| (s.ident.to_string().eq("Request"), &s.arguments)) {
+                        if let Some(GenericArgument::Type(Type::Path(request_body_type))) = a.args.first() {
+                            if request_body_type.path.segments.first().filter(|b| b.ident.to_string().eq("Body")).is_none() {
+                                need_body_load = true;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        HandlerWrapperOpt {
+            sync_handler,
+            need_body_load,
+            body_type_map: None
+        }
+    }
+
+    pub fn needs_wrapper_fn(&self) -> bool {
+        self.sync_handler || self.need_body_load || self.body_type_map.is_some()
+    }
+}
+
+#[derive(Clone)]
 pub struct HandlerAttrs {
-    method: Method,
-    path: String,
-    guards: Vec<(Path, Option<Path>)>,
+    pub method: Method,
+    pub path: String,
+    pub guards: Vec<(Path, Option<Path>)>,
+}
+
+#[derive(Clone)]
+pub struct HandlerRepr {
+    pub attrs: HandlerAttrs,
+    pub original_method: ImplItemMethod,
+    pub return_type: Box<Type>,
+    pub wrapper_options: HandlerWrapperOpt,
+}
+
+impl HandlerRepr {
+    pub fn new(mut m: ImplItemMethod) -> Self {
+        let wrapper_options = HandlerWrapperOpt::new(&m);
+        let return_type = if let ReturnType::Type(_0, typ) = &m.sig.output {
+            typ.clone()
+        } else {
+            panic!("Invalid handler return type")
+        };
+        HandlerRepr {
+            attrs: HandlerAttrs::new(m.attrs.drain(..).collect()),
+            original_method: m,
+            return_type,
+            wrapper_options
+        }
+    }
 }
 
 impl HandlerAttrs {
@@ -77,81 +146,13 @@ impl HandlerAttrs {
     }
 }
 
-pub fn parse_handlers(input: &ItemImpl) -> Vec<ImplItemMethod> {
+pub fn parse_handlers(input: ItemImpl) -> Vec<HandlerRepr> {
     let mut vec = Vec::new();
-    for item in &input.items {
+    for item in input.items {
         if let ImplItem::Method(m) = item {
-            let mut owned_m = m.clone();
-            if owned_m.sig.asyncness.is_none() {
-                let owned_m_ident = owned_m.sig.ident.clone();
-                let owned_m_return = owned_m.sig.output.to_token_stream();
-                let owned_m_clone = owned_m.clone();
-
-                owned_m = parse_quote! {
-                    async fn #owned_m_ident(&self, mut req: Request) -> Result<#owned_m_return> {
-                        #owned_m_clone
-                    }
-                };
-            }
-
-            vec.push(owned_m);
+            vec.push(HandlerRepr::new(m));
         }
     }
 
     vec
-}
-
-pub fn gen_handlers_fn(attr: &ControllerAttr, handlers: Vec<ImplItemMethod>) -> TokenStream {
-    let mut handler_stream = TokenStream::new();
-    let ctrl_ident = attr.ident.clone();
-
-    for handler in handlers {
-        let HandlerAttrs { method, path, guards } = HandlerAttrs::new(handler.attrs);
-        let method = Ident::new(method.as_str(), Span::call_site());
-        let handler_ident = handler.sig.ident;
-
-        if guards.is_empty() {
-            let handler_e = quote! {
-                let b = b.add(Method::#method, #path, #ctrl_ident::#handler_ident);
-            };
-            handler_e.to_tokens(&mut handler_stream);
-        } else {
-            let mut guard_stream = TokenStream::new();
-
-            for (fn_path, data) in guards {
-                let guard_e = if let Some(data) = data {
-                    quote! {
-                        let g = g.add(#fn_path, #data(self));
-                    }
-                } else {
-                    quote! {
-                        let g = g.add(#fn_path, ());
-                    }
-                };
-
-                guard_e.to_tokens(&mut guard_stream);
-
-            }
-
-            let handler_e = quote! {
-                let b = b.add_with_guards(Method::#method, #path, #ctrl_ident::#handler_ident, |g| {
-                    #guard_stream
-                    g
-                });
-            };
-            handler_e.to_tokens(&mut handler_stream);
-        }
-    }
-
-    let e = quote! {
-        fn handlers(&self) -> Vec<ControllerEndpoint<Self>> where Self: Sized {
-            let b = EndpointsBuilder::new();
-
-            #handler_stream
-
-            b.build()
-        }
-    };
-
-    e
 }

@@ -42,13 +42,17 @@
 extern crate proc_macro;
 
 use proc_macro::TokenStream as TokenStream1;
-
-use proc_macro2::{Ident, TokenStream, Span};
-use quote::{quote, ToTokens};
-use syn::{AttributeArgs, ItemImpl, Meta, NestedMeta, parse_macro_input, Type, MetaList, MetaNameValue, Lit, ImplItemMethod, Attribute};
-use crate::controller::ControllerAttr;
-use http::Method;
 use std::str::FromStr;
+
+use http::Method;
+use proc_macro2::{Ident, Span, TokenStream};
+use syn::{Attribute, AttributeArgs, ImplItemMethod, ItemImpl, Lit, Meta, MetaList, MetaNameValue, NestedMeta, parse_macro_input, Type};
+use syn::export::ToTokens;
+
+use quote::{quote};
+
+use crate::controller::ControllerAttr;
+use crate::handler::{HandlerRepr, HandlerWrapperOpt};
 
 mod controller;
 mod handler;
@@ -58,15 +62,10 @@ pub fn controller(args: TokenStream1, input: TokenStream1) -> TokenStream1 {
     let args = parse_macro_input!(args as AttributeArgs);
     let input = parse_macro_input!(input as ItemImpl);
     let controller_attr = ControllerAttr::new(args, &input);
+    let mut handlers = handler::parse_handlers(input);
 
-    let base_path = gen_base_path_const(&controller_attr);
-    let mut handlers = handler::parse_handlers(&input);
-    let handlers_fn = handler::gen_handlers_fn(&controller_attr, handlers.clone());
-    let controller_implementation = gen_controller_implementation(&controller_attr, base_path, handlers_fn);
-    let struct_implementaion = gen_struct_implementation(controller_attr.ident.clone(), handlers.iter_mut().map(|handler| {
-        handler.attrs = Vec::new();
-        handler.clone()
-    }).collect());
+    let controller_implementation = controller::gen_controller_trait_implementation(&controller_attr, handlers.as_slice());
+    let struct_implementaion = gen_struct_implementation(controller_attr.ident.clone(), handlers);
 
     let mod_ident = Ident::new(&format!("SAPHIR_GEN_CONTROLLER_{}", &controller_attr.name), Span::call_site());
     let expanded = quote! {
@@ -82,46 +81,14 @@ pub fn controller(args: TokenStream1, input: TokenStream1) -> TokenStream1 {
     TokenStream1::from(expanded)
 }
 
-fn gen_base_path_const(attr: &ControllerAttr) -> TokenStream {
-    let mut path = "/".to_string();
-
-    if let Some(prefix) = attr.prefix.as_ref() {
-        path.push_str(prefix);
-        path.push('/');
-    }
-
-    if let Some(version) = attr.version {
-        path.push('v');
-        path.push_str(&format!("{}", version));
-        path.push('/');
-    }
-
-    path.push_str(attr.name.as_str());
-
-    let e = quote! {
-        const BASE_PATH: &'static str = #path;
-    };
-
-    e
-}
-
-fn gen_controller_implementation(attr: &ControllerAttr, base_path: TokenStream, handler_fn: TokenStream) -> TokenStream {
-    let ident = attr.ident.clone();
-    let e = quote! {
-        impl Controller for #ident {
-            #base_path
-
-            #handler_fn
-        }
-    };
-
-    e
-}
-
-fn gen_struct_implementation(controller_ident: Ident, handlers: Vec<ImplItemMethod>) -> TokenStream {
+fn gen_struct_implementation(controller_ident: Ident, handlers: Vec<HandlerRepr>) -> TokenStream {
     let mut handler_tokens = TokenStream::new();
     for handler in handlers {
-        handler.to_tokens(&mut handler_tokens);
+        if handler.wrapper_options.needs_wrapper_fn() {
+            gen_wrapper_handler(&mut handler_tokens, handler);
+        } else {
+            handler.original_method.to_tokens(&mut handler_tokens);
+        }
     }
 
     let e = quote! {
@@ -131,4 +98,52 @@ fn gen_struct_implementation(controller_ident: Ident, handlers: Vec<ImplItemMeth
     };
 
     e
+}
+
+fn gen_wrapper_handler(handler_tokens: &mut TokenStream, handler: HandlerRepr) {
+    let m_ident = handler.original_method.sig.ident.clone();
+    let return_type = handler.return_type;
+    let mut o_method = handler.original_method;
+    let mut m_inner_ident_str = m_ident.to_string();
+    m_inner_ident_str.push_str("_wrapped");
+
+    o_method.attrs.push(syn::parse_quote!{#[inline]});
+    o_method.sig.ident = Ident::new(m_inner_ident_str.as_str(), Span::call_site());
+    let inner_method_ident = o_method.sig.ident.clone();
+
+    o_method.to_tokens(handler_tokens);
+
+    let body_load = gen_body_load(&handler.wrapper_options);
+    let inner_call = gen_call_to_inner(inner_method_ident, &handler.wrapper_options);
+
+    let t = quote! {
+            async fn #m_ident(&self, req: Request) -> Result<#return_type, SaphirError> {
+                #body_load
+                Ok(#inner_call)
+            }
+        };
+
+    t.to_tokens(handler_tokens);
+}
+
+fn gen_body_load(opts: &HandlerWrapperOpt) -> TokenStream {
+    if opts.need_body_load {
+        quote! {let req = req.load_body().await?;}
+    } else {
+        quote! {}
+    }
+}
+
+fn gen_call_to_inner(inner_method_ident: Ident, opts: &HandlerWrapperOpt) -> TokenStream {
+    let mut call = TokenStream::new();
+
+    (quote! {self.#inner_method_ident}).to_tokens(&mut call);
+
+    (quote! {(req)}).to_tokens(&mut call);
+
+    if !opts.sync_handler {
+        (quote! {.await}).to_tokens(&mut call);
+    }
+
+    call
 }

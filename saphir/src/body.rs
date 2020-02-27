@@ -120,8 +120,23 @@ pub mod json {
     use crate::body::FromBytes;
     use hyper::body::Bytes;
     use crate::error::SaphirError;
+    use std::ops::{Deref, DerefMut};
 
     pub struct Json<T>(pub T);
+
+    impl<T> Deref for Json<T> {
+        type Target = T;
+
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
+    impl<T> DerefMut for Json<T> {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.0
+        }
+    }
 
     impl<T> FromBytes for Json<T> where T: for<'a> Deserialize<'a> {
         type Out = T;
@@ -139,8 +154,23 @@ pub mod form {
     use crate::body::FromBytes;
     use hyper::body::Bytes;
     use crate::error::SaphirError;
+    use std::ops::{Deref, DerefMut};
 
     pub struct Form<T>(pub T);
+
+    impl<T> Deref for Form<T> {
+        type Target = T;
+
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
+    impl<T> DerefMut for Form<T> {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.0
+        }
+    }
 
     impl<T> FromBytes for Form<T> where T: for<'a> Deserialize<'a> {
         type Out = T;

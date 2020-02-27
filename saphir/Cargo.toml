@@ -1,6 +1,6 @@
 [package]
 name = "saphir"
-version = "2.0.0-alpha3"
+version = "2.0.0-beta"
 edition = "2018"
 authors = ["Richer Archambault <richer.arc@gmail.com>"]
 description = "Fully async-await http server framework"
@@ -42,4 +42,4 @@ tokio-timer = "0.2.13"
 env_logger = "0.7"
 serde = "1.0"
 serde_derive = "1.0"
-saphir_macro = { path = "../saphir_macro", version = "1.0.0"}
+saphir_macro = { path = "../saphir_macro", version = "1.0.0-beta"}

@@ -52,7 +52,7 @@ use syn::export::ToTokens;
 use quote::{quote};
 
 use crate::controller::ControllerAttr;
-use crate::handler::{HandlerRepr, HandlerWrapperOpt};
+use crate::handler::{HandlerRepr, HandlerWrapperOpt, MapAfterLoad};
 
 mod controller;
 mod handler;
@@ -113,12 +113,17 @@ fn gen_wrapper_handler(handler_tokens: &mut TokenStream, handler: HandlerRepr) {
 
     o_method.to_tokens(handler_tokens);
 
-    let body_load = gen_body_load(&handler.wrapper_options);
+    let mut body_stream = TokenStream::new();
+    (quote! {let req = req}).to_tokens(&mut body_stream);
+    gen_body_mapping(&mut body_stream, &handler.wrapper_options);
+    gen_body_load(&mut body_stream, &handler.wrapper_options);
+    gen_map_after_load(&mut body_stream, &handler.wrapper_options);
+    (quote! {;}).to_tokens(&mut body_stream);
     let inner_call = gen_call_to_inner(inner_method_ident, &handler.wrapper_options);
 
     let t = quote! {
             async fn #m_ident(&self, req: Request) -> Result<#return_type, SaphirError> {
-                #body_load
+                #body_stream
                 Ok(#inner_call)
             }
         };
@@ -126,11 +131,28 @@ fn gen_wrapper_handler(handler_tokens: &mut TokenStream, handler: HandlerRepr) {
     t.to_tokens(handler_tokens);
 }
 
-fn gen_body_load(opts: &HandlerWrapperOpt) -> TokenStream {
+fn gen_body_load(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
     if opts.need_body_load {
-        quote! {let req = req.load_body().await?;}
-    } else {
-        quote! {}
+        (quote! {.load_body().await?}).to_tokens(stream);
+    }
+}
+
+fn gen_map_after_load(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
+    if let Some(m) = &opts.map_after_load {
+        (match m {
+            MapAfterLoad::Json => {
+                quote! {.map(|b| Json(b))}
+            },
+            MapAfterLoad::Form => {
+                quote! {.map(|b| Form(b))}
+            },
+        }).to_tokens(stream)
+    }
+}
+
+fn gen_body_mapping(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
+    if let Some(ty) = &opts.take_body_as {
+        (quote! {.map(|mut b| b.take_as::<#ty>())}).to_tokens(stream);
     }
 }
 
@@ -139,11 +161,26 @@ fn gen_call_to_inner(inner_method_ident: Ident, opts: &HandlerWrapperOpt) -> Tok
 
     (quote! {self.#inner_method_ident}).to_tokens(&mut call);
 
-    (quote! {(req)}).to_tokens(&mut call);
+    gen_call_params(opts).to_tokens(&mut call);
 
     if !opts.sync_handler {
         (quote! {.await}).to_tokens(&mut call);
     }
 
     call
+}
+
+fn gen_call_params(opts: &HandlerWrapperOpt) -> TokenStream {
+    let mut params = TokenStream::new();
+    let paren  = syn::token::Paren {
+        span: Span::call_site()
+    };
+
+    paren.surround(&mut params, |params| {
+        if !opts.request_unused {
+            (quote! {req}).to_tokens(params)
+        }
+    });
+
+    params
 }

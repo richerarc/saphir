@@ -20,13 +20,14 @@ struct User {
 
 struct UserController {}
 
-#[controller(name = "/users", version = 1, prefix = "api")]
+#[controller(name = "users", version = 1, prefix = "api")]
 impl UserController {
     #[get("/<user_id>")]
     async fn get_user(&self, _req: Request) -> (u16, String) {
         (200, "Yo".to_string())
     }
 
+    #[cookies]
     #[post("/sync")]
     fn get_user_sync(&self, mut req: Request<Json<User>>) -> (u16, Json<User>) {
         let u = req.body_mut();

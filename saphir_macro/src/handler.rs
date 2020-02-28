@@ -1,11 +1,12 @@
 use http::Method;
-use proc_macro2::Ident;
+use proc_macro2::{Ident, Span};
 use syn::{
-    Attribute, FnArg, GenericArgument, ImplItem, ImplItemMethod, ItemImpl, Lit, Meta, MetaNameValue, NestedMeta, Path, PathArguments, ReturnType, Type,
-    TypePath,
+    Attribute, Error, FnArg, GenericArgument, ImplItem, ImplItemMethod, ItemImpl, Lit, Meta, MetaNameValue, NestedMeta, Path, PathArguments, Result,
+    ReturnType, Type, TypePath,
 };
 
 use std::str::FromStr;
+use syn::spanned::Spanned;
 
 #[derive(Clone, Debug)]
 pub enum MapAfterLoad {
@@ -23,17 +24,38 @@ impl MapAfterLoad {
     }
 }
 
+pub enum ArgsReprType {
+    Request,
+    Json,
+    Form,
+    Params { is_query_param: bool },
+    Cookie,
+}
+
+pub struct ArgsRepr {
+    name: String,
+    typ: TypePath,
+    a_type: ArgsReprType,
+}
+
+impl ArgsRepr {
+    pub fn new(_a: &FnArg) -> Result<ArgsRepr> {
+        Err(Error::new(Span::call_site(), "whatever"))
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct HandlerWrapperOpt {
     pub sync_handler: bool,
     pub need_body_load: bool,
     pub request_unused: bool,
+    pub parse_cookies: bool,
     pub take_body_as: Option<TypePath>,
     pub map_after_load: Option<MapAfterLoad>,
 }
 
 impl HandlerWrapperOpt {
-    pub fn new(m: &ImplItemMethod) -> Self {
+    pub fn new(attrs: &HandlerAttrs, m: &ImplItemMethod) -> Self {
         let mut sync_handler = false;
         let mut need_body_load = false;
         let mut request_unused = true;
@@ -97,6 +119,7 @@ impl HandlerWrapperOpt {
             sync_handler,
             need_body_load,
             request_unused,
+            parse_cookies: attrs.cookie,
             take_body_as,
             map_after_load,
         }
@@ -112,6 +135,7 @@ pub struct HandlerAttrs {
     pub method: Method,
     pub path: String,
     pub guards: Vec<(Path, Option<Path>)>,
+    pub cookie: bool,
 }
 
 #[derive(Clone)]
@@ -123,32 +147,31 @@ pub struct HandlerRepr {
 }
 
 impl HandlerRepr {
-    pub fn new(mut m: ImplItemMethod) -> Self {
-        let wrapper_options = HandlerWrapperOpt::new(&m);
+    pub fn new(mut m: ImplItemMethod) -> Result<Self> {
+        let attrs = HandlerAttrs::new(m.attrs.drain(..).collect())?;
+        let wrapper_options = HandlerWrapperOpt::new(&attrs, &m);
         let return_type = if let ReturnType::Type(_0, typ) = &m.sig.output {
             typ.clone()
         } else {
-            panic!("Invalid handler return type")
+            return Err(Error::new_spanned(m.sig, "Invalid handler return type"));
         };
-        HandlerRepr {
-            attrs: HandlerAttrs::new(m.attrs.drain(..).collect()),
+        Ok(HandlerRepr {
+            attrs,
             original_method: m,
             return_type,
             wrapper_options,
-        }
+        })
     }
 }
 
 impl HandlerAttrs {
-    pub fn new(mut attrs: Vec<Attribute>) -> Self {
+    pub fn new(mut attrs: Vec<Attribute>) -> Result<Self> {
         let mut method = None;
         let mut path = String::new();
         let mut guards = Vec::new();
+        let mut cookie = false;
 
-        let metas = attrs
-            .iter_mut()
-            .map(|attr| attr.parse_meta().expect("Invalid function arguments"))
-            .collect::<Vec<Meta>>();
+        let metas = attrs.iter_mut().map(|attr| attr.parse_meta()).collect::<Result<Vec<Meta>>>()?;
         for meta in metas {
             match meta {
                 Meta::List(l) => {
@@ -158,60 +181,79 @@ impl HandlerAttrs {
                             let mut data_path = None;
 
                             for n in l.nested {
-                                if let NestedMeta::Meta(Meta::NameValue(MetaNameValue {
-                                    path,
-                                    lit: Lit::Str(l),
-                                    ..
-                                })) = n
-                                {
-                                    let path = path.segments.first().expect("Missing path in guard attributes");
+                                if let NestedMeta::Meta(Meta::NameValue(MetaNameValue { path, lit: Lit::Str(l), .. })) = n {
+                                    let path = path
+                                        .segments
+                                        .first()
+                                        .ok_or_else(|| Error::new_spanned(&path, "Missing parameters in guard attributes"))?;
                                     match path.ident.to_string().as_str() {
                                         "fn" => {
-                                            fn_path = syn::parse_str::<Path>(l.value().as_str()).ok();
+                                            fn_path = Some(
+                                                syn::parse_str::<Path>(l.value().as_str())
+                                                    .map_err(|_e| Error::new_spanned(path, "Expected path to a guard function"))?,
+                                            );
                                         }
 
                                         "data" => {
-                                            data_path = syn::parse_str::<Path>(l.value().as_str()).ok();
+                                            data_path = Some(
+                                                syn::parse_str::<Path>(l.value().as_str())
+                                                    .map_err(|_e| Error::new_spanned(path, "Expected path to a guard initializer function"))?,
+                                            );
                                         }
 
-                                        _ => panic!("Unauthorized name in guard macro"),
+                                        _ => {
+                                            return Err(Error::new_spanned(path, "Unauthorized param in guard macro"));
+                                        }
                                     }
                                 }
                             }
 
-                            guards.push((fn_path.expect("Missing guard funtion"), data_path));
+                            guards.push((fn_path.ok_or_else(|| Error::new_spanned(&ident, "Missing guard function"))?, data_path));
                         } else {
-                            method = Some(Method::from_str(ident.to_string().to_uppercase().as_str()).expect("Invalid HTTP method"));
+                            method = Some(
+                                Method::from_str(ident.to_string().to_uppercase().as_str()).map_err(|_e| Error::new_spanned(ident, "Invalid HTTP method"))?,
+                            );
 
                             if let Some(NestedMeta::Lit(Lit::Str(str))) = l.nested.first() {
                                 path = str.value();
                                 if !path.starts_with('/') {
-                                    panic!("Path must start with '/'")
+                                    return Err(Error::new_spanned(str, "Path must start with '/'"));
                                 }
                             }
                         }
                     }
                 }
-                Meta::NameValue(_) => panic!("Invalid format"),
-                Meta::Path(_) => panic!("Invalid format"),
+                Meta::NameValue(n) => {
+                    return Err(Error::new_spanned(n, "Invalid Handler attribute"));
+                }
+                Meta::Path(p) => {
+                    if let Some(ident_str) = p.get_ident().map(|p| p.to_string()) {
+                        if ident_str.starts_with("cookie") {
+                            cookie = true;
+                            continue;
+                        }
+                    }
+                    return Err(Error::new_spanned(p, "Invalid Handler attribute"));
+                }
             }
         }
 
-        HandlerAttrs {
-            method: method.expect("HTTP method is missing"),
+        Ok(HandlerAttrs {
+            method: method.ok_or_else(|| Error::new(attrs.first().map(|a| a.span()).unwrap_or_else(Span::call_site), "HTTP method is missing"))?,
             path,
             guards,
-        }
+            cookie,
+        })
     }
 }
 
-pub fn parse_handlers(input: ItemImpl) -> Vec<HandlerRepr> {
+pub fn parse_handlers(input: ItemImpl) -> Result<Vec<HandlerRepr>> {
     let mut vec = Vec::new();
     for item in input.items {
         if let ImplItem::Method(m) = item {
-            vec.push(HandlerRepr::new(m));
+            vec.push(HandlerRepr::new(m)?);
         }
     }
 
-    vec
+    Ok(vec)
 }

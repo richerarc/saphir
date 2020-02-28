@@ -44,7 +44,7 @@ extern crate proc_macro;
 use proc_macro::TokenStream as TokenStream1;
 
 use proc_macro2::{Ident, Span, TokenStream};
-use syn::{export::ToTokens, parse_macro_input, AttributeArgs, ItemImpl};
+use syn::{export::ToTokens, parse_macro_input, AttributeArgs, ItemImpl, Result};
 
 use quote::quote;
 
@@ -60,24 +60,30 @@ mod handler;
 pub fn controller(args: TokenStream1, input: TokenStream1) -> TokenStream1 {
     let args = parse_macro_input!(args as AttributeArgs);
     let input = parse_macro_input!(input as ItemImpl);
-    let controller_attr = ControllerAttr::new(args, &input);
-    let handlers = handler::parse_handlers(input);
+
+    let expanded = expand_controller(args, input).unwrap_or_else(|e| e.to_compile_error());
+
+    TokenStream1::from(expanded)
+}
+
+fn expand_controller(args: AttributeArgs, input: ItemImpl) -> Result<TokenStream> {
+    let controller_attr = ControllerAttr::new(args, &input)?;
+    let handlers = handler::parse_handlers(input)?;
 
     let controller_implementation = controller::gen_controller_trait_implementation(&controller_attr, handlers.as_slice());
     let struct_implementaion = gen_struct_implementation(controller_attr.ident.clone(), handlers);
 
     let mod_ident = Ident::new(&format!("SAPHIR_GEN_CONTROLLER_{}", &controller_attr.name), Span::call_site());
-    let expanded = quote! {
+    Ok(quote! {
         mod #mod_ident {
             use super::*;
             use saphir::prelude::*;
+            use std::str::FromStr;
             #struct_implementaion
 
             #controller_implementation
         }
-    };
-
-    TokenStream1::from(expanded)
+    })
 }
 
 fn gen_struct_implementation(controller_ident: Ident, handlers: Vec<HandlerRepr>) -> TokenStream {
@@ -100,6 +106,7 @@ fn gen_struct_implementation(controller_ident: Ident, handlers: Vec<HandlerRepr>
 }
 
 fn gen_wrapper_handler(handler_tokens: &mut TokenStream, handler: HandlerRepr) {
+    let opts = &handler.wrapper_options;
     let m_ident = handler.original_method.sig.ident.clone();
     let return_type = handler.return_type;
     let mut o_method = handler.original_method;
@@ -113,21 +120,34 @@ fn gen_wrapper_handler(handler_tokens: &mut TokenStream, handler: HandlerRepr) {
     o_method.to_tokens(handler_tokens);
 
     let mut body_stream = TokenStream::new();
-    (quote! {let req = req}).to_tokens(&mut body_stream);
-    gen_body_mapping(&mut body_stream, &handler.wrapper_options);
-    gen_body_load(&mut body_stream, &handler.wrapper_options);
-    gen_map_after_load(&mut body_stream, &handler.wrapper_options);
+    (quote! {let mut req = req}).to_tokens(&mut body_stream);
+    gen_body_mapping(&mut body_stream, opts);
+    gen_body_load(&mut body_stream, opts);
+    gen_map_after_load(&mut body_stream, opts);
     (quote! {;}).to_tokens(&mut body_stream);
-    let inner_call = gen_call_to_inner(inner_method_ident, &handler.wrapper_options);
+    let parse_cookies = gen_cookie_load(opts);
+    let inner_call = gen_call_to_inner(inner_method_ident, opts);
 
     let t = quote! {
-        async fn #m_ident(&self, req: Request) -> Result<#return_type, SaphirError> {
+        #[allow(unused_mut)]
+        async fn #m_ident(&self, mut req: Request) -> Result<#return_type, SaphirError> {
             #body_stream
+            #parse_cookies
             Ok(#inner_call)
         }
     };
 
     t.to_tokens(handler_tokens);
+}
+
+fn gen_cookie_load(opts: &HandlerWrapperOpt) -> TokenStream {
+    if opts.parse_cookies {
+        return quote! {
+            req.parse_cookies();
+        };
+    }
+
+    quote! {}
 }
 
 fn gen_body_load(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {

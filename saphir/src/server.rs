@@ -7,31 +7,31 @@
 //! put inside a static variable. This is needed for safety, but also means that only one saphir
 //! server can run at a time
 
-use std::future::Future;
-use std::net::SocketAddr;
-use std::mem::MaybeUninit;
+use std::{future::Future, mem::MaybeUninit, net::SocketAddr};
 
-use futures::prelude::*;
-use futures::stream::StreamExt;
-use futures::task::{Context, Poll};
-use hyper::server::conn::Http;
-use hyper::service::Service;
-use tokio::net::TcpListener;
+use futures::{
+    prelude::*,
+    stream::StreamExt,
+    task::{Context, Poll},
+};
+use hyper::{server::conn::Http, service::Service};
 use parking_lot::{Once, OnceState};
+use tokio::net::TcpListener;
 
-use crate::error::SaphirError;
-use crate::http_context::HttpContext;
-use crate::request::Request;
-use crate::response::Response;
-use crate::router::{Builder as RouterBuilder, RouterChain, RouterChainEnd};
-use crate::router::Router;
-use crate::middleware::{Builder as MiddlewareStackBuilder, MiddlewareChain, MiddleChainEnd};
-use crate::body::Body;
+use crate::{
+    body::Body,
+    error::SaphirError,
+    http_context::HttpContext,
+    middleware::{Builder as MiddlewareStackBuilder, MiddleChainEnd, MiddlewareChain},
+    request::Request,
+    response::Response,
+    router::{Builder as RouterBuilder, Router, RouterChain, RouterChainEnd},
+};
 
 /// Default time for request handling is 30 seconds
 pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
 /// Default listener ip addr is AnyAddr (0.0.0.0)
-pub const DEFAULT_LISTENER_IFACE: &'static str = "0.0.0.0:0";
+pub const DEFAULT_LISTENER_IFACE: &str = "0.0.0.0:0";
 
 #[doc(hidden)]
 static mut STACK: MaybeUninit<Stack> = MaybeUninit::uninit();
@@ -51,6 +51,7 @@ pub enum SslConfig {
     FileData(String),
 }
 
+#[derive(Default)]
 pub struct ListenerBuilder {
     iface: Option<String>,
     request_timeout_ms: Option<u64>,
@@ -63,14 +64,21 @@ pub struct ListenerBuilder {
 impl ListenerBuilder {
     #[inline]
     pub fn new() -> Self {
-        ListenerBuilder {
-            iface: None,
-            request_timeout_ms: Some(DEFAULT_REQUEST_TIMEOUT_MS),
-            #[cfg(feature = "https")]
-            cert_config: None,
-            #[cfg(feature = "https")]
-            key_config: None,
-        }
+        #[cfg(not(feature = "https"))]
+            {
+                ListenerBuilder {
+                    iface: None,
+                    request_timeout_ms: Some(DEFAULT_REQUEST_TIMEOUT_MS),
+                }
+            }
+        #[cfg(feature = "https")]
+            {
+                ListenerBuilder {
+                    iface: None,
+                    request_timeout_ms: Some(DEFAULT_REQUEST_TIMEOUT_MS),
+                    ..Default::default()
+                }
+            }
     }
 
     #[inline]
@@ -108,7 +116,6 @@ impl ListenerBuilder {
         self
     }
 
-
     #[cfg(feature = "https")]
     #[inline]
     pub(crate) fn build(self) -> ListenerConfig {
@@ -116,12 +123,10 @@ impl ListenerBuilder {
             iface,
             request_timeout_ms,
             cert_config,
-            key_config
+            key_config,
         } = self;
 
-        let iface = iface.unwrap_or_else(|| {
-            DEFAULT_LISTENER_IFACE.to_string()
-        });
+        let iface = iface.unwrap_or_else(|| DEFAULT_LISTENER_IFACE.to_string());
 
         ListenerConfig {
             iface,
@@ -134,20 +139,12 @@ impl ListenerBuilder {
     #[cfg(not(feature = "https"))]
     #[doc(hidden)]
     #[inline]
-    pub(crate )fn build(self) -> ListenerConfig {
-        let ListenerBuilder {
-            iface,
-            request_timeout_ms,
-        } = self;
+    pub(crate) fn build(self) -> ListenerConfig {
+        let ListenerBuilder { iface, request_timeout_ms } = self;
 
-        let iface = iface.unwrap_or_else(|| {
-            DEFAULT_LISTENER_IFACE.to_string()
-        });
+        let iface = iface.unwrap_or_else(|| DEFAULT_LISTENER_IFACE.to_string());
 
-        ListenerConfig {
-            iface,
-            request_timeout_ms,
-        }
+        ListenerConfig { iface, request_timeout_ms }
     }
 }
 
@@ -189,7 +186,8 @@ impl<Controllers, Middlewares> Builder<Controllers, Middlewares>
 {
     #[inline]
     pub fn configure_listener<F>(mut self, f: F) -> Self
-        where F: FnOnce(ListenerBuilder) -> ListenerBuilder
+        where
+            F: FnOnce(ListenerBuilder) -> ListenerBuilder,
     {
         let l = if let Some(builder) = self.listener.take() {
             builder
@@ -204,7 +202,8 @@ impl<Controllers, Middlewares> Builder<Controllers, Middlewares>
 
     #[inline]
     pub fn configure_router<F, NewChain: RouterChain + Unpin + Send + Sync>(self, f: F) -> Builder<NewChain, Middlewares>
-        where F: FnOnce(RouterBuilder<Controllers>) -> RouterBuilder<NewChain>
+        where
+            F: FnOnce(RouterBuilder<Controllers>) -> RouterBuilder<NewChain>,
     {
         Builder {
             listener: self.listener,
@@ -215,7 +214,8 @@ impl<Controllers, Middlewares> Builder<Controllers, Middlewares>
 
     #[inline]
     pub fn configure_middlewares<F, NewChain: MiddlewareChain + Unpin + Send + Sync>(self, f: F) -> Builder<Controllers, NewChain>
-        where F: FnOnce(MiddlewareStackBuilder<Middlewares>) -> MiddlewareStackBuilder<NewChain>
+        where
+            F: FnOnce(MiddlewareStackBuilder<Middlewares>) -> MiddlewareStackBuilder<NewChain>,
     {
         Builder {
             listener: self.listener,
@@ -226,7 +226,7 @@ impl<Controllers, Middlewares> Builder<Controllers, Middlewares>
 
     pub fn build(self) -> Server {
         Server {
-            listener_config: self.listener.unwrap_or_else(|| ListenerBuilder::new()).build(),
+            listener_config: self.listener.unwrap_or_else(ListenerBuilder::new).build(),
             stack: Stack {
                 router: self.router.build(),
                 middlewares: self.middlewares.build(),
@@ -264,7 +264,9 @@ impl Server {
             // # SAFETY #
             // We write only once in the static memory. No override.
             // Above check also make sure there is no second server.
-            unsafe { STACK.as_mut_ptr().write(stack); }
+            unsafe {
+                STACK.as_mut_ptr().write(stack);
+            }
         });
 
         // # SAFETY #
@@ -282,8 +284,8 @@ impl Server {
                     use crate::server::ssl_loading_utils::MaybeTlsAcceptor;
                     match listener_config.ssl_config() {
                         (Some(cert_config), Some(key_config)) => {
-                            use std::sync::Arc;
                             use crate::server::ssl_loading_utils::*;
+                            use std::sync::Arc;
                             use tokio_rustls::TlsAcceptor;
 
                             let certs = load_certs(&cert_config);
@@ -294,9 +296,7 @@ impl Server {
 
                             let acceptor = TlsAcceptor::from(arc_config);
 
-                            let inc = listener.incoming().and_then(move |stream| {
-                                acceptor.accept(stream)
-                            });
+                            let inc = listener.incoming().and_then(move |stream| acceptor.accept(stream));
 
                             info!("Saphir started and listening on : https://{}", local_addr);
 
@@ -321,35 +321,39 @@ impl Server {
         };
 
         if let Some(request_timeout_ms) = listener_config.request_timeout_ms {
-            use tokio::time::{Duration, timeout};
-            incoming.for_each_concurrent(None, |client_socket| async {
-                match client_socket {
-                    Ok(client_socket) => {
-                        let peer_addr = client_socket.peer_addr().ok();
-                        let http_handler = http.serve_connection(client_socket, stack.new_handler(peer_addr));
-                        let f = timeout(Duration::from_millis(request_timeout_ms), http_handler);
+            use tokio::time::{timeout, Duration};
+            incoming
+                .for_each_concurrent(None, |client_socket| async {
+                    match client_socket {
+                        Ok(client_socket) => {
+                            let peer_addr = client_socket.peer_addr().ok();
+                            let http_handler = http.serve_connection(client_socket, stack.new_handler(peer_addr));
+                            let f = timeout(Duration::from_millis(request_timeout_ms), http_handler);
 
-                        tokio::spawn(f);
+                            tokio::spawn(f);
+                        }
+                        Err(e) => {
+                            warn!("incoming connection encountered an error: {}", e);
+                        }
                     }
-                    Err(e) => {
-                        warn!("incoming connection encountered an error: {}", e);
-                    }
-                }
-            }).await;
+                })
+                .await;
         } else {
-            incoming.for_each_concurrent(None, |client_socket| async {
-                match client_socket {
-                    Ok(client_socket) => {
-                        let peer_addr = client_socket.peer_addr().ok();
-                        let http_handler = http.serve_connection(client_socket, stack.new_handler(peer_addr));
+            incoming
+                .for_each_concurrent(None, |client_socket| async {
+                    match client_socket {
+                        Ok(client_socket) => {
+                            let peer_addr = client_socket.peer_addr().ok();
+                            let http_handler = http.serve_connection(client_socket, stack.new_handler(peer_addr));
 
-                        tokio::spawn(http_handler);
+                            tokio::spawn(http_handler);
+                        }
+                        Err(e) => {
+                            warn!("incoming connection encountered an error: {}", e);
+                        }
                     }
-                    Err(e) => {
-                        warn!("incoming connection encountered an error: {}", e);
-                    }
-                }
-            }).await;
+                })
+                .await;
         }
 
         Ok(())
@@ -368,10 +372,7 @@ unsafe impl Sync for Stack {}
 
 impl Stack {
     fn new_handler(&'static self, peer_addr: Option<SocketAddr>) -> StackHandler {
-        StackHandler {
-            stack: self,
-            peer_addr,
-        }
+        StackHandler { stack: self, peer_addr }
     }
 
     async fn invoke(&self, req: Request<Body>) -> Result<Response<Body>, SaphirError> {
@@ -397,35 +398,27 @@ impl Service<hyper::Request<hyper::Body>> for StackHandler {
     }
 
     fn call(&mut self, req: hyper::Request<hyper::Body>) -> Self::Future {
-        let req = Request::new(req.map(|raw| Body::from_raw(raw)), self.peer_addr.take());
-        let fut = Box::pin(
-            self.stack
-                .invoke(req)
-                .map(|r| {
-                    r.and_then(|r| {
-                        r.into_raw()
-                            .map(|r| r.map(|b| b.into_raw()))
-                    })
-                }));
+        let req = Request::new(req.map(Body::from_raw), self.peer_addr.take());
+        let fut = Box::pin(self.stack.invoke(req).map(|r| r.and_then(|r| r.into_raw().map(|r| r.map(|b| b.into_raw())))));
 
         Box::new(fut) as Box<dyn Future<Output=Result<hyper::Response<hyper::Body>, SaphirError>> + Send + Unpin>
     }
 }
 
-
 #[doc(hidden)]
 #[cfg(feature = "https")]
 mod ssl_loading_utils {
-    use rustls;
-    use std::fs;
-    use std::io::BufReader;
-    use crate::server::SslConfig;
-    use futures_util::stream::Stream;
-    use futures_util::task::{Context, Poll};
-    use std::pin::Pin;
+    use std::{fs, io::BufReader, net::SocketAddr, pin::Pin};
+
     use futures::io::Error;
-    use std::net::SocketAddr;
+    use futures_util::{
+        stream::Stream,
+        task::{Context, Poll},
+    };
+    use rustls;
     use tokio::io::{AsyncRead, AsyncWrite};
+
+    use crate::server::SslConfig;
 
     pub enum MaybeTlsStream {
         Tls(Pin<Box<tokio_rustls::server::TlsStream<tokio::net::TcpStream>>>),
@@ -483,8 +476,14 @@ mod ssl_loading_utils {
 
         fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
             match self.get_mut() {
-                MaybeTlsAcceptor::Tls(tls) => tls.as_mut().poll_next(cx).map(|t| t.map(|tls_res| tls_res.map(|tls| MaybeTlsStream::Tls(Box::pin(tls))))),
-                MaybeTlsAcceptor::Plain(plain) => plain.as_mut().poll_next(cx).map(|t| t.map(|tls_res| tls_res.map(|tls| MaybeTlsStream::Plain(Box::pin(tls))))),
+                MaybeTlsAcceptor::Tls(tls) => tls
+                    .as_mut()
+                    .poll_next(cx)
+                    .map(|t| t.map(|tls_res| tls_res.map(|tls| MaybeTlsStream::Tls(Box::pin(tls))))),
+                MaybeTlsAcceptor::Plain(plain) => plain
+                    .as_mut()
+                    .poll_next(cx)
+                    .map(|t| t.map(|tls_res| tls_res.map(|tls| MaybeTlsStream::Plain(Box::pin(tls))))),
             }
         }
     }
@@ -496,21 +495,16 @@ mod ssl_loading_utils {
                 let mut reader = BufReader::new(certfile);
                 rustls::internal::pemfile::certs(&mut reader).expect("Unable to load certificate from file")
             }
-            SslConfig::FileData(data) => {
-                extract_der_data(data.to_string(),
-                                 "-----BEGIN CERTIFICATE-----",
-                                 "-----END CERTIFICATE-----",
-                                 &|v| rustls::Certificate(v))
-                    .expect("Unable to load certificate from data")
-            }
+            SslConfig::FileData(data) => extract_der_data(data.to_string(), "-----BEGIN CERTIFICATE-----", "-----END CERTIFICATE-----", &|v| {
+                rustls::Certificate(v)
+            })
+                .expect("Unable to load certificate from data"),
         }
     }
 
     pub fn load_private_key(key_config: &SslConfig) -> rustls::PrivateKey {
         match key_config {
-            SslConfig::FilePath(filename) => {
-                load_private_key_from_file(&filename)
-            }
+            SslConfig::FilePath(filename) => load_private_key_from_file(&filename),
             SslConfig::FileData(data) => {
                 let pkcs8_keys = load_pkcs8_private_key_from_data(data);
 
@@ -527,19 +521,15 @@ mod ssl_loading_utils {
 
     fn load_private_key_from_file(filename: &str) -> rustls::PrivateKey {
         let rsa_keys = {
-            let keyfile = fs::File::open(filename)
-                .expect("cannot open private key file");
+            let keyfile = fs::File::open(filename).expect("cannot open private key file");
             let mut reader = BufReader::new(keyfile);
-            rustls::internal::pemfile::rsa_private_keys(&mut reader)
-                .expect("file contains invalid rsa private key")
+            rustls::internal::pemfile::rsa_private_keys(&mut reader).expect("file contains invalid rsa private key")
         };
 
         let pkcs8_keys = {
-            let keyfile = fs::File::open(filename)
-                .expect("cannot open private key file");
+            let keyfile = fs::File::open(filename).expect("cannot open private key file");
             let mut reader = BufReader::new(keyfile);
-            rustls::internal::pemfile::pkcs8_private_keys(&mut reader)
-                .expect("file contains invalid pkcs8 private key (encrypted keys not supported)")
+            rustls::internal::pemfile::pkcs8_private_keys(&mut reader).expect("file contains invalid pkcs8 private key (encrypted keys not supported)")
         };
 
         // prefer to load pkcs8 keys
@@ -552,26 +542,20 @@ mod ssl_loading_utils {
     }
 
     fn load_pkcs8_private_key_from_data(data: &str) -> Vec<rustls::PrivateKey> {
-        extract_der_data(data.to_string(),
-                         "-----BEGIN PRIVATE KEY-----",
-                         "-----END PRIVATE KEY-----",
-                         &|v| rustls::PrivateKey(v))
+        extract_der_data(data.to_string(), "-----BEGIN PRIVATE KEY-----", "-----END PRIVATE KEY-----", &|v| {
+            rustls::PrivateKey(v)
+        })
             .expect("Unable to load private key from data")
     }
 
     fn load_rsa_private_key_from_data(data: &str) -> Vec<rustls::PrivateKey> {
-        extract_der_data(data.to_string(),
-                         "-----BEGIN RSA PRIVATE KEY-----",
-                         "-----END RSA PRIVATE KEY-----",
-                         &|v| rustls::PrivateKey(v))
+        extract_der_data(data.to_string(), "-----BEGIN RSA PRIVATE KEY-----", "-----END RSA PRIVATE KEY-----", &|v| {
+            rustls::PrivateKey(v)
+        })
             .expect("Unable to load private key from data")
     }
 
-    fn extract_der_data<A>(mut data: String,
-                           start_mark: &str,
-                           end_mark: &str,
-                           f: &dyn Fn(Vec<u8>) -> A)
-                           -> Result<Vec<A>, ()> {
+    fn extract_der_data<A>(mut data: String, start_mark: &str, end_mark: &str, f: &dyn Fn(Vec<u8>) -> A) -> Result<Vec<A>, ()> {
         let mut ders = Vec::new();
 
         loop {

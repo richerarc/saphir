@@ -2,12 +2,12 @@
 //! can modify the request data or stops request processing by returning a response immediately.
 
 use crate::{
+    body::Body,
     request::Request,
     responder::{DynResponder, Responder},
 };
 use futures::{future::BoxFuture, FutureExt};
 use futures_util::future::Future;
-use crate::body::Body;
 
 /// Auto trait implementation over every function that match the definition of a guard.
 pub trait GuardHandler<Data> {
@@ -45,7 +45,7 @@ impl Default for Builder<GuardChainEnd> {
 }
 
 impl<Chain: GuardChain + 'static> Builder<Chain> {
-    pub fn add<'a, Data, Handler>(self, handler: Handler, data: Data) -> Builder<GuardChainLink<Data, Handler, Chain>>
+    pub fn add<Data, Handler>(self, handler: Handler, data: Data) -> Builder<GuardChainLink<Data, Handler, Chain>>
     where
         Data: 'static + Sync + Send,
         Handler: 'static + GuardHandler<Data> + Sync + Send,

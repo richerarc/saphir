@@ -1,11 +1,17 @@
-use regex::Regex;
-use std::slice::Iter;
+use crate::{body::Body, error::SaphirError, request::Request};
 use http::Method;
-use crate::request::Request;
-use crate::body::Body;
-use crate::error::SaphirError;
-use std::collections::{HashSet, HashMap, VecDeque};
-use std::sync::atomic::AtomicU64;
+use regex::Regex;
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    slice::Iter,
+    str::FromStr,
+    sync::atomic::AtomicU64,
+};
+
+// TODO: Add possibility to match any route like /page/<path..>/view
+// this will match any route that begins with /page and ends with /view, the in between path will be saved in the capture
+
+// TODO: Add prefix and suffix literal to match if some path segment start or end with something
 
 static ENDPOINT_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -19,29 +25,37 @@ pub struct EndpointResolver {
     path_matcher: UriPathMatcher,
     methods: HashSet<Method>,
     id: u64,
+    allow_any_method: bool,
 }
 
 impl EndpointResolver {
     pub fn new(path_str: &str, method: Method) -> Result<EndpointResolver, SaphirError> {
         let mut methods = HashSet::new();
-        methods.insert(Method::OPTIONS);
-        methods.insert(method);
+        let allow_any_method = method.is_any();
+        if !allow_any_method {
+            methods.insert(method);
+        }
 
         Ok(EndpointResolver {
-            path_matcher: UriPathMatcher::new(path_str).map_err(|e| SaphirError::Other(e))?,
+            path_matcher: UriPathMatcher::new(path_str).map_err(SaphirError::Other)?,
             methods,
-            id: ENDPOINT_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            id: ENDPOINT_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
+            allow_any_method,
         })
     }
 
     pub fn add_method(&mut self, m: Method) {
-        self.methods.insert(m);
+        if !self.allow_any_method && m.is_any() {
+            self.allow_any_method = true;
+        } else {
+            self.methods.insert(m);
+        }
     }
 
     pub fn resolve(&self, req: &mut Request<Body>) -> EndpointResolverResult {
         let path = req.uri().path().to_string();
         if self.path_matcher.match_all_and_capture(path, req.captures_mut()) {
-            if self.methods.contains(req.method()) {
+            if self.allow_any_method || self.methods.contains(req.method()) {
                 EndpointResolverResult::Match
             } else {
                 EndpointResolverResult::MethodNotAllowed
@@ -66,7 +80,7 @@ impl UriPathMatcher {
     pub fn new(path_str: &str) -> Result<UriPathMatcher, String> {
         let mut uri_path_matcher = UriPathMatcher {
             inner: Vec::new(),
-            has_multi_segment_wildcard: false
+            has_multi_segment_wildcard: false,
         };
         uri_path_matcher.append(path_str)?;
         Ok(uri_path_matcher)
@@ -89,7 +103,7 @@ impl UriPathMatcher {
                         }
 
                         Some(seg_matcher)
-                    },
+                    }
                     Err(e) => {
                         last_err = Some(e);
                         None
@@ -198,22 +212,22 @@ impl UriPathSegmentMatcher {
             Ok(UriPathSegmentMatcher::Wildcard { segment_only: segment == "**" })
         } else if (segment.starts_with('{') && segment.ends_with('}')) || (segment.starts_with('<') && segment.ends_with('>')) {
             let s: Vec<&str> = segment[1..segment.len() - 1].splitn(2, "#r").collect();
-            if s.len() < 1 {
+            if s.is_empty() {
                 return Err("No name was provided for a variable segment".to_string());
             }
 
-            let name = if s[0].starts_with('_') {
-                None
-            } else {
-                Some(s[0].to_string())
-            };
+            let name = if s[0].starts_with('_') { None } else { Some(s[0].to_string()) };
 
             let name_c = name.clone();
 
-            s.get(1).map(|r| {
-                let r = r.trim_start_matches('(').trim_end_matches(')');
-                Regex::new(r).map_err(|e| e.to_string()).map(|r| UriPathSegmentMatcher::Custom { name, segment: r })
-            }).unwrap_or_else(|| Ok(UriPathSegmentMatcher::Variable { name: name_c }))
+            s.get(1)
+                .map(|r| {
+                    let r = r.trim_start_matches('(').trim_end_matches(')');
+                    Regex::new(r)
+                        .map_err(|e| e.to_string())
+                        .map(|r| UriPathSegmentMatcher::Custom { name, segment: r })
+                })
+                .unwrap_or_else(|| Ok(UriPathSegmentMatcher::Variable { name: name_c }))
         } else {
             Ok(UriPathSegmentMatcher::Static { segment: segment.to_string() })
         }
@@ -223,19 +237,19 @@ impl UriPathSegmentMatcher {
     pub fn matches(&self, other: &str) -> bool {
         match self {
             UriPathSegmentMatcher::Static { segment: ref s } => s.eq(other),
-            UriPathSegmentMatcher::Variable { name: ref _n } => true,
-            UriPathSegmentMatcher::Custom { name: ref _n, segment: ref s } => s.is_match(other),
-            UriPathSegmentMatcher::Wildcard { segment_only: _ } => true
+            UriPathSegmentMatcher::Variable { .. } => true,
+            UriPathSegmentMatcher::Custom { segment: ref s, .. } => s.is_match(other),
+            UriPathSegmentMatcher::Wildcard { .. } => true,
         }
     }
 
     #[inline]
     pub fn name(&self) -> Option<&str> {
         match self {
-            UriPathSegmentMatcher::Static { segment: ref _s } => None,
+            UriPathSegmentMatcher::Static { .. } => None,
             UriPathSegmentMatcher::Variable { name: ref n } => n.as_ref().map(|s| s.as_str()),
-            UriPathSegmentMatcher::Custom { name: ref n, segment: ref _s } => n.as_ref().map(|s| s.as_str()),
-            UriPathSegmentMatcher::Wildcard { segment_only: _ } => None
+            UriPathSegmentMatcher::Custom { name: ref n, .. } => n.as_ref().map(|s| s.as_str()),
+            UriPathSegmentMatcher::Wildcard { .. } => None,
         }
     }
 
@@ -243,7 +257,24 @@ impl UriPathSegmentMatcher {
     pub fn is_multi_segment_wildcard(&self) -> bool {
         match self {
             UriPathSegmentMatcher::Wildcard { segment_only } => *segment_only,
-            _ => false
+            _ => false,
         }
+    }
+}
+
+pub trait MethodExtension {
+    fn any() -> Self;
+    fn is_any(&self) -> bool;
+}
+
+impl MethodExtension for Method {
+    /// Represent a method for which any Http method will be accepted
+    #[inline]
+    fn any() -> Self {
+        Method::from_str("ANY").expect("This is a valid method str")
+    }
+
+    fn is_any(&self) -> bool {
+        self.as_str() == "ANY"
     }
 }

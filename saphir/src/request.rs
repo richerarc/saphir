@@ -1,15 +1,18 @@
-use std::collections::HashMap;
-use std::ops::{Deref, DerefMut};
-
-use cookie::Cookie;
-use cookie::CookieJar;
-use http::Request as RawRequest;
-
+use std::{
+    collections::HashMap,
+    ops::{Deref, DerefMut},
+};
 use std::net::SocketAddr;
+
+use cookie::{Cookie, CookieJar};
 use futures_util::future::Future;
+use http::Request as RawRequest;
 use hyper::body::Bytes;
-use crate::body::{Body, FromBytes};
-use crate::error::SaphirError;
+
+use crate::{
+    body::{Body, FromBytes},
+    error::SaphirError,
+};
 
 /// Struct that wraps a hyper request + some magic
 pub struct Request<T = Body<Bytes>> {
@@ -119,7 +122,12 @@ impl<T> Request<T> {
         where
             F: FnOnce(T) -> U,
     {
-        let Request { inner, captures, cookies, peer_addr } = self;
+        let Request {
+            inner,
+            captures,
+            cookies,
+            peer_addr,
+        } = self;
         Request {
             inner: inner.map(f),
             captures,
@@ -141,9 +149,14 @@ impl<T> Request<T> {
     pub async fn async_map<F, Fut, U>(self, f: F) -> Request<U>
         where
             F: FnOnce(T) -> Fut,
-            Fut: Future<Output=U>
+            Fut: Future<Output=U>,
     {
-        let Request { inner, captures, cookies, peer_addr } = self;
+        let Request {
+            inner,
+            captures,
+            cookies,
+            peer_addr,
+        } = self;
         let (head, body) = inner.into_parts();
         let mapped = f(body).await;
         let mapped_r = RawRequest::from_parts(head, mapped);
@@ -159,11 +172,14 @@ impl<T> Request<T> {
     /// Parse cookies from the Cookie header
     pub fn parse_cookies(&mut self) {
         let jar = &mut self.cookies;
-        self.inner.headers().get("Cookie")
+        if let Some(cookie_iter) = self.inner
+            .headers()
+            .get("Cookie")
             .and_then(|cookies| cookies.to_str().ok())
             .map(|cookies_str| cookies_str.split("; "))
-            .map(|cookie_iter| cookie_iter.filter_map(|cookie_s| Cookie::parse(cookie_s.to_string()).ok()))
-            .map(|cookie_iter| cookie_iter.for_each(|c| jar.add_original(c)));
+            .map(|cookie_iter| cookie_iter.filter_map(|cookie_s| Cookie::parse(cookie_s.to_string()).ok())) {
+            cookie_iter.for_each(|c| jar.add_original(c));
+        }
     }
 }
 
@@ -181,9 +197,13 @@ impl<T: FromBytes + Unpin + 'static> Request<Body<T>> {
     ///# };
     /// ```
     #[inline]
-    pub async fn load_body(self) -> Result<Request<T::Out>, SaphirError>
-    {
-        let Request { inner, captures, cookies, peer_addr } = self;
+    pub async fn load_body(self) -> Result<Request<T::Out>, SaphirError> {
+        let Request {
+            inner,
+            captures,
+            cookies,
+            peer_addr,
+        } = self;
         let (head, body) = inner.into_parts();
 
         let t = body.await?;
@@ -212,16 +232,19 @@ impl<T, E> Request<Result<T, E>> {
     /// assert!(res.is_ok());
     /// ```
     pub fn transpose(self) -> Result<Request<T>, E> {
-        let Request { inner, captures, cookies, peer_addr } = self;
+        let Request {
+            inner,
+            captures,
+            cookies,
+            peer_addr,
+        } = self;
         let (head, body) = inner.into_parts();
 
-        body.map(move |b| {
-            Request {
-                inner: RawRequest::from_parts(head, b),
-                captures,
-                cookies,
-                peer_addr,
-            }
+        body.map(move |b| Request {
+            inner: RawRequest::from_parts(head, b),
+            captures,
+            cookies,
+            peer_addr,
         })
     }
 }
@@ -238,28 +261,36 @@ impl<T> Request<Option<T>> {
     /// assert!(opt.is_some());
     /// ```
     pub fn transpose(self) -> Option<Request<T>> {
-        let Request { inner, captures, cookies, peer_addr } = self;
+        let Request {
+            inner,
+            captures,
+            cookies,
+            peer_addr,
+        } = self;
         let (head, body) = inner.into_parts();
 
-        body.map(move |b| {
-            Request {
-                inner: RawRequest::from_parts(head, b),
-                captures,
-                cookies,
-                peer_addr,
-            }
+        body.map(move |b| Request {
+            inner: RawRequest::from_parts(head, b),
+            captures,
+            cookies,
+            peer_addr,
         })
     }
 }
 
 #[cfg(feature = "json")]
 mod json {
-    use super::*;
-    use crate::body::Json;
     use serde::Deserialize;
 
+    use crate::body::Json;
+
+    use super::*;
+
     impl Request<Body<Bytes>> {
-        pub async fn json<T>(&mut self) -> Result<T, SaphirError> where T: for<'a> Deserialize<'a> + Unpin + 'static {
+        pub async fn json<T>(&mut self) -> Result<T, SaphirError>
+            where
+                T: for<'a> Deserialize<'a> + Unpin + 'static,
+        {
             self.body_mut().take_as::<Json<T>>().await
         }
     }
@@ -267,12 +298,17 @@ mod json {
 
 #[cfg(feature = "form")]
 mod form {
-    use super::*;
-    use crate::body::Form;
     use serde::Deserialize;
 
+    use crate::body::Form;
+
+    use super::*;
+
     impl Request<Body<Bytes>> {
-        pub async fn form<T>(&mut self) -> Result<T, SaphirError> where T: for<'a> Deserialize<'a> + Unpin + 'static {
+        pub async fn form<T>(&mut self) -> Result<T, SaphirError>
+            where
+                T: for<'a> Deserialize<'a> + Unpin + 'static,
+        {
             self.body_mut().take_as::<Form<T>>().await
         }
     }
@@ -291,4 +327,3 @@ impl<T> DerefMut for Request<T> {
         &mut self.inner
     }
 }
-

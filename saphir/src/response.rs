@@ -1,13 +1,14 @@
-use std::any::Any;
-use std::convert::TryFrom;
-use std::ops::{Deref, DerefMut};
+use std::{
+    any::Any,
+    convert::TryFrom,
+    ops::{Deref, DerefMut},
+};
 
 use cookie::{Cookie, CookieJar};
-use http::{HeaderMap, HeaderValue, Response as RawResponse, response::Builder as RawBuilder, StatusCode, Version};
-use http::header::HeaderName;
+use http::{header::HeaderName, HeaderMap, HeaderValue, Response as RawResponse, response::Builder as RawBuilder, StatusCode, Version};
 use hyper::body::Body as RawBody;
-use crate::body::{Body, TransmuteBody};
 
+use crate::body::{Body, TransmuteBody};
 use crate::error::SaphirError;
 
 /// Struct that wraps a hyper response + some magic
@@ -51,16 +52,15 @@ impl<T> Response<T> {
             F: FnOnce(T) -> U,
     {
         let Response { inner, cookies } = self;
-        Response {
-            inner: inner.map(f),
-            cookies,
-        }
+        Response { inner: inner.map(f), cookies }
     }
 
     pub(crate) fn into_raw(self) -> Result<RawResponse<T>, SaphirError> {
         let Response { mut inner, cookies } = self;
         for c in cookies.iter() {
-            inner.headers_mut().append(http::header::SET_COOKIE, http::HeaderValue::from_str(c.to_string().as_str())?);
+            inner
+                .headers_mut()
+                .append(http::header::SET_COOKIE, http::HeaderValue::from_str(c.to_string().as_str())?);
         }
 
         Ok(inner)
@@ -286,10 +286,17 @@ impl Builder {
     }
 }
 
+impl Default for Builder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(feature = "json")]
 mod json {
-    use super::*;
     use serde::Serialize;
+
+    use super::*;
 
     impl Builder {
         pub fn json<T: Serialize>(self, t: &T) -> Result<Builder, (Builder, SaphirError)> {
@@ -303,8 +310,9 @@ mod json {
 
 #[cfg(feature = "form")]
 mod form {
-    use super::*;
     use serde::Serialize;
+
+    use super::*;
 
     impl Builder {
         pub fn form<T: Serialize>(self, t: &T) -> Result<Builder, (Builder, SaphirError)> {

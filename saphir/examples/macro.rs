@@ -1,6 +1,6 @@
 use saphir::prelude::*;
 use saphir_macro::controller;
-use serde_derive::{Serialize, Deserialize};
+use serde_derive::{Deserialize, Serialize};
 
 fn guard_string(_controller: &UserController) -> String {
     UserController::BASE_PATH.to_string()
@@ -18,27 +18,25 @@ struct User {
     age: i64,
 }
 
-struct UserController {
+struct UserController {}
 
-}
-
-#[controller(name="/users", version=1, prefix="api")]
+#[controller(name = "/users", version = 1, prefix = "api")]
 impl UserController {
     #[get("/<user_id>")]
-    async fn get_user(&self, req: Request) -> (u16, String) {
+    async fn get_user(&self, _req: Request) -> (u16, String) {
         (200, "Yo".to_string())
     }
 
     #[post("/sync")]
     fn get_user_sync(&self, mut req: Request<Json<User>>) -> (u16, Json<User>) {
-        let mut u = req.body_mut();
+        let u = req.body_mut();
         u.username = "Samuel".to_string();
         (200, Json(u.clone()))
     }
 
-    #[guard(fn="print_string_guard", data="guard_string")]
+    #[guard(fn = "print_string_guard", data = "guard_string")]
     #[get("/")]
-    async fn list_user(&self, req: Request<Body<Vec<u8>>>) -> (u16, String) {
+    async fn list_user(&self, _req: Request<Body<Vec<u8>>>) -> (u16, String) {
         (200, "Yo".to_string())
     }
 }
@@ -49,9 +47,7 @@ async fn main() -> Result<(), SaphirError> {
 
     let server = Server::builder()
         .configure_listener(|l| l.interface("127.0.0.1:3000"))
-        .configure_router(|r| {
-            r.controller(UserController {})
-        })
+        .configure_router(|r| r.controller(UserController {}))
         .build();
 
     server.run().await

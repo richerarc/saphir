@@ -3,7 +3,7 @@ extern crate log;
 
 use futures::future::Ready;
 use saphir::prelude::*;
-use serde_derive::{Serialize, Deserialize};
+use serde_derive::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 // == controller == //
@@ -28,14 +28,14 @@ impl Controller for MagicController {
         let b = EndpointsBuilder::new();
 
         #[cfg(feature = "json")]
-            let b = b.add(Method::POST, "/json", MagicController::user_json);
+        let b = b.add(Method::POST, "/json", MagicController::user_json);
         #[cfg(feature = "json")]
-            let b = b.add(Method::GET, "/json", MagicController::get_user_json);
+        let b = b.add(Method::GET, "/json", MagicController::get_user_json);
 
         #[cfg(feature = "form")]
-            let b = b.add(Method::POST, "/form", MagicController::user_form);
+        let b = b.add(Method::POST, "/form", MagicController::user_form);
         #[cfg(feature = "form")]
-            let b = b.add(Method::GET, "/form", MagicController::get_user_form);
+        let b = b.add(Method::GET, "/form", MagicController::get_user_form);
 
         b.add(Method::GET, "/delay/{delay}", MagicController::magic_delay)
             .add_with_guards(Method::GET, "/guarded/{delay}", MagicController::magic_delay, |g| {
@@ -63,7 +63,7 @@ impl MagicController {
         (200, body)
     }
 
-    async fn match_any_route(&self, req: Request)  -> (u16, String) {
+    async fn match_any_route(&self, req: Request) -> (u16, String) {
         (200, req.uri().path().to_string())
     }
 
@@ -79,7 +79,10 @@ impl MagicController {
     #[cfg(feature = "form")]
     async fn user_form(&self, mut req: Request) -> (u16, String) {
         if let Ok(user) = req.body_mut().take_as::<Form<User>>().await {
-            (200, format!("New user with username: {} and age: {} read from Form data", user.username, user.age))
+            (
+                200,
+                format!("New user with username: {} and age: {} read from Form data", user.username, user.age),
+            )
         } else {
             (400, "Bad user format".to_string())
         }
@@ -92,7 +95,7 @@ impl MagicController {
             Json(User {
                 username: "john.doe@example.net".to_string(),
                 age: 42,
-            })
+            }),
         )
     }
 
@@ -103,7 +106,7 @@ impl MagicController {
             Form(User {
                 username: "john.doe@example.net".to_string(),
                 age: 42,
-            })
+            }),
         )
     }
 }
@@ -138,10 +141,7 @@ impl StatsData {
             let mut entered = self.entered.write().await;
             let exited = self.exited.read().await;
             *entered += 1;
-            info!(
-                "entered stats middleware! Current data: entered={} ; exited={}",
-                *entered, *exited
-            );
+            info!("entered stats middleware! Current data: entered={} ; exited={}", *entered, *exited);
         }
 
         let res = chain.next(ctx).await?;
@@ -150,21 +150,14 @@ impl StatsData {
             let mut exited = self.exited.write().await;
             let entered = self.entered.read().await;
             *exited += 1;
-            info!(
-                "exited stats middleware! Current data: entered={} ; exited={}",
-                *entered, *exited
-            );
+            info!("exited stats middleware! Current data: entered={} ; exited={}", *entered, *exited);
         }
 
         Ok(res)
     }
 }
 
-async fn log_middleware(
-    prefix: &String,
-    ctx: HttpContext<Body>,
-    chain: &dyn MiddlewareChain,
-) -> Result<Response<Body>, SaphirError> {
+async fn log_middleware(prefix: &String, ctx: HttpContext<Body>, chain: &dyn MiddlewareChain) -> Result<Response<Body>, SaphirError> {
     info!("{} | new request on path: {}", prefix, ctx.request.uri().path());
     let res = chain.next(ctx).await?;
     info!("{} | new response with status: {}", prefix, res.status());
@@ -198,12 +191,7 @@ impl ForbidderData {
 }
 
 async fn forbidder_guard(data: &ForbidderData, req: Request<Body>) -> Result<Request<Body>, u16> {
-    if req
-        .captures()
-        .get("variable")
-        .and_then(|v| data.filter_forbidden(v))
-        .is_some()
-    {
+    if req.captures().get("variable").and_then(|v| data.filter_forbidden(v)).is_some() {
         Err(403)
     } else {
         Ok(req)
@@ -211,12 +199,7 @@ async fn forbidder_guard(data: &ForbidderData, req: Request<Body>) -> Result<Req
 }
 
 async fn numeric_delay_guard(_: &(), req: Request<Body>) -> Result<Request<Body>, &'static str> {
-    if req
-        .captures()
-        .get("delay")
-        .and_then(|v| v.parse::<u64>().ok())
-        .is_some()
-    {
+    if req.captures().get("delay").and_then(|v| v.parse::<u64>().ok()).is_some() {
         Ok(req)
     } else {
         Err("Guard blocked request: delay is not a valid number.")
@@ -234,13 +217,13 @@ async fn main() -> Result<(), SaphirError> {
                 .route("/{variable}/print", Method::GET, test_handler)
                 .route_with_guards("/{variable}/guarded_print", Method::GET, test_handler, |g| {
                     g.add(forbidder_guard, ForbidderData { forbidden: "forbidden" })
-                     .add(forbidder_guard, ForbidderData { forbidden: "password" })
+                        .add(forbidder_guard, ForbidderData { forbidden: "password" })
                 })
                 .controller(MagicController::new("Just Like Magic!"))
         })
         .configure_middlewares(|m| {
             m.apply(log_middleware, "LOG".to_string(), vec!["/"], None)
-             .apply(StatsData::stats_middleware, StatsData::new(), vec!["/"], None)
+                .apply(StatsData::stats_middleware, StatsData::new(), vec!["/"], None)
         })
         .build();
 

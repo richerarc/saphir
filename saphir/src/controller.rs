@@ -29,22 +29,17 @@
 //! ```
 
 use crate::{
+    body::Body,
+    guard::{Builder as GuardBuilder, GuardChain, GuardChainEnd},
     request::Request,
     responder::{DynResponder, Responder},
-    guard::{GuardChain, Builder as GuardBuilder, GuardChainEnd},
 };
 use futures::future::BoxFuture;
 use futures_util::future::{Future, FutureExt};
 use http::Method;
-use crate::body::Body;
 
 /// Type definition to represent a endpoint within a controller
-pub type ControllerEndpoint<C> = (
-    Method,
-    &'static str,
-    Box<dyn DynControllerHandler<C, Body> + Send + Sync>,
-    Box<dyn GuardChain>
-);
+pub type ControllerEndpoint<C> = (Method, &'static str, Box<dyn DynControllerHandler<C, Body> + Send + Sync>, Box<dyn GuardChain>);
 
 /// Trait that defines how a controller handles its requests
 pub trait Controller {
@@ -88,9 +83,7 @@ impl<C: Controller> EndpointsBuilder<C> {
     /// Create a new endpoint builder
     #[inline]
     pub fn new() -> Self {
-        Self {
-            handlers: Default::default(),
-        }
+        Self { handlers: Default::default() }
     }
 
     /// Add a endpoint the the builder
@@ -170,8 +163,6 @@ where
 {
     #[inline]
     fn dyn_handle(&self, controller: &'static C, req: Request<T>) -> BoxFuture<'static, Box<dyn DynResponder + Send>> {
-        self.handle(controller, req)
-            .map(|r| Box::new(Some(r)) as Box<dyn DynResponder + Send>)
-            .boxed()
+        self.handle(controller, req).map(|r| Box::new(Some(r)) as Box<dyn DynResponder + Send>).boxed()
     }
 }

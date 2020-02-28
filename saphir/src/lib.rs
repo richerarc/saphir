@@ -32,32 +32,32 @@
 #[macro_use]
 extern crate log;
 
+///
+pub mod body;
+///
+pub mod controller;
 /// Error definitions
 pub mod error;
+///
+pub mod guard;
+/// Definition of types which can handle an http request
+pub mod handler;
+/// Context enveloping every request <-> response
+pub mod http_context;
+///
+pub mod middleware;
+/// The Http Request type
+pub mod request;
+/// Definition of type which can map to a response
+pub mod responder;
+/// The Http Response type
+pub mod response;
+///
+pub mod router;
 /// Server implementation and default runtime
 pub mod server;
 ///
 pub mod utils;
-/// Context enveloping every request <-> response
-pub mod http_context;
-/// The Http Request type
-pub mod request;
-/// The Http Response type
-pub mod response;
-/// Definition of type which can map to a response
-pub mod responder;
-/// Definition of types which can handle an http request
-pub mod handler;
-///
-pub mod router;
-///
-pub mod middleware;
-///
-pub mod guard;
-///
-pub mod controller;
-///
-pub mod body;
 ///
 pub use cookie;
 ///
@@ -74,39 +74,33 @@ pub use hyper;
 /// ```
 pub mod prelude {
     ///
-    pub use http::Method;
-    ///
-    pub use http::StatusCode;
-    ///
-    pub use http::Version;
-    ///
-    pub use http::Uri;
-    ///
-    pub use http::Extensions;
-    ///
-    pub use http::header;
-    ///
     pub use crate::body::Body;
     ///
     pub use crate::body::Bytes;
     ///
+    #[cfg(feature = "form")]
+    pub use crate::body::Form;
+    ///
     #[cfg(feature = "json")]
     pub use crate::body::Json;
     ///
-    #[cfg(feature = "form")]
-    pub use crate::body::Form;
+    pub use crate::controller::Controller;
+    ///
+    pub use crate::controller::ControllerEndpoint;
+    ///
+    pub use crate::controller::EndpointsBuilder;
     ///
     pub use crate::error::SaphirError;
     ///
     pub use crate::handler::Handler;
-    ///
-    pub use crate::responder::Responder;
     ///
     pub use crate::http_context::HttpContext;
     ///
     pub use crate::middleware::MiddlewareChain;
     ///
     pub use crate::request::Request;
+    ///
+    pub use crate::responder::Responder;
     ///
     pub use crate::response::Builder;
     ///
@@ -116,15 +110,21 @@ pub mod prelude {
     ///
     pub use crate::server::Stack;
     ///
-    pub use crate::controller::Controller;
-    ///
-    pub use crate::controller::ControllerEndpoint;
-    ///
-    pub use crate::controller::EndpointsBuilder;
-    ///
     pub use cookie::Cookie;
+    ///
+    pub use cookie::CookieBuilder;
     ///
     pub use cookie::CookieJar;
     ///
-    pub use cookie::CookieBuilder;
+    pub use http::header;
+    ///
+    pub use http::Extensions;
+    ///
+    pub use http::Method;
+    ///
+    pub use http::StatusCode;
+    ///
+    pub use http::Uri;
+    ///
+    pub use http::Version;
 }

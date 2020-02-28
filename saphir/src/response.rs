@@ -1,12 +1,13 @@
-use std::any::Any;
-use std::convert::TryFrom;
-use std::ops::{Deref, DerefMut};
+use std::{
+    any::Any,
+    convert::TryFrom,
+    ops::{Deref, DerefMut},
+};
 
-use cookie::{Cookie, CookieJar};
-use http::{HeaderMap, HeaderValue, Response as RawResponse, response::Builder as RawBuilder, StatusCode, Version};
-use http::header::HeaderName;
-use hyper::body::Body as RawBody;
 use crate::body::{Body, TransmuteBody};
+use cookie::{Cookie, CookieJar};
+use http::{header::HeaderName, response::Builder as RawBuilder, HeaderMap, HeaderValue, Response as RawResponse, StatusCode, Version};
+use hyper::body::Body as RawBody;
 
 use crate::error::SaphirError;
 
@@ -47,20 +48,19 @@ impl<T> Response<T> {
     /// ```
     #[inline]
     pub fn map<F, U>(self, f: F) -> Response<U>
-        where
-            F: FnOnce(T) -> U,
+    where
+        F: FnOnce(T) -> U,
     {
         let Response { inner, cookies } = self;
-        Response {
-            inner: inner.map(f),
-            cookies,
-        }
+        Response { inner: inner.map(f), cookies }
     }
 
     pub(crate) fn into_raw(self) -> Result<RawResponse<T>, SaphirError> {
         let Response { mut inner, cookies } = self;
         for c in cookies.iter() {
-            inner.headers_mut().append(http::header::SET_COOKIE, http::HeaderValue::from_str(c.to_string().as_str())?);
+            inner
+                .headers_mut()
+                .append(http::header::SET_COOKIE, http::HeaderValue::from_str(c.to_string().as_str())?);
         }
 
         Ok(inner)
@@ -124,9 +124,9 @@ impl Builder {
     /// ```
     #[inline]
     pub fn status<T>(mut self, status: T) -> Builder
-        where
-            StatusCode: TryFrom<T>,
-            <StatusCode as TryFrom<T>>::Error: Into<http::Error>,
+    where
+        StatusCode: TryFrom<T>,
+        <StatusCode as TryFrom<T>>::Error: Into<http::Error>,
     {
         self.inner = self.inner.status(status);
         self
@@ -172,11 +172,11 @@ impl Builder {
     /// ```
     #[inline]
     pub fn header<K, V>(mut self, key: K, value: V) -> Builder
-        where
-            HeaderName: TryFrom<K>,
-            <HeaderName as TryFrom<K>>::Error: Into<http::Error>,
-            HeaderValue: TryFrom<V>,
-            <HeaderValue as TryFrom<V>>::Error: Into<http::Error>,
+    where
+        HeaderName: TryFrom<K>,
+        <HeaderName as TryFrom<K>>::Error: Into<http::Error>,
+        HeaderValue: TryFrom<V>,
+        <HeaderValue as TryFrom<V>>::Error: Into<http::Error>,
     {
         self.inner = self.inner.header(key, value);
         self
@@ -235,8 +235,8 @@ impl Builder {
     /// ```
     #[inline]
     pub fn extension<T>(mut self, extension: T) -> Builder
-        where
-            T: Any + Send + Sync + 'static,
+    where
+        T: Any + Send + Sync + 'static,
     {
         self.inner = self.inner.extension(extension);
         self

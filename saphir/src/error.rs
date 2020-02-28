@@ -1,11 +1,11 @@
-use std::fmt::{Display, Formatter, Error as FmtError};
-use std::error::Error as StdError;
-use http::Error as HttpCrateError;
-use http::header::InvalidHeaderValue;
-use std::io::Error as IoError;
+use crate::{responder::Responder, response::Builder};
+use http::{header::InvalidHeaderValue, Error as HttpCrateError};
 use hyper::error::Error as HyperError;
-use crate::responder::Responder;
-use crate::response::Builder;
+use std::{
+    error::Error as StdError,
+    fmt::{Display, Error as FmtError, Formatter},
+    io::Error as IoError,
+};
 
 /// Type representing an internal error inerrant to the underlining logic behind saphir
 #[derive(Debug)]
@@ -98,38 +98,38 @@ impl Responder for SaphirError {
             SaphirError::Internal(e) => {
                 warn!("Saphir encountered an internal error that was returned as a responder: {:?}", e);
                 builder.status(500)
-            },
+            }
             SaphirError::Io(e) => {
                 warn!("Saphir encountered an Io error that was returned as a responder: {:?}", e);
                 builder.status(500)
-            },
+            }
             SaphirError::BodyAlreadyTaken => {
                 warn!("A controller handler attempted to take the request body more thant one time");
                 builder.status(500)
-            },
+            }
             SaphirError::Custom(e) => {
                 warn!("A custom error was returned as a responder: {:?}", e);
                 builder.status(500)
-            },
+            }
             SaphirError::Other(e) => {
                 warn!("Saphir encountered an Unknown error that was returned as a responder: {:?}", e);
                 builder.status(500)
-            },
+            }
             #[cfg(feature = "json")]
             SaphirError::SerdeJson(e) => {
                 debug!("Unable to de/serialize json type: {:?}", e);
                 builder.status(400)
-            },
+            }
             #[cfg(feature = "form")]
             SaphirError::SerdeUrlDe(e) => {
                 debug!("Unable to deserialize form type: {:?}", e);
                 builder.status(400)
-            },
+            }
             #[cfg(feature = "form")]
             SaphirError::SerdeUrlSer(e) => {
                 debug!("Unable to serialize form type: {:?}", e);
                 builder.status(400)
-            },
+            }
         }
     }
 }

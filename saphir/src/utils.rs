@@ -1,12 +1,12 @@
-use regex::Regex;
-use std::slice::Iter;
+use crate::{body::Body, error::SaphirError, request::Request};
 use http::Method;
-use crate::request::Request;
-use crate::body::Body;
-use crate::error::SaphirError;
-use std::collections::{HashSet, HashMap, VecDeque};
-use std::sync::atomic::AtomicU64;
-use std::str::FromStr;
+use regex::Regex;
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    slice::Iter,
+    str::FromStr,
+    sync::atomic::AtomicU64,
+};
 
 // TODO: Add possibility to match any route like /page/<path..>/view
 // this will match any route that begins with /page and ends with /view, the in between path will be saved in the capture
@@ -32,22 +32,24 @@ impl EndpointResolver {
     pub fn new(path_str: &str, method: Method) -> Result<EndpointResolver, SaphirError> {
         let mut methods = HashSet::new();
         let allow_any_method = method.is_any();
-        methods.insert(method);
-
+        if !allow_any_method {
+            methods.insert(method);
+        }
 
         Ok(EndpointResolver {
             path_matcher: UriPathMatcher::new(path_str).map_err(|e| SaphirError::Other(e))?,
             methods,
             id: ENDPOINT_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
-            allow_any_method
+            allow_any_method,
         })
     }
 
     pub fn add_method(&mut self, m: Method) {
         if !self.allow_any_method && m.is_any() {
             self.allow_any_method = true;
+        } else {
+            self.methods.insert(m);
         }
-        self.methods.insert(m);
     }
 
     pub fn resolve(&self, req: &mut Request<Body>) -> EndpointResolverResult {
@@ -78,7 +80,7 @@ impl UriPathMatcher {
     pub fn new(path_str: &str) -> Result<UriPathMatcher, String> {
         let mut uri_path_matcher = UriPathMatcher {
             inner: Vec::new(),
-            has_multi_segment_wildcard: false
+            has_multi_segment_wildcard: false,
         };
         uri_path_matcher.append(path_str)?;
         Ok(uri_path_matcher)
@@ -101,7 +103,7 @@ impl UriPathMatcher {
                         }
 
                         Some(seg_matcher)
-                    },
+                    }
                     Err(e) => {
                         last_err = Some(e);
                         None
@@ -214,18 +216,18 @@ impl UriPathSegmentMatcher {
                 return Err("No name was provided for a variable segment".to_string());
             }
 
-            let name = if s[0].starts_with('_') {
-                None
-            } else {
-                Some(s[0].to_string())
-            };
+            let name = if s[0].starts_with('_') { None } else { Some(s[0].to_string()) };
 
             let name_c = name.clone();
 
-            s.get(1).map(|r| {
-                let r = r.trim_start_matches('(').trim_end_matches(')');
-                Regex::new(r).map_err(|e| e.to_string()).map(|r| UriPathSegmentMatcher::Custom { name, segment: r })
-            }).unwrap_or_else(|| Ok(UriPathSegmentMatcher::Variable { name: name_c }))
+            s.get(1)
+                .map(|r| {
+                    let r = r.trim_start_matches('(').trim_end_matches(')');
+                    Regex::new(r)
+                        .map_err(|e| e.to_string())
+                        .map(|r| UriPathSegmentMatcher::Custom { name, segment: r })
+                })
+                .unwrap_or_else(|| Ok(UriPathSegmentMatcher::Variable { name: name_c }))
         } else {
             Ok(UriPathSegmentMatcher::Static { segment: segment.to_string() })
         }
@@ -237,7 +239,7 @@ impl UriPathSegmentMatcher {
             UriPathSegmentMatcher::Static { segment: ref s } => s.eq(other),
             UriPathSegmentMatcher::Variable { name: ref _n } => true,
             UriPathSegmentMatcher::Custom { name: ref _n, segment: ref s } => s.is_match(other),
-            UriPathSegmentMatcher::Wildcard { segment_only: _ } => true
+            UriPathSegmentMatcher::Wildcard { segment_only: _ } => true,
         }
     }
 
@@ -247,7 +249,7 @@ impl UriPathSegmentMatcher {
             UriPathSegmentMatcher::Static { segment: ref _s } => None,
             UriPathSegmentMatcher::Variable { name: ref n } => n.as_ref().map(|s| s.as_str()),
             UriPathSegmentMatcher::Custom { name: ref n, segment: ref _s } => n.as_ref().map(|s| s.as_str()),
-            UriPathSegmentMatcher::Wildcard { segment_only: _ } => None
+            UriPathSegmentMatcher::Wildcard { segment_only: _ } => None,
         }
     }
 
@@ -255,7 +257,7 @@ impl UriPathSegmentMatcher {
     pub fn is_multi_segment_wildcard(&self) -> bool {
         match self {
             UriPathSegmentMatcher::Wildcard { segment_only } => *segment_only,
-            _ => false
+            _ => false,
         }
     }
 }

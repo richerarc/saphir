@@ -41,19 +41,13 @@
 //! middleware data lives within the server stack which has a static lifetime over your application.
 //! We plan to remove this unsafe code as soon as we find another solution to it.
 
-use crate::{error::SaphirError, http_context::HttpContext, response::Response, utils::UriPathMatcher};
+use crate::{body::Body, error::SaphirError, http_context::HttpContext, response::Response, utils::UriPathMatcher};
 use futures::{future::BoxFuture, FutureExt};
 use futures_util::future::Future;
-use crate::body::Body;
 
 /// Auto trait implementation over every function that match the definition of a middleware.
 pub trait MiddlewareHandler<Data> {
-    fn next(
-        &self,
-        data: &Data,
-        ctx: HttpContext<Body>,
-        chain: &dyn MiddlewareChain,
-    ) -> BoxFuture<'static, Result<Response<Body>, SaphirError>>;
+    fn next(&self, data: &Data, ctx: HttpContext<Body>, chain: &dyn MiddlewareChain) -> BoxFuture<'static, Result<Response<Body>, SaphirError>>;
 }
 
 impl<Data, Fun, Fut> MiddlewareHandler<Data> for Fun
@@ -63,12 +57,7 @@ where
     Fut: 'static + Future<Output = Result<Response<Body>, SaphirError>> + Send,
 {
     #[inline]
-    fn next(
-        &self,
-        data: &Data,
-        ctx: HttpContext<Body>,
-        chain: &dyn MiddlewareChain,
-    ) -> BoxFuture<'static, Result<Response<Body>, SaphirError>> {
+    fn next(&self, data: &Data, ctx: HttpContext<Body>, chain: &dyn MiddlewareChain) -> BoxFuture<'static, Result<Response<Body>, SaphirError>> {
         // # SAFETY #
         // The middleware chain and data are initialized in static memory when calling run on Server.
         let (data, chain) = unsafe {

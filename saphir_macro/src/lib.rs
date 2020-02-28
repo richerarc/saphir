@@ -42,17 +42,16 @@
 extern crate proc_macro;
 
 use proc_macro::TokenStream as TokenStream1;
-use std::str::FromStr;
 
-use http::Method;
 use proc_macro2::{Ident, Span, TokenStream};
-use syn::{Attribute, AttributeArgs, ImplItemMethod, ItemImpl, Lit, Meta, MetaList, MetaNameValue, NestedMeta, parse_macro_input, Type};
-use syn::export::ToTokens;
+use syn::{export::ToTokens, parse_macro_input, AttributeArgs, ItemImpl};
 
-use quote::{quote};
+use quote::quote;
 
-use crate::controller::ControllerAttr;
-use crate::handler::{HandlerRepr, HandlerWrapperOpt, MapAfterLoad};
+use crate::{
+    controller::ControllerAttr,
+    handler::{HandlerRepr, HandlerWrapperOpt, MapAfterLoad},
+};
 
 mod controller;
 mod handler;
@@ -62,7 +61,7 @@ pub fn controller(args: TokenStream1, input: TokenStream1) -> TokenStream1 {
     let args = parse_macro_input!(args as AttributeArgs);
     let input = parse_macro_input!(input as ItemImpl);
     let controller_attr = ControllerAttr::new(args, &input);
-    let mut handlers = handler::parse_handlers(input);
+    let handlers = handler::parse_handlers(input);
 
     let controller_implementation = controller::gen_controller_trait_implementation(&controller_attr, handlers.as_slice());
     let struct_implementaion = gen_struct_implementation(controller_attr.ident.clone(), handlers);
@@ -107,7 +106,7 @@ fn gen_wrapper_handler(handler_tokens: &mut TokenStream, handler: HandlerRepr) {
     let mut m_inner_ident_str = m_ident.to_string();
     m_inner_ident_str.push_str("_wrapped");
 
-    o_method.attrs.push(syn::parse_quote!{#[inline]});
+    o_method.attrs.push(syn::parse_quote! {#[inline]});
     o_method.sig.ident = Ident::new(m_inner_ident_str.as_str(), Span::call_site());
     let inner_method_ident = o_method.sig.ident.clone();
 
@@ -122,11 +121,11 @@ fn gen_wrapper_handler(handler_tokens: &mut TokenStream, handler: HandlerRepr) {
     let inner_call = gen_call_to_inner(inner_method_ident, &handler.wrapper_options);
 
     let t = quote! {
-            async fn #m_ident(&self, req: Request) -> Result<#return_type, SaphirError> {
-                #body_stream
-                Ok(#inner_call)
-            }
-        };
+        async fn #m_ident(&self, req: Request) -> Result<#return_type, SaphirError> {
+            #body_stream
+            Ok(#inner_call)
+        }
+    };
 
     t.to_tokens(handler_tokens);
 }
@@ -142,11 +141,12 @@ fn gen_map_after_load(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
         (match m {
             MapAfterLoad::Json => {
                 quote! {.map(|b| Json(b))}
-            },
+            }
             MapAfterLoad::Form => {
                 quote! {.map(|b| Form(b))}
-            },
-        }).to_tokens(stream)
+            }
+        })
+        .to_tokens(stream)
     }
 }
 
@@ -172,9 +172,7 @@ fn gen_call_to_inner(inner_method_ident: Ident, opts: &HandlerWrapperOpt) -> Tok
 
 fn gen_call_params(opts: &HandlerWrapperOpt) -> TokenStream {
     let mut params = TokenStream::new();
-    let paren  = syn::token::Paren {
-        span: Span::call_site()
-    };
+    let paren = syn::token::Paren { span: Span::call_site() };
 
     paren.surround(&mut params, |params| {
         if !opts.request_unused {

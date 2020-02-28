@@ -2,12 +2,12 @@
 //! can modify the request data or stops request processing by returning a response immediately.
 
 use crate::{
+    body::Body,
     request::Request,
     responder::{DynResponder, Responder},
 };
 use futures::{future::BoxFuture, FutureExt};
 use futures_util::future::Future;
-use crate::body::Body;
 
 /// Auto trait implementation over every function that match the definition of a guard.
 pub trait GuardHandler<Data> {

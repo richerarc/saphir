@@ -1,21 +1,18 @@
 use http::Method;
 use proc_macro2::Ident;
-use syn::{Attribute, AttrStyle, Error, ImplItem, ImplItemMethod, ItemFn, ItemImpl, AttributeArgs, NestedMeta, Lit, Meta, Path, MetaNameValue, ReturnType, Type, FnArg, PathArguments, AngleBracketedGenericArguments, GenericArgument, TypePath};
-use syn::parse_macro_input;
-use syn::parse_quote;
-use syn::parse::{Parse, ParseBuffer, Result};
+use syn::{
+    Attribute, FnArg, GenericArgument, ImplItem,
+    ImplItemMethod, ItemImpl, Lit, Meta, MetaNameValue, NestedMeta, Path, PathArguments, ReturnType, Type, TypePath,
+};
 
-use quote::quote;
-use std::collections::{HashMap, HashSet};
-use std::str::FromStr;
-use syn::export::{Span, ToTokens, TokenStreamExt};
-use proc_macro2::TokenStream;
-use crate::controller::ControllerAttr;
+use std::{
+    str::FromStr,
+};
 
 #[derive(Clone, Debug)]
 pub enum MapAfterLoad {
     Json,
-    Form
+    Form,
 }
 
 impl MapAfterLoad {
@@ -23,7 +20,7 @@ impl MapAfterLoad {
         match i.to_string().as_str() {
             "Json" => Some(MapAfterLoad::Json),
             "Form" => Some(MapAfterLoad::Form),
-            _ => None
+            _ => None,
         }
     }
 }
@@ -58,37 +55,33 @@ impl HandlerWrapperOpt {
                             request_unused = false;
                             if let Some(GenericArgument::Type(Type::Path(request_body_type))) = a.args.first() {
                                 let request_body_type = request_body_type.path.segments.first();
-                                let a = match request_body_type.as_ref().map(|b| {
-                                    (b.ident.to_string().eq("Body"), &b.arguments)
-                                }) {
+                                let a = match request_body_type.as_ref().map(|b| (b.ident.to_string().eq("Body"), &b.arguments)) {
                                     // Body<_>
-                                    Some((true, PathArguments::AngleBracketed(a2))) => {
-                                        Some(a2)
-                                    }
+                                    Some((true, PathArguments::AngleBracketed(a2))) => Some(a2),
                                     // Type<_>
                                     Some((false, PathArguments::AngleBracketed(_))) => {
                                         need_body_load = true;
                                         Some(a)
                                     }
 
-                                    _ => {
-                                        None
-                                    }
+                                    _ => None,
                                 };
 
                                 take_body_as = take_body_as.take().or_else(|| {
-                                    a.and_then(|a| a.args.first().and_then(|arg| {
-                                        if let GenericArgument::Type(Type::Path(typ)) = arg {
-                                            let ident = typ.path.segments.first().map(|t| &t.ident);
-                                            if let Some(ident) = ident {
-                                                if !ident.to_string().eq("Bytes") {
-                                                    map_after_load = MapAfterLoad::new(ident);
-                                                    return Some(typ.clone());
+                                    a.and_then(|a| {
+                                        a.args.first().and_then(|arg| {
+                                            if let GenericArgument::Type(Type::Path(typ)) = arg {
+                                                let ident = typ.path.segments.first().map(|t| &t.ident);
+                                                if let Some(ident) = ident {
+                                                    if !ident.to_string().eq("Bytes") {
+                                                        map_after_load = MapAfterLoad::new(ident);
+                                                        return Some(typ.clone());
+                                                    }
                                                 }
                                             }
-                                        }
-                                        None
-                                    }))
+                                            None
+                                        })
+                                    })
                                 });
                             }
                         }
@@ -154,7 +147,10 @@ impl HandlerAttrs {
         let mut path = String::new();
         let mut guards = Vec::new();
 
-        let metas = attrs.iter_mut().map(|attr| attr.parse_meta().expect("Invalid function arguments")).collect::<Vec<Meta>>();
+        let metas = attrs
+            .iter_mut()
+            .map(|attr| attr.parse_meta().expect("Invalid function arguments"))
+            .collect::<Vec<Meta>>();
         for meta in metas {
             match meta {
                 Meta::List(l) => {
@@ -164,7 +160,12 @@ impl HandlerAttrs {
                             let mut data_path = None;
 
                             for n in l.nested {
-                                if let NestedMeta::Meta(Meta::NameValue(MetaNameValue { path, eq_token: _, lit: Lit::Str(l) })) = n {
+                                if let NestedMeta::Meta(Meta::NameValue(MetaNameValue {
+                                    path,
+                                    eq_token: _,
+                                    lit: Lit::Str(l),
+                                })) = n
+                                {
                                     let path = path.segments.first().expect("Missing path in guard attributes");
                                     match path.ident.to_string().as_str() {
                                         "fn" => {
@@ -175,7 +176,7 @@ impl HandlerAttrs {
                                             data_path = syn::parse_str::<Path>(l.value().as_str()).ok();
                                         }
 
-                                        _ => { panic!("Unauthorized name in guard macro") }
+                                        _ => panic!("Unauthorized name in guard macro"),
                                     }
                                 }
                             }
@@ -193,8 +194,8 @@ impl HandlerAttrs {
                         }
                     }
                 }
-                Meta::NameValue(_) => { panic!("Invalid format") }
-                Meta::Path(_) => { panic!("Invalid format") }
+                Meta::NameValue(_) => panic!("Invalid format"),
+                Meta::Path(_) => panic!("Invalid format"),
             }
         }
 

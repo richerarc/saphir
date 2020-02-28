@@ -8,18 +8,18 @@
 //! We plan to remove this unsafe code as soon as we find another solution to it.
 
 use crate::{
+    body::Body,
     controller::{Controller, DynControllerHandler},
     error::SaphirError,
+    guard::{Builder as GuardBuilder, GuardChain, GuardChainEnd},
     handler::DynHandler,
     request::Request,
     responder::{DynResponder, Responder},
     response::Response,
     utils::{EndpointResolver, EndpointResolverResult},
-    guard::{Builder as GuardBuilder, GuardChain, GuardChainEnd},
 };
 use futures::{future::BoxFuture, FutureExt};
 use http::Method;
-use crate::body::Body;
 use std::{collections::HashMap, sync::Arc};
 
 /// Builder type for the router
@@ -32,9 +32,7 @@ impl Default for Builder<RouterChainEnd> {
     fn default() -> Self {
         Self {
             resolver: Default::default(),
-            chain: RouterChainEnd {
-                handlers: Default::default(),
-            },
+            chain: RouterChainEnd { handlers: Default::default() },
         }
     }
 }
@@ -69,7 +67,8 @@ impl<Controllers: 'static + RouterChain + Unpin + Send + Sync> Builder<Controlle
             er_id
         };
 
-        self.chain.add_handler(endpoint_id, method, Box::new(handler), crate::guard::Builder::default().build());
+        self.chain
+            .add_handler(endpoint_id, method, Box::new(handler), crate::guard::Builder::default().build());
 
         self
     }
@@ -113,7 +112,8 @@ impl<Controllers: 'static + RouterChain + Unpin + Send + Sync> Builder<Controlle
             er_id
         };
 
-        self.chain.add_handler(endpoint_id, method, Box::new(handler), guards(GuardBuilder::default()).build());
+        self.chain
+            .add_handler(endpoint_id, method, Box::new(handler), guards(GuardBuilder::default()).build());
 
         self
     }
@@ -136,10 +136,7 @@ impl<Controllers: 'static + RouterChain + Unpin + Send + Sync> Builder<Controlle
     /// builder.controller(SimpleController);
     /// // ...
     /// ```
-    pub fn controller<C: Controller + Send + Unpin + Sync>(
-        mut self,
-        controller: C,
-    ) -> Builder<RouterChainLink<C, Controllers>> {
+    pub fn controller<C: Controller + Send + Unpin + Sync>(mut self, controller: C) -> Builder<RouterChainLink<C, Controllers>> {
         let mut handlers = HashMap::new();
         for (method, subroute, handler, guard_chain) in controller.handlers() {
             let route = format!("{}{}", C::BASE_PATH, subroute);
@@ -167,10 +164,7 @@ impl<Controllers: 'static + RouterChain + Unpin + Send + Sync> Builder<Controlle
     }
 
     pub(crate) fn build(self) -> Router {
-        let Builder {
-            resolver,
-            chain: controllers,
-        } = self;
+        let Builder { resolver, chain: controllers } = self;
 
         Router {
             inner: Arc::new(RouterInner {
@@ -251,13 +245,12 @@ impl RouterChain for RouterChainEnd {
             if handler.1.is_end() {
                 Some(handler.0.dyn_handle(req))
             } else {
-                let fut = handler.1.validate(req)
-                    .then(move |req| async move {
-                        match req {
-                            Ok(req) => handler.0.dyn_handle(req).await,
-                            Err(resp) => resp,
-                        }
-                    } );
+                let fut = handler.1.validate(req).then(move |req| async move {
+                    match req {
+                        Ok(req) => handler.0.dyn_handle(req).await,
+                        Err(resp) => resp,
+                    }
+                });
                 Some(fut.boxed())
             }
         } else {
@@ -285,13 +278,12 @@ impl<C: Sync + Send, Rest: RouterChain + Sync + Send> RouterChain for RouterChai
             if handler.1.is_end() {
                 Some(handler.0.dyn_handle(&self.controller, req))
             } else {
-                let fut = handler.1.validate(req)
-                    .then(move |req| async move {
-                        match req {
-                            Ok(req) => handler.0.dyn_handle(&self.controller, req).await,
-                            Err(resp) => resp,
-                        }
-                    } );
+                let fut = handler.1.validate(req).then(move |req| async move {
+                    match req {
+                        Ok(req) => handler.0.dyn_handle(&self.controller, req).await,
+                        Err(resp) => resp,
+                    }
+                });
                 Some(fut.boxed())
             }
         } else {

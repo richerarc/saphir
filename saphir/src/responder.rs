@@ -1,7 +1,9 @@
-use crate::response::{Builder, Response};
-use crate::error::SaphirError;
+use crate::{
+    body::Body,
+    error::SaphirError,
+    response::{Builder, Response},
+};
 use http::StatusCode;
-use crate::body::Body;
 
 macro_rules! impl_status_responder {
     ( $( $x:ty ),+ ) => {
@@ -58,7 +60,10 @@ pub trait Responder {
     fn respond_with_builder(self, builder: Builder) -> Builder;
 
     ///
-    fn respond(self) -> Result<Response<Body>, SaphirError> where Self: Sized {
+    fn respond(self) -> Result<Response<Body>, SaphirError>
+    where
+        Self: Sized,
+    {
         self.respond_with_builder(Builder::new()).build()
     }
 }
@@ -110,9 +115,7 @@ mod json {
         fn respond_with_builder(self, builder: Builder) -> Builder {
             match builder.json(&self.0) {
                 Ok(b) => b,
-                Err((b, _e)) => {
-                    b.status(500).body("Unable to serialize json data")
-                },
+                Err((b, _e)) => b.status(500).body("Unable to serialize json data"),
             }
         }
     }
@@ -128,14 +131,11 @@ mod form {
         fn respond_with_builder(self, builder: Builder) -> Builder {
             match builder.form(&self.0) {
                 Ok(b) => b,
-                Err((b, _e)) => {
-                    b.status(500).body("Unable to serialize form data")
-                },
+                Err((b, _e)) => b.status(500).body("Unable to serialize form data"),
             }
         }
     }
 }
-
 
 impl_status_responder!(u16, i16, u32, i32, u64, i64, usize, isize);
 impl_body_responder!(String, &'static str, Vec<u8>, &'static [u8], hyper::body::Bytes);
@@ -151,7 +151,10 @@ pub trait DynResponder {
     fn dyn_respond(&mut self) -> Result<Response<Body>, SaphirError>;
 }
 
-impl<T> DynResponder for Option<T> where T: Responder {
+impl<T> DynResponder for Option<T>
+where
+    T: Responder,
+{
     fn dyn_respond(&mut self) -> Result<Response<Body>, SaphirError> {
         self.take().ok_or(500).respond()
     }

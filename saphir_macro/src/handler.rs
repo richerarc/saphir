@@ -1,13 +1,11 @@
 use http::Method;
 use proc_macro2::Ident;
 use syn::{
-    Attribute, FnArg, GenericArgument, ImplItem,
-    ImplItemMethod, ItemImpl, Lit, Meta, MetaNameValue, NestedMeta, Path, PathArguments, ReturnType, Type, TypePath,
+    Attribute, FnArg, GenericArgument, ImplItem, ImplItemMethod, ItemImpl, Lit, Meta, MetaNameValue, NestedMeta, Path, PathArguments, ReturnType, Type,
+    TypePath,
 };
 
-use std::{
-    str::FromStr,
-};
+use std::str::FromStr;
 
 #[derive(Clone, Debug)]
 pub enum MapAfterLoad {

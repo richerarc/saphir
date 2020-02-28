@@ -7,7 +7,7 @@ description = "Macro generation for http server framework"
 documentation = "https://docs.rs/saphir"
 homepage = "https://github.com/richerarc/saphir"
 repository = "https://github.com/richerarc/saphir"
-readme = "README.md"
+readme = "../README.md"
 keywords = ["hyper", "http", "server", "web", "async"]
 license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

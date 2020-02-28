@@ -160,8 +160,8 @@ impl HandlerAttrs {
                             for n in l.nested {
                                 if let NestedMeta::Meta(Meta::NameValue(MetaNameValue {
                                     path,
-                                    eq_token: _,
                                     lit: Lit::Str(l),
+                                    ..
                                 })) = n
                                 {
                                     let path = path.segments.first().expect("Missing path in guard attributes");
@@ -185,7 +185,7 @@ impl HandlerAttrs {
 
                             if let Some(NestedMeta::Lit(Lit::Str(str))) = l.nested.first() {
                                 path = str.value();
-                                if !path.starts_with("/") {
+                                if !path.starts_with('/') {
                                     panic!("Path must start with '/'")
                                 }
                             }

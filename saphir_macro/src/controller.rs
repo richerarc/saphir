@@ -28,16 +28,12 @@ impl ControllerAttr {
                     // a path is => #[test]
                     //                ----
                 }
-                Meta::List(MetaList {
-                    path: _,
-                    paren_token: _,
-                    nested: _,
-                }) => {
+                Meta::List(MetaList { .. }) => {
                     // no List at this time
                     // a List is => #[test(A, B)]
                     //                ----------
                 }
-                Meta::NameValue(MetaNameValue { path, eq_token: _, lit }) => {
+                Meta::NameValue(MetaNameValue { path, lit, .. }) => {
                     match (path.segments.first().map(|p| p.ident.to_string()).as_ref().map(|s| s.as_str()), lit) {
                         (Some("name"), Lit::Str(bp)) => {
                             name = Some(bp.value().trim_matches('/').to_string());
@@ -64,13 +60,10 @@ impl ControllerAttr {
 }
 
 fn parse_controller_ident(input: &ItemImpl) -> Option<Ident> {
-    match input.self_ty.as_ref() {
-        Type::Path(p) => {
-            if let Some(f) = p.path.segments.first() {
-                return Some(f.ident.clone());
-            }
+    if let Type::Path(p) = input.self_ty.as_ref() {
+        if let Some(f) = p.path.segments.first() {
+            return Some(f.ident.clone());
         }
-        _ => {}
     }
 
     None

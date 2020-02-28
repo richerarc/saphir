@@ -2,17 +2,17 @@ use std::{
     collections::HashMap,
     ops::{Deref, DerefMut},
 };
+use std::net::SocketAddr;
 
 use cookie::{Cookie, CookieJar};
+use futures_util::future::Future;
 use http::Request as RawRequest;
+use hyper::body::Bytes;
 
 use crate::{
     body::{Body, FromBytes},
     error::SaphirError,
 };
-use futures_util::future::Future;
-use hyper::body::Bytes;
-use std::net::SocketAddr;
 
 /// Struct that wraps a hyper request + some magic
 pub struct Request<T = Body<Bytes>> {
@@ -119,8 +119,8 @@ impl<T> Request<T> {
     /// ```
     #[inline]
     pub fn map<F, U>(self, f: F) -> Request<U>
-    where
-        F: FnOnce(T) -> U,
+        where
+            F: FnOnce(T) -> U,
     {
         let Request {
             inner,
@@ -147,9 +147,9 @@ impl<T> Request<T> {
     /// ```
     #[inline]
     pub async fn async_map<F, Fut, U>(self, f: F) -> Request<U>
-    where
-        F: FnOnce(T) -> Fut,
-        Fut: Future<Output = U>,
+        where
+            F: FnOnce(T) -> Fut,
+            Fut: Future<Output=U>,
     {
         let Request {
             inner,
@@ -172,13 +172,14 @@ impl<T> Request<T> {
     /// Parse cookies from the Cookie header
     pub fn parse_cookies(&mut self) {
         let jar = &mut self.cookies;
-        self.inner
+        if let Some(cookie_iter) = self.inner
             .headers()
             .get("Cookie")
             .and_then(|cookies| cookies.to_str().ok())
             .map(|cookies_str| cookies_str.split("; "))
-            .map(|cookie_iter| cookie_iter.filter_map(|cookie_s| Cookie::parse(cookie_s.to_string()).ok()))
-            .map(|cookie_iter| cookie_iter.for_each(|c| jar.add_original(c)));
+            .map(|cookie_iter| cookie_iter.filter_map(|cookie_s| Cookie::parse(cookie_s.to_string()).ok())) {
+            cookie_iter.for_each(|c| jar.add_original(c));
+        }
     }
 }
 
@@ -279,14 +280,16 @@ impl<T> Request<Option<T>> {
 
 #[cfg(feature = "json")]
 mod json {
-    use super::*;
-    use crate::body::Json;
     use serde::Deserialize;
+
+    use crate::body::Json;
+
+    use super::*;
 
     impl Request<Body<Bytes>> {
         pub async fn json<T>(&mut self) -> Result<T, SaphirError>
-        where
-            T: for<'a> Deserialize<'a> + Unpin + 'static,
+            where
+                T: for<'a> Deserialize<'a> + Unpin + 'static,
         {
             self.body_mut().take_as::<Json<T>>().await
         }
@@ -295,14 +298,16 @@ mod json {
 
 #[cfg(feature = "form")]
 mod form {
-    use super::*;
-    use crate::body::Form;
     use serde::Deserialize;
+
+    use crate::body::Form;
+
+    use super::*;
 
     impl Request<Body<Bytes>> {
         pub async fn form<T>(&mut self) -> Result<T, SaphirError>
-        where
-            T: for<'a> Deserialize<'a> + Unpin + 'static,
+            where
+                T: for<'a> Deserialize<'a> + Unpin + 'static,
         {
             self.body_mut().take_as::<Form<T>>().await
         }

@@ -37,7 +37,7 @@ impl EndpointResolver {
         }
 
         Ok(EndpointResolver {
-            path_matcher: UriPathMatcher::new(path_str).map_err(|e| SaphirError::Other(e))?,
+            path_matcher: UriPathMatcher::new(path_str).map_err(SaphirError::Other)?,
             methods,
             id: ENDPOINT_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
             allow_any_method,
@@ -212,7 +212,7 @@ impl UriPathSegmentMatcher {
             Ok(UriPathSegmentMatcher::Wildcard { segment_only: segment == "**" })
         } else if (segment.starts_with('{') && segment.ends_with('}')) || (segment.starts_with('<') && segment.ends_with('>')) {
             let s: Vec<&str> = segment[1..segment.len() - 1].splitn(2, "#r").collect();
-            if s.len() < 1 {
+            if s.is_empty() {
                 return Err("No name was provided for a variable segment".to_string());
             }
 
@@ -237,19 +237,19 @@ impl UriPathSegmentMatcher {
     pub fn matches(&self, other: &str) -> bool {
         match self {
             UriPathSegmentMatcher::Static { segment: ref s } => s.eq(other),
-            UriPathSegmentMatcher::Variable { name: ref _n } => true,
-            UriPathSegmentMatcher::Custom { name: ref _n, segment: ref s } => s.is_match(other),
-            UriPathSegmentMatcher::Wildcard { segment_only: _ } => true,
+            UriPathSegmentMatcher::Variable { .. } => true,
+            UriPathSegmentMatcher::Custom { segment: ref s, .. } => s.is_match(other),
+            UriPathSegmentMatcher::Wildcard { .. } => true,
         }
     }
 
     #[inline]
     pub fn name(&self) -> Option<&str> {
         match self {
-            UriPathSegmentMatcher::Static { segment: ref _s } => None,
+            UriPathSegmentMatcher::Static { .. } => None,
             UriPathSegmentMatcher::Variable { name: ref n } => n.as_ref().map(|s| s.as_str()),
-            UriPathSegmentMatcher::Custom { name: ref n, segment: ref _s } => n.as_ref().map(|s| s.as_str()),
-            UriPathSegmentMatcher::Wildcard { segment_only: _ } => None,
+            UriPathSegmentMatcher::Custom { name: ref n, .. } => n.as_ref().map(|s| s.as_str()),
+            UriPathSegmentMatcher::Wildcard { .. } => None,
         }
     }
 

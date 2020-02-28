@@ -1,3 +1,4 @@
+#![allow(clippy::let_and_return)]
 use crate::{
     body::Body,
     error::SaphirError,

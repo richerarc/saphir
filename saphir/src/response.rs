@@ -4,11 +4,11 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use crate::body::{Body, TransmuteBody};
 use cookie::{Cookie, CookieJar};
-use http::{header::HeaderName, response::Builder as RawBuilder, HeaderMap, HeaderValue, Response as RawResponse, StatusCode, Version};
+use http::{header::HeaderName, HeaderMap, HeaderValue, Response as RawResponse, response::Builder as RawBuilder, StatusCode, Version};
 use hyper::body::Body as RawBody;
 
+use crate::body::{Body, TransmuteBody};
 use crate::error::SaphirError;
 
 /// Struct that wraps a hyper response + some magic
@@ -48,8 +48,8 @@ impl<T> Response<T> {
     /// ```
     #[inline]
     pub fn map<F, U>(self, f: F) -> Response<U>
-    where
-        F: FnOnce(T) -> U,
+        where
+            F: FnOnce(T) -> U,
     {
         let Response { inner, cookies } = self;
         Response { inner: inner.map(f), cookies }
@@ -124,9 +124,9 @@ impl Builder {
     /// ```
     #[inline]
     pub fn status<T>(mut self, status: T) -> Builder
-    where
-        StatusCode: TryFrom<T>,
-        <StatusCode as TryFrom<T>>::Error: Into<http::Error>,
+        where
+            StatusCode: TryFrom<T>,
+            <StatusCode as TryFrom<T>>::Error: Into<http::Error>,
     {
         self.inner = self.inner.status(status);
         self
@@ -172,11 +172,11 @@ impl Builder {
     /// ```
     #[inline]
     pub fn header<K, V>(mut self, key: K, value: V) -> Builder
-    where
-        HeaderName: TryFrom<K>,
-        <HeaderName as TryFrom<K>>::Error: Into<http::Error>,
-        HeaderValue: TryFrom<V>,
-        <HeaderValue as TryFrom<V>>::Error: Into<http::Error>,
+        where
+            HeaderName: TryFrom<K>,
+            <HeaderName as TryFrom<K>>::Error: Into<http::Error>,
+            HeaderValue: TryFrom<V>,
+            <HeaderValue as TryFrom<V>>::Error: Into<http::Error>,
     {
         self.inner = self.inner.header(key, value);
         self
@@ -235,8 +235,8 @@ impl Builder {
     /// ```
     #[inline]
     pub fn extension<T>(mut self, extension: T) -> Builder
-    where
-        T: Any + Send + Sync + 'static,
+        where
+            T: Any + Send + Sync + 'static,
     {
         self.inner = self.inner.extension(extension);
         self
@@ -286,10 +286,17 @@ impl Builder {
     }
 }
 
+impl Default for Builder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(feature = "json")]
 mod json {
-    use super::*;
     use serde::Serialize;
+
+    use super::*;
 
     impl Builder {
         pub fn json<T: Serialize>(self, t: &T) -> Result<Builder, (Builder, SaphirError)> {
@@ -303,8 +310,9 @@ mod json {
 
 #[cfg(feature = "form")]
 mod form {
-    use super::*;
     use serde::Serialize;
+
+    use super::*;
 
     impl Builder {
         pub fn form<T: Serialize>(self, t: &T) -> Result<Builder, (Builder, SaphirError)> {

@@ -1,3 +1,5 @@
+#![allow(clippy::type_complexity)]
+
 use crate::error::SaphirError;
 use futures::{
     task::{Context, Poll},
@@ -38,7 +40,7 @@ where
 {
     #[inline]
     pub(crate) async fn generate(raw: RawBody) -> Result<T::Out, SaphirError> {
-        T::from_bytes(to_bytes(raw).map_err(|e| SaphirError::from(e)).await?)
+        T::from_bytes(to_bytes(raw).map_err(SaphirError::from).await?)
     }
 
     #[inline]
@@ -48,7 +50,7 @@ where
 
     #[inline]
     pub(crate) fn into_raw(self) -> RawBody {
-        self.inner.unwrap_or_else(|| RawBody::empty())
+        self.inner.unwrap_or_else(RawBody::empty)
     }
 
     /// Performing `take` will give your a owned version of the body, leaving a empty one behind
@@ -229,7 +231,7 @@ impl<T: FromBytes + Unpin> HttpBody for Body<T> {
         };
 
         match p {
-            Poll::Ready(Some(res)) => Poll::Ready(Some(res.map_err(|e| SaphirError::from(e)))),
+            Poll::Ready(Some(res)) => Poll::Ready(Some(res.map_err(SaphirError::from))),
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
         }
@@ -246,7 +248,7 @@ impl<T: FromBytes + Unpin> HttpBody for Body<T> {
         };
 
         match p {
-            Poll::Ready(res) => Poll::Ready(res.map_err(|e| SaphirError::from(e))),
+            Poll::Ready(res) => Poll::Ready(res.map_err(SaphirError::from)),
             Poll::Pending => Poll::Pending,
         }
     }
@@ -287,7 +289,7 @@ where
 impl<T: FromBytes> Into<RawBody> for Body<T> {
     #[inline]
     fn into(self) -> RawBody {
-        let Body { inner, fut: _ } = self;
-        inner.unwrap_or_else(|| RawBody::empty())
+        let Body { inner, .. } = self;
+        inner.unwrap_or_else(RawBody::empty)
     }
 }

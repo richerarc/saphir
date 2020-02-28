@@ -31,7 +31,7 @@ use crate::{
 /// Default time for request handling is 30 seconds
 pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
 /// Default listener ip addr is AnyAddr (0.0.0.0)
-pub const DEFAULT_LISTENER_IFACE: &'static str = "0.0.0.0:0";
+pub const DEFAULT_LISTENER_IFACE: &str = "0.0.0.0:0";
 
 #[doc(hidden)]
 static mut STACK: MaybeUninit<Stack> = MaybeUninit::uninit();
@@ -51,6 +51,7 @@ pub enum SslConfig {
     FileData(String),
 }
 
+#[derive(Default)]
 pub struct ListenerBuilder {
     iface: Option<String>,
     request_timeout_ms: Option<u64>,
@@ -63,14 +64,21 @@ pub struct ListenerBuilder {
 impl ListenerBuilder {
     #[inline]
     pub fn new() -> Self {
-        ListenerBuilder {
-            iface: None,
-            request_timeout_ms: Some(DEFAULT_REQUEST_TIMEOUT_MS),
-            #[cfg(feature = "https")]
-            cert_config: None,
-            #[cfg(feature = "https")]
-            key_config: None,
-        }
+        #[cfg(not(feature = "https"))]
+            {
+                ListenerBuilder {
+                    iface: None,
+                    request_timeout_ms: Some(DEFAULT_REQUEST_TIMEOUT_MS),
+                }
+            }
+        #[cfg(feature = "https")]
+            {
+                ListenerBuilder {
+                    iface: None,
+                    request_timeout_ms: Some(DEFAULT_REQUEST_TIMEOUT_MS),
+                    ..Default::default()
+                }
+            }
     }
 
     #[inline]
@@ -162,9 +170,9 @@ impl ListenerConfig {
 }
 
 pub struct Builder<Controllers, Middlewares>
-where
-    Controllers: 'static + RouterChain + Unpin + Send + Sync,
-    Middlewares: 'static + MiddlewareChain + Unpin + Send + Sync,
+    where
+        Controllers: 'static + RouterChain + Unpin + Send + Sync,
+        Middlewares: 'static + MiddlewareChain + Unpin + Send + Sync,
 {
     listener: Option<ListenerBuilder>,
     router: RouterBuilder<Controllers>,
@@ -172,14 +180,14 @@ where
 }
 
 impl<Controllers, Middlewares> Builder<Controllers, Middlewares>
-where
-    Controllers: 'static + RouterChain + Unpin + Send + Sync,
-    Middlewares: 'static + MiddlewareChain + Unpin + Send + Sync,
+    where
+        Controllers: 'static + RouterChain + Unpin + Send + Sync,
+        Middlewares: 'static + MiddlewareChain + Unpin + Send + Sync,
 {
     #[inline]
     pub fn configure_listener<F>(mut self, f: F) -> Self
-    where
-        F: FnOnce(ListenerBuilder) -> ListenerBuilder,
+        where
+            F: FnOnce(ListenerBuilder) -> ListenerBuilder,
     {
         let l = if let Some(builder) = self.listener.take() {
             builder
@@ -194,8 +202,8 @@ where
 
     #[inline]
     pub fn configure_router<F, NewChain: RouterChain + Unpin + Send + Sync>(self, f: F) -> Builder<NewChain, Middlewares>
-    where
-        F: FnOnce(RouterBuilder<Controllers>) -> RouterBuilder<NewChain>,
+        where
+            F: FnOnce(RouterBuilder<Controllers>) -> RouterBuilder<NewChain>,
     {
         Builder {
             listener: self.listener,
@@ -206,8 +214,8 @@ where
 
     #[inline]
     pub fn configure_middlewares<F, NewChain: MiddlewareChain + Unpin + Send + Sync>(self, f: F) -> Builder<Controllers, NewChain>
-    where
-        F: FnOnce(MiddlewareStackBuilder<Middlewares>) -> MiddlewareStackBuilder<NewChain>,
+        where
+            F: FnOnce(MiddlewareStackBuilder<Middlewares>) -> MiddlewareStackBuilder<NewChain>,
     {
         Builder {
             listener: self.listener,
@@ -218,7 +226,7 @@ where
 
     pub fn build(self) -> Server {
         Server {
-            listener_config: self.listener.unwrap_or_else(|| ListenerBuilder::new()).build(),
+            listener_config: self.listener.unwrap_or_else(ListenerBuilder::new).build(),
             stack: Stack {
                 router: self.router.build(),
                 middlewares: self.middlewares.build(),
@@ -272,44 +280,44 @@ impl Server {
 
         let incoming = {
             #[cfg(feature = "https")]
-            {
-                use crate::server::ssl_loading_utils::MaybeTlsAcceptor;
-                match listener_config.ssl_config() {
-                    (Some(cert_config), Some(key_config)) => {
-                        use crate::server::ssl_loading_utils::*;
-                        use std::sync::Arc;
-                        use tokio_rustls::TlsAcceptor;
+                {
+                    use crate::server::ssl_loading_utils::MaybeTlsAcceptor;
+                    match listener_config.ssl_config() {
+                        (Some(cert_config), Some(key_config)) => {
+                            use crate::server::ssl_loading_utils::*;
+                            use std::sync::Arc;
+                            use tokio_rustls::TlsAcceptor;
 
-                        let certs = load_certs(&cert_config);
-                        let key = load_private_key(&key_config);
-                        let mut cfg = ::rustls::ServerConfig::new(::rustls::NoClientAuth::new());
-                        let _ = cfg.set_single_cert(certs, key);
-                        let arc_config = Arc::new(cfg);
+                            let certs = load_certs(&cert_config);
+                            let key = load_private_key(&key_config);
+                            let mut cfg = ::rustls::ServerConfig::new(::rustls::NoClientAuth::new());
+                            let _ = cfg.set_single_cert(certs, key);
+                            let arc_config = Arc::new(cfg);
 
-                        let acceptor = TlsAcceptor::from(arc_config);
+                            let acceptor = TlsAcceptor::from(arc_config);
 
-                        let inc = listener.incoming().and_then(move |stream| acceptor.accept(stream));
+                            let inc = listener.incoming().and_then(move |stream| acceptor.accept(stream));
 
-                        info!("Saphir started and listening on : https://{}", local_addr);
+                            info!("Saphir started and listening on : https://{}", local_addr);
 
-                        MaybeTlsAcceptor::Tls(Box::pin(inc))
-                    }
-                    (cert_config, key_config) if cert_config.xor(key_config).is_some() => {
-                        return Err(SaphirError::Other("Invalid SSL configuration, missing cert or key".to_string()));
-                    }
-                    _ => {
-                        let incoming = listener.incoming();
-                        info!("Saphir started and listening on : http://{}", local_addr);
-                        MaybeTlsAcceptor::Plain(Box::pin(incoming))
+                            MaybeTlsAcceptor::Tls(Box::pin(inc))
+                        }
+                        (cert_config, key_config) if cert_config.xor(key_config).is_some() => {
+                            return Err(SaphirError::Other("Invalid SSL configuration, missing cert or key".to_string()));
+                        }
+                        _ => {
+                            let incoming = listener.incoming();
+                            info!("Saphir started and listening on : http://{}", local_addr);
+                            MaybeTlsAcceptor::Plain(Box::pin(incoming))
+                        }
                     }
                 }
-            }
 
             #[cfg(not(feature = "https"))]
-            {
-                info!("Saphir started and listening on : http://{}", local_addr);
-                listener.incoming()
-            }
+                {
+                    info!("Saphir started and listening on : http://{}", local_addr);
+                    listener.incoming()
+                }
         };
 
         if let Some(request_timeout_ms) = listener_config.request_timeout_ms {
@@ -383,32 +391,34 @@ pub struct StackHandler {
 impl Service<hyper::Request<hyper::Body>> for StackHandler {
     type Response = hyper::Response<hyper::Body>;
     type Error = SaphirError;
-    type Future = Box<dyn Future<Output = Result<hyper::Response<hyper::Body>, Self::Error>> + Send + Unpin>;
+    type Future = Box<dyn Future<Output=Result<hyper::Response<hyper::Body>, Self::Error>> + Send + Unpin>;
 
     fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
     }
 
     fn call(&mut self, req: hyper::Request<hyper::Body>) -> Self::Future {
-        let req = Request::new(req.map(|raw| Body::from_raw(raw)), self.peer_addr.take());
+        let req = Request::new(req.map(Body::from_raw), self.peer_addr.take());
         let fut = Box::pin(self.stack.invoke(req).map(|r| r.and_then(|r| r.into_raw().map(|r| r.map(|b| b.into_raw())))));
 
-        Box::new(fut) as Box<dyn Future<Output = Result<hyper::Response<hyper::Body>, SaphirError>> + Send + Unpin>
+        Box::new(fut) as Box<dyn Future<Output=Result<hyper::Response<hyper::Body>, SaphirError>> + Send + Unpin>
     }
 }
 
 #[doc(hidden)]
 #[cfg(feature = "https")]
 mod ssl_loading_utils {
-    use crate::server::SslConfig;
+    use std::{fs, io::BufReader, net::SocketAddr, pin::Pin};
+
     use futures::io::Error;
     use futures_util::{
         stream::Stream,
         task::{Context, Poll},
     };
     use rustls;
-    use std::{fs, io::BufReader, net::SocketAddr, pin::Pin};
     use tokio::io::{AsyncRead, AsyncWrite};
+
+    use crate::server::SslConfig;
 
     pub enum MaybeTlsStream {
         Tls(Pin<Box<tokio_rustls::server::TlsStream<tokio::net::TcpStream>>>),
@@ -456,12 +466,12 @@ mod ssl_loading_utils {
         }
     }
 
-    pub enum MaybeTlsAcceptor<'a, S: Stream<Item = Result<tokio_rustls::server::TlsStream<tokio::net::TcpStream>, tokio::io::Error>>> {
+    pub enum MaybeTlsAcceptor<'a, S: Stream<Item=Result<tokio_rustls::server::TlsStream<tokio::net::TcpStream>, tokio::io::Error>>> {
         Tls(Pin<Box<S>>),
         Plain(Pin<Box<tokio::net::tcp::Incoming<'a>>>),
     }
 
-    impl<'a, S: Stream<Item = Result<tokio_rustls::server::TlsStream<tokio::net::TcpStream>, tokio::io::Error>>> Stream for MaybeTlsAcceptor<'a, S> {
+    impl<'a, S: Stream<Item=Result<tokio_rustls::server::TlsStream<tokio::net::TcpStream>, tokio::io::Error>>> Stream for MaybeTlsAcceptor<'a, S> {
         type Item = Result<MaybeTlsStream, tokio::io::Error>;
 
         fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -488,7 +498,7 @@ mod ssl_loading_utils {
             SslConfig::FileData(data) => extract_der_data(data.to_string(), "-----BEGIN CERTIFICATE-----", "-----END CERTIFICATE-----", &|v| {
                 rustls::Certificate(v)
             })
-            .expect("Unable to load certificate from data"),
+                .expect("Unable to load certificate from data"),
         }
     }
 
@@ -535,14 +545,14 @@ mod ssl_loading_utils {
         extract_der_data(data.to_string(), "-----BEGIN PRIVATE KEY-----", "-----END PRIVATE KEY-----", &|v| {
             rustls::PrivateKey(v)
         })
-        .expect("Unable to load private key from data")
+            .expect("Unable to load private key from data")
     }
 
     fn load_rsa_private_key_from_data(data: &str) -> Vec<rustls::PrivateKey> {
         extract_der_data(data.to_string(), "-----BEGIN RSA PRIVATE KEY-----", "-----END RSA PRIVATE KEY-----", &|v| {
             rustls::PrivateKey(v)
         })
-        .expect("Unable to load private key from data")
+            .expect("Unable to load private key from data")
     }
 
     fn extract_der_data<A>(mut data: String, start_mark: &str, end_mark: &str, f: &dyn Fn(Vec<u8>) -> A) -> Result<Vec<A>, ()> {

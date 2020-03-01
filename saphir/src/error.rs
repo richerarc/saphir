@@ -37,6 +37,10 @@ pub enum SaphirError {
     /// Error from serializing form data
     #[cfg(feature = "form")]
     SerdeUrlSer(serde_urlencoded::ser::Error),
+    ///
+    MissingParameter(String, bool),
+    ///
+    InvalidParameter(String, bool),
 }
 
 #[cfg(feature = "json")]
@@ -128,6 +132,24 @@ impl Responder for SaphirError {
             #[cfg(feature = "form")]
             SaphirError::SerdeUrlSer(e) => {
                 debug!("Unable to serialize form type: {:?}", e);
+                builder.status(400)
+            }
+            SaphirError::MissingParameter(name, is_query) => {
+                if is_query {
+                    debug!("Missing query parameter {}", name);
+                } else {
+                    debug!("Missing path parameter {}", name);
+                }
+
+                builder.status(400)
+            }
+            SaphirError::InvalidParameter(name, is_query) => {
+                if is_query {
+                    debug!("Unable to parse query parameter {}", name);
+                } else {
+                    debug!("Unable to parse path parameter {}", name);
+                }
+
                 builder.status(400)
             }
         }

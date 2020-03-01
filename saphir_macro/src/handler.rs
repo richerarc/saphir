@@ -1,12 +1,11 @@
-use http::Method;
-use proc_macro2::{Ident, Span};
-use syn::{
-    Attribute, Error, FnArg, GenericArgument, ImplItem, ImplItemMethod, ItemImpl, Lit, Meta, MetaNameValue, NestedMeta, Path, PathArguments, Result,
-    ReturnType, Type, TypePath,
-};
-
 use std::str::FromStr;
-use syn::spanned::Spanned;
+
+use http::Method;
+use proc_macro2::Ident;
+use syn::{
+    Attribute, Error, FnArg, GenericArgument, ImplItem, ImplItemMethod, ItemImpl, Lit, Meta, MetaNameValue, NestedMeta, Pat, PatIdent, PatType, Path,
+    PathArguments, PathSegment, Result, ReturnType, Type, TypePath,
+};
 
 #[derive(Clone, Debug)]
 pub enum MapAfterLoad {
@@ -24,23 +23,112 @@ impl MapAfterLoad {
     }
 }
 
+#[derive(Clone, Debug)]
 pub enum ArgsReprType {
+    SelfType,
     Request,
     Json,
     Form,
-    Params { is_query_param: bool },
+    Params { is_query_param: bool, is_string: bool },
     Cookie,
+    Option(Box<ArgsReprType>),
 }
 
+impl ArgsReprType {
+    pub fn new(attrs: &HandlerAttrs, name: &str, p: &PathSegment) -> Result<Self> {
+        let typ_ident_str = p.ident.to_string();
+        if typ_ident_str.eq("Request") {
+            Ok(ArgsReprType::Request)
+        } else if typ_ident_str.eq("CookieJar") {
+            Ok(ArgsReprType::Cookie)
+        } else if typ_ident_str.eq("Json") {
+            Ok(ArgsReprType::Json)
+        } else if typ_ident_str.eq("Form") {
+            Ok(ArgsReprType::Form)
+        } else if typ_ident_str.eq("Option") {
+            if let PathArguments::AngleBracketed(a) = &p.arguments {
+                let a = a.args.first().ok_or_else(|| Error::new_spanned(a, "Option types need an type argument"))?;
+                if let GenericArgument::Type(Type::Path(t)) = a {
+                    let p2 = t
+                        .path
+                        .segments
+                        .first()
+                        .ok_or_else(|| Error::new_spanned(a, "Option types need an type path argument"))?;
+                    return Ok(ArgsReprType::Option(Box::new(ArgsReprType::new(attrs, name, p2)?)));
+                }
+            }
+            Err(Error::new_spanned(p, "Invalid option type"))
+        } else {
+            Ok(ArgsReprType::Params {
+                is_query_param: !attrs.methods_paths.iter().any(|(_, path)| path.contains(name)),
+                is_string: typ_ident_str.eq("String"),
+            })
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct ArgsRepr {
-    name: String,
-    typ: TypePath,
-    a_type: ArgsReprType,
+    pub name: String,
+    pub typ: Option<TypePath>,
+    pub a_type: ArgsReprType,
 }
 
 impl ArgsRepr {
-    pub fn new(_a: &FnArg) -> Result<ArgsRepr> {
-        Err(Error::new(Span::call_site(), "whatever"))
+    pub fn new(attrs: &HandlerAttrs, a: &FnArg) -> Result<ArgsRepr> {
+        match a {
+            FnArg::Receiver(r) => {
+                if r.mutability.is_some() {
+                    return Err(Error::new_spanned(r, "Controller references are immutable static references, remove 'mut'"));
+                }
+
+                if r.reference.is_none() {
+                    return Err(Error::new_spanned(r, "Controller cannot be passed as owned value, please use &self"));
+                }
+
+                Ok(ArgsRepr {
+                    name: "self".to_string(),
+                    typ: None,
+                    a_type: ArgsReprType::SelfType,
+                })
+            }
+            FnArg::Typed(t) => match t.pat.as_ref() {
+                Pat::Ident(i) => Self::parse_pat_ident(attrs, t, i),
+                Pat::Reference(r) => Err(Error::new_spanned(r.and_token, "Unexpected referece, help: remove '&'")),
+                _ => Err(Error::new_spanned(t, "Unexpected handler argument format")),
+            },
+        }
+    }
+
+    fn parse_pat_ident(attrs: &HandlerAttrs, t: &PatType, i: &PatIdent) -> Result<Self> {
+        let name = i.ident.to_string();
+
+        if let Some(rf) = i.by_ref {
+            return Err(Error::new_spanned(rf, "Invalid handler argument, consider removing 'ref'"));
+        }
+
+        if let Type::Path(p) = t.ty.as_ref() {
+            let typ = Some(p.clone());
+            let p = p
+                .path
+                .segments
+                .first()
+                .ok_or_else(|| Error::new_spanned(p, "Invalid handler argument, argument should have an ident"))?;
+            let a_type = ArgsReprType::new(attrs, &name, p)?;
+
+            return Ok(ArgsRepr { name, typ, a_type });
+        } else if let Type::Reference(r) = t.ty.as_ref() {
+            return Err(Error::new_spanned(r.and_token, "Unexpected reference, help: remove '&'"));
+        }
+
+        Err(Error::new_spanned(i, "Invalid handler argument, argument should be TypePath"))
+    }
+
+    pub fn is_string(&self) -> bool {
+        match self.a_type {
+            ArgsReprType::Params { is_string, .. } => is_string,
+            _ => false,
+        }
     }
 }
 
@@ -50,15 +138,19 @@ pub struct HandlerWrapperOpt {
     pub need_body_load: bool,
     pub request_unused: bool,
     pub parse_cookies: bool,
+    pub parse_query: bool,
     pub take_body_as: Option<TypePath>,
     pub map_after_load: Option<MapAfterLoad>,
+    pub fn_arguments: Vec<ArgsRepr>,
 }
 
 impl HandlerWrapperOpt {
-    pub fn new(attrs: &HandlerAttrs, m: &ImplItemMethod) -> Self {
+    pub fn new(attrs: &HandlerAttrs, m: &ImplItemMethod) -> Result<Self> {
         let mut sync_handler = false;
         let mut need_body_load = false;
         let mut request_unused = true;
+        let mut parse_query = false;
+        let mut parse_cookies = attrs.cookie;
         let mut take_body_as = None;
         let mut map_after_load = None;
 
@@ -66,74 +158,89 @@ impl HandlerWrapperOpt {
             sync_handler = true
         }
 
-        m.sig.inputs.iter().for_each(|fn_arg| {
-            if let FnArg::Typed(t) = fn_arg {
-                if let Type::Path(p) = &*t.ty {
-                    let f = p.path.segments.first();
-                    match f.map(|s| (s.ident.to_string().eq("Request"), &s.arguments)) {
-                        Some((true, PathArguments::AngleBracketed(a))) => {
-                            request_unused = false;
-                            if let Some(GenericArgument::Type(Type::Path(request_body_type))) = a.args.first() {
-                                let request_body_type = request_body_type.path.segments.first();
-                                let a = match request_body_type.as_ref().map(|b| (b.ident.to_string().eq("Body"), &b.arguments)) {
-                                    // Body<_>
-                                    Some((true, PathArguments::AngleBracketed(a2))) => Some(a2),
-                                    // Type<_>
-                                    Some((false, PathArguments::AngleBracketed(_))) => {
-                                        need_body_load = true;
-                                        Some(a)
-                                    }
+        let fn_arguments = m.sig.inputs.iter().map(|fn_a| ArgsRepr::new(attrs, fn_a)).collect::<Result<Vec<ArgsRepr>>>()?;
 
-                                    _ => None,
-                                };
-
-                                take_body_as = take_body_as.take().or_else(|| {
-                                    a.and_then(|a| {
-                                        a.args.first().and_then(|arg| {
-                                            if let GenericArgument::Type(Type::Path(typ)) = arg {
-                                                let ident = typ.path.segments.first().map(|t| &t.ident);
-                                                if let Some(ident) = ident {
-                                                    if !ident.to_string().eq("Bytes") {
-                                                        map_after_load = MapAfterLoad::new(ident);
-                                                        return Some(typ.clone());
-                                                    }
-                                                }
-                                            }
-                                            None
-                                        })
-                                    })
-                                });
-                            }
-                        }
-                        Some((true, _)) => {
-                            request_unused = false;
-                        }
-
-                        _ => {}
-                    }
+        fn_arguments.iter().for_each(|a_repr| {
+            if let ArgsReprType::Cookie = a_repr.a_type {
+                parse_cookies = true;
+            }
+            if let ArgsReprType::Params { is_query_param: true, .. } = a_repr.a_type {
+                parse_query = true;
+            }
+            if let ArgsReprType::Option(inner) = &a_repr.a_type {
+                if let ArgsReprType::Params { is_query_param: true, .. } = inner.as_ref() {
+                    parse_query = true;
                 }
             }
         });
 
-        HandlerWrapperOpt {
+        let req_param: Option<&ArgsRepr> = fn_arguments
+            .iter()
+            .find(|a_repr| if let ArgsReprType::Request = a_repr.a_type { true } else { false });
+
+        if let Some(req_param) = req_param {
+            request_unused = false;
+            if let Some(PathArguments::AngleBracketed(a)) = req_param.typ.as_ref().and_then(|t| t.path.segments.first()).map(|s| &s.arguments) {
+                if let Some(GenericArgument::Type(Type::Path(request_body_type))) = a.args.first() {
+                    let request_body_type = request_body_type.path.segments.first();
+                    let a = match request_body_type.as_ref().map(|b| (b.ident.to_string().eq("Body"), &b.arguments)) {
+                        // Body<_>
+                        Some((true, PathArguments::AngleBracketed(a2))) => Some(a2),
+                        // Type<_>
+                        Some((false, PathArguments::AngleBracketed(_))) => {
+                            need_body_load = true;
+                            Some(a)
+                        }
+
+                        _ => None,
+                    };
+
+                    take_body_as = take_body_as.take().or_else(|| {
+                        a.and_then(|a| {
+                            a.args.first().and_then(|arg| {
+                                if let GenericArgument::Type(Type::Path(typ)) = arg {
+                                    let ident = typ.path.segments.first().map(|t| &t.ident);
+                                    if let Some(ident) = ident {
+                                        if !ident.to_string().eq("Bytes") {
+                                            map_after_load = MapAfterLoad::new(ident);
+                                            return Some(typ.clone());
+                                        }
+                                    }
+                                }
+                                None
+                            })
+                        })
+                    });
+                }
+            }
+        }
+
+        Ok(HandlerWrapperOpt {
             sync_handler,
             need_body_load,
             request_unused,
-            parse_cookies: attrs.cookie,
+            parse_cookies,
+            parse_query,
             take_body_as,
             map_after_load,
-        }
+            fn_arguments,
+        })
     }
 
     pub fn needs_wrapper_fn(&self) -> bool {
-        self.sync_handler || self.need_body_load || self.request_unused || self.take_body_as.is_some()
+        self.sync_handler
+            || self.need_body_load
+            || self.request_unused
+            || self.take_body_as.is_some()
+            || self.parse_query
+            || self.parse_cookies
+            || self.fn_arguments.len() > 2
     }
 }
 
 #[derive(Clone)]
 pub struct HandlerAttrs {
-    pub method: Method,
-    pub path: String,
+    pub methods_paths: Vec<(Method, String)>,
     pub guards: Vec<(Path, Option<Path>)>,
     pub cookie: bool,
 }
@@ -148,8 +255,8 @@ pub struct HandlerRepr {
 
 impl HandlerRepr {
     pub fn new(mut m: ImplItemMethod) -> Result<Self> {
-        let attrs = HandlerAttrs::new(m.attrs.drain(..).collect())?;
-        let wrapper_options = HandlerWrapperOpt::new(&attrs, &m);
+        let attrs = HandlerAttrs::new(m.attrs.drain(..).collect(), &m)?;
+        let wrapper_options = HandlerWrapperOpt::new(&attrs, &m)?;
         let return_type = if let ReturnType::Type(_0, typ) = &m.sig.output {
             typ.clone()
         } else {
@@ -165,9 +272,8 @@ impl HandlerRepr {
 }
 
 impl HandlerAttrs {
-    pub fn new(mut attrs: Vec<Attribute>) -> Result<Self> {
-        let mut method = None;
-        let mut path = String::new();
+    pub fn new(mut attrs: Vec<Attribute>, m: &ImplItemMethod) -> Result<Self> {
+        let mut methods_paths = Vec::new();
         let mut guards = Vec::new();
         let mut cookie = false;
 
@@ -210,15 +316,18 @@ impl HandlerAttrs {
 
                             guards.push((fn_path.ok_or_else(|| Error::new_spanned(&ident, "Missing guard function"))?, data_path));
                         } else {
-                            method = Some(
-                                Method::from_str(ident.to_string().to_uppercase().as_str()).map_err(|_e| Error::new_spanned(ident, "Invalid HTTP method"))?,
-                            );
+                            let method =
+                                Method::from_str(ident.to_string().to_uppercase().as_str()).map_err(|_e| Error::new_spanned(ident, "Invalid HTTP method"))?;
 
                             if let Some(NestedMeta::Lit(Lit::Str(str))) = l.nested.first() {
-                                path = str.value();
+                                let path = str.value();
                                 if !path.starts_with('/') {
                                     return Err(Error::new_spanned(str, "Path must start with '/'"));
                                 }
+
+                                methods_paths.push((method, path));
+                            } else {
+                                return Err(Error::new_spanned(l, "Missing path for method"));
                             }
                         }
                     }
@@ -238,12 +347,14 @@ impl HandlerAttrs {
             }
         }
 
-        Ok(HandlerAttrs {
-            method: method.ok_or_else(|| Error::new(attrs.first().map(|a| a.span()).unwrap_or_else(Span::call_site), "HTTP method is missing"))?,
-            path,
-            guards,
-            cookie,
-        })
+        if methods_paths.is_empty() {
+            return Err(Error::new_spanned(
+                &m.sig,
+                "Missing Router attribute for handler, help: adde something like `#[get(\"/\")]`",
+            ));
+        }
+
+        Ok(HandlerAttrs { methods_paths, guards, cookie })
     }
 }
 

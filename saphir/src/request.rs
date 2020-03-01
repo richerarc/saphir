@@ -87,6 +87,12 @@ impl<T> Request<T> {
         &mut self.cookies
     }
 
+    #[doc(hidden)]
+    #[inline]
+    pub fn take_cookies(&mut self) -> CookieJar {
+        std::mem::take(&mut self.cookies)
+    }
+
     /// Access the captured variables from the request path. E.g. a path composed as
     /// `/user/{user_id}/profile` will store a capture named `"user_id"`.
     ///

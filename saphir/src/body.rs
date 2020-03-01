@@ -72,6 +72,12 @@ where
     }
 }
 
+impl<T: FromBytes> Default for Body<T> {
+    fn default() -> Self {
+        Body { inner: None, fut: None }
+    }
+}
+
 pub trait FromBytes {
     type Out;
     fn from_bytes(bytes: Bytes) -> Result<Self::Out, SaphirError>

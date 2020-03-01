@@ -118,39 +118,41 @@ fn gen_controller_handlers_fn(attr: &ControllerAttr, handlers: &[HandlerRepr]) -
     let ctrl_ident = attr.ident.clone();
 
     for handler in handlers {
-        let HandlerAttrs { method, path, guards, .. } = &handler.attrs;
-        let method = method.as_str();
+        let HandlerAttrs { methods_paths, guards, .. } = &handler.attrs;
         let handler_ident = handler.original_method.sig.ident.clone();
 
-        if guards.is_empty() {
-            let handler_e = quote! {
-                let b = b.add(Method::from_str(#method).expect("Method was validated by the macro expansion"), #path, #ctrl_ident::#handler_ident);
-            };
-            handler_e.to_tokens(&mut handler_stream);
-        } else {
-            let mut guard_stream = TokenStream::new();
-
-            for (fn_path, data) in guards {
-                let guard_e = if let Some(data) = data {
-                    quote! {
-                        let g = g.add(#fn_path, #data(self));
-                    }
-                } else {
-                    quote! {
-                        let g = g.add(#fn_path, ());
-                    }
+        for (method, path) in methods_paths {
+            let method = method.as_str();
+            if guards.is_empty() {
+                let handler_e = quote! {
+                    let b = b.add(Method::from_str(#method).expect("Method was validated by the macro expansion"), #path, #ctrl_ident::#handler_ident);
                 };
+                handler_e.to_tokens(&mut handler_stream);
+            } else {
+                let mut guard_stream = TokenStream::new();
 
-                guard_e.to_tokens(&mut guard_stream);
+                for (fn_path, data) in guards {
+                    let guard_e = if let Some(data) = data {
+                        quote! {
+                            let g = g.add(#fn_path, #data(self));
+                        }
+                    } else {
+                        quote! {
+                            let g = g.add(#fn_path, ());
+                        }
+                    };
+
+                    guard_e.to_tokens(&mut guard_stream);
+                }
+
+                let handler_e = quote! {
+                    let b = b.add_with_guards(Method::from_str(#method).expect("Method was validated the macro expansion"), #path, #ctrl_ident::#handler_ident, |g| {
+                        #guard_stream
+                        g
+                    });
+                };
+                handler_e.to_tokens(&mut handler_stream);
             }
-
-            let handler_e = quote! {
-                let b = b.add_with_guards(Method::from_str(#method).expect("Method was validated the macro expansion"), #path, #ctrl_ident::#handler_ident, |g| {
-                    #guard_stream
-                    g
-                });
-            };
-            handler_e.to_tokens(&mut handler_stream);
         }
     }
 

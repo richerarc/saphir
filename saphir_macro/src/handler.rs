@@ -37,32 +37,29 @@ pub enum ArgsReprType {
 impl ArgsReprType {
     pub fn new(attrs: &HandlerAttrs, name: &str, p: &PathSegment) -> Result<Self> {
         let typ_ident_str = p.ident.to_string();
-        if typ_ident_str.eq("Request") {
-            Ok(ArgsReprType::Request)
-        } else if typ_ident_str.eq("CookieJar") {
-            Ok(ArgsReprType::Cookie)
-        } else if typ_ident_str.eq("Json") {
-            Ok(ArgsReprType::Json)
-        } else if typ_ident_str.eq("Form") {
-            Ok(ArgsReprType::Form)
-        } else if typ_ident_str.eq("Option") {
-            if let PathArguments::AngleBracketed(a) = &p.arguments {
-                let a = a.args.first().ok_or_else(|| Error::new_spanned(a, "Option types need an type argument"))?;
-                if let GenericArgument::Type(Type::Path(t)) = a {
-                    let p2 = t
-                        .path
-                        .segments
-                        .first()
-                        .ok_or_else(|| Error::new_spanned(a, "Option types need an type path argument"))?;
-                    return Ok(ArgsReprType::Option(Box::new(ArgsReprType::new(attrs, name, p2)?)));
+        match typ_ident_str.as_str() {
+            "Request" => Ok(ArgsReprType::Request),
+            "CookieJar" => Ok(ArgsReprType::Cookie),
+            "Json" => Ok(ArgsReprType::Json),
+            "Form" => Ok(ArgsReprType::Form),
+            "Option" => {
+                if let PathArguments::AngleBracketed(a) = &p.arguments {
+                    let a = a.args.first().ok_or_else(|| Error::new_spanned(a, "Option types need an type argument"))?;
+                    if let GenericArgument::Type(Type::Path(t)) = a {
+                        let p2 = t
+                            .path
+                            .segments
+                            .first()
+                            .ok_or_else(|| Error::new_spanned(a, "Option types need an type path argument"))?;
+                        return Ok(ArgsReprType::Option(Box::new(ArgsReprType::new(attrs, name, p2)?)));
+                    }
                 }
+                Err(Error::new_spanned(p, "Invalid option type"))
             }
-            Err(Error::new_spanned(p, "Invalid option type"))
-        } else {
-            Ok(ArgsReprType::Params {
+            _params => Ok(ArgsReprType::Params {
                 is_query_param: !attrs.methods_paths.iter().any(|(_, path)| path.contains(name)),
                 is_string: typ_ident_str.eq("String"),
-            })
+            }),
         }
     }
 }

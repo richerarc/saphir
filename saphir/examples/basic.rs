@@ -222,7 +222,7 @@ async fn main() -> Result<(), SaphirError> {
                 .controller(MagicController::new("Just Like Magic!"))
         })
         .configure_middlewares(|m| {
-            m.apply(log_middleware, "LOG".to_string(), vec!["/"], None)
+            m.apply(log_middleware, "LOG".to_string(), vec!["/**/*.html"], None)
                 .apply(StatsData::stats_middleware, StatsData::new(), vec!["/"], None)
         })
         .build();

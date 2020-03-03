@@ -159,9 +159,9 @@ impl UriPathMatcher {
         }
     }
 
-    fn match_start(semgents_matcher: &[UriPathSegmentMatcher], splitted_path: &mut VecDeque<&str>) -> bool {
+    fn match_start(semgents_matcher: &[UriPathSegmentMatcher], path_segments: &mut VecDeque<&str>) -> bool {
         for segment in semgents_matcher {
-            if let Some(ref s) = splitted_path.pop_front() {
+            if let Some(ref s) = path_segments.pop_front() {
                 if !segment.matches(s) {
                     return false;
                 }
@@ -173,10 +173,10 @@ impl UriPathMatcher {
         true
     }
 
-    fn match_end(semgents_matcher: &VecDeque<UriPathSegmentMatcher>, splitted_path: &mut VecDeque<&str>) -> bool {
+    fn match_end(semgents_matcher: &VecDeque<UriPathSegmentMatcher>, path_segments: &mut VecDeque<&str>) -> bool {
         let mut s_iter = semgents_matcher.iter();
         while let Some(segment) = s_iter.next_back() {
-            if let Some(ref s) = splitted_path.pop_back() {
+            if let Some(ref s) = path_segments.pop_back() {
                 if !segment.matches(s) {
                     return false;
                 }
@@ -189,23 +189,23 @@ impl UriPathMatcher {
     }
 
     pub fn match_all_and_capture(&self, path: String, captures: &mut HashMap<String, String>) -> bool {
-        let mut splitted_path = path.split('/').collect::<VecDeque<_>>();
-        splitted_path.pop_front();
-        if splitted_path.back().map(|s| s.len()).unwrap_or(0) < 1 {
-            splitted_path.pop_back();
+        let mut path_segments = path.split('/').collect::<VecDeque<_>>();
+        path_segments.pop_front();
+        if path_segments.back().map(|s| s.len()).unwrap_or(0) < 1 {
+            path_segments.pop_back();
         }
 
         match self {
             UriPathMatcher::Simple { inner } => {
-                if inner.len() != splitted_path.len() {
+                if inner.len() != path_segments.len() {
                     return false;
                 }
 
                 {
-                    let mut splitted_path = splitted_path.iter();
+                    let mut path_segments = path_segments.iter();
                     // validate path
                     for seg in inner.iter() {
-                        if let Some(&current) = splitted_path.next() {
+                        if let Some(&current) = path_segments.next() {
                             if !seg.matches(current) {
                                 return false;
                             }
@@ -218,7 +218,7 @@ impl UriPathMatcher {
                 // Alter current path and capture path variable
                 {
                     for seg in inner {
-                        if let Some(current) = splitted_path.pop_front() {
+                        if let Some(current) = path_segments.pop_front() {
                             if let Some(name) = seg.name() {
                                 captures.insert(name.to_string(), current.to_string());
                             }
@@ -233,10 +233,10 @@ impl UriPathMatcher {
                 end,
                 wildcard_capture_name,
             } => {
-                let mut splitted = splitted_path.clone();
-                if Self::match_start(start, &mut splitted) && Self::match_end(end, &mut splitted) {
+                let mut segments = path_segments.clone();
+                if Self::match_start(start, &mut segments) && Self::match_end(end, &mut segments) {
                     if let Some(name) = wildcard_capture_name {
-                        let value = splitted.iter().map(|&s| format!("/{}", s)).collect();
+                        let value = segments.iter().map(|&s| format!("/{}", s)).collect();
                         captures.insert(name.clone(), value);
                     }
                 } else {
@@ -246,7 +246,7 @@ impl UriPathMatcher {
                 // Alter current path and capture path variable
                 {
                     for seg in start {
-                        if let Some(current) = splitted_path.pop_front() {
+                        if let Some(current) = path_segments.pop_front() {
                             if let Some(name) = seg.name() {
                                 captures.insert(name.to_string(), current.to_string());
                             }
@@ -255,7 +255,7 @@ impl UriPathMatcher {
 
                     let mut end_iter = end.iter();
                     while let Some(seg) = end_iter.next_back() {
-                        if let Some(current) = splitted_path.pop_back() {
+                        if let Some(current) = path_segments.pop_back() {
                             if let Some(name) = seg.name() {
                                 captures.insert(name.to_string(), current.to_string());
                             }

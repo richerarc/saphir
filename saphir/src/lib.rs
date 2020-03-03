@@ -7,7 +7,7 @@
 //!
 //!  Saphir provide multiple functionality through features. To try it out without fuss, we suggest that use all the features:
 //!
-//! ```
+//! ```toml
 //! saphir = { version = "2.0.0", features = ["full"] }
 //! ```
 //!
@@ -76,6 +76,9 @@ pub mod guard;
 pub mod handler;
 /// Context enveloping every request <-> response
 pub mod http_context;
+/// Saphir macro for code generation
+#[cfg(feature = "macro")]
+pub mod macros;
 ///
 pub mod middleware;
 /// The Http Request type
@@ -106,9 +109,6 @@ pub use hyper;
 /// ```
 pub mod prelude {
     ///
-    #[cfg(feature = "macro")]
-    pub use saphir_macro::controller;
-    ///
     pub use crate::body::Body;
     ///
     pub use crate::body::Bytes;
@@ -130,6 +130,9 @@ pub mod prelude {
     pub use crate::handler::Handler;
     ///
     pub use crate::http_context::HttpContext;
+    ///
+    #[cfg(feature = "macro")]
+    pub use crate::macros::controller;
     ///
     pub use crate::middleware::MiddlewareChain;
     ///

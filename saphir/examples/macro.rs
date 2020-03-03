@@ -57,7 +57,7 @@ async fn main() -> Result<(), SaphirError> {
     env_logger::init();
 
     let server = Server::builder()
-        .configure_listener(|l| l.interface("127.0.0.1:3000"))
+        .configure_listener(|l| l.interface("127.0.0.1:3000").server_name("MacroExample"))
         .configure_router(|r| r.controller(UserController {}))
         .build();
 

@@ -27,14 +27,18 @@ use crate::{
     response::Response,
     router::{Builder as RouterBuilder, Router, RouterChain, RouterChainEnd},
 };
+use http::HeaderValue;
 
 /// Default time for request handling is 30 seconds
 pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
 /// Default listener ip addr is AnyAddr (0.0.0.0)
 pub const DEFAULT_LISTENER_IFACE: &str = "0.0.0.0:0";
+pub const DEFAULT_SERVER_NAME: &str = "Saphir";
 
 #[doc(hidden)]
 static mut STACK: MaybeUninit<Stack> = MaybeUninit::uninit();
+#[doc(hidden)]
+static mut SERVER_NAME: MaybeUninit<HeaderValue> = MaybeUninit::uninit();
 #[doc(hidden)]
 static INIT_STACK: Once = Once::new();
 
@@ -54,6 +58,7 @@ pub enum SslConfig {
 #[derive(Default)]
 pub struct ListenerBuilder {
     iface: Option<String>,
+    server_name: Option<String>,
     request_timeout_ms: Option<u64>,
     #[cfg(feature = "https")]
     cert_config: Option<SslConfig>,
@@ -69,6 +74,7 @@ impl ListenerBuilder {
             ListenerBuilder {
                 iface: None,
                 request_timeout_ms: Some(DEFAULT_REQUEST_TIMEOUT_MS),
+                ..Default::default()
             }
         }
         #[cfg(feature = "https")]
@@ -90,6 +96,12 @@ impl ListenerBuilder {
     #[inline]
     pub fn request_timeout<T: Into<Option<u64>>>(mut self, timeout_ms: T) -> Self {
         self.request_timeout_ms = timeout_ms.into();
+        self
+    }
+
+    #[inline]
+    pub fn server_name(mut self, name: &str) -> Self {
+        self.server_name = Some(name.to_string());
         self
     }
 
@@ -121,6 +133,7 @@ impl ListenerBuilder {
     pub(crate) fn build(self) -> ListenerConfig {
         let ListenerBuilder {
             iface,
+            server_name,
             request_timeout_ms,
             cert_config,
             key_config,
@@ -131,6 +144,7 @@ impl ListenerBuilder {
         ListenerConfig {
             iface,
             request_timeout_ms,
+            server_name: server_name.unwrap_or_else(|| DEFAULT_SERVER_NAME.to_string()),
             cert_config,
             key_config,
         }
@@ -140,11 +154,19 @@ impl ListenerBuilder {
     #[doc(hidden)]
     #[inline]
     pub(crate) fn build(self) -> ListenerConfig {
-        let ListenerBuilder { iface, request_timeout_ms } = self;
+        let ListenerBuilder {
+            iface,
+            server_name,
+            request_timeout_ms,
+        } = self;
 
         let iface = iface.unwrap_or_else(|| DEFAULT_LISTENER_IFACE.to_string());
 
-        ListenerConfig { iface, request_timeout_ms }
+        ListenerConfig {
+            iface,
+            request_timeout_ms,
+            server_name: server_name.unwrap_or_else(|| DEFAULT_SERVER_NAME.to_string()),
+        }
     }
 }
 
@@ -152,6 +174,7 @@ impl ListenerBuilder {
 pub struct ListenerConfig {
     iface: String,
     request_timeout_ms: Option<u64>,
+    server_name: String,
     cert_config: Option<SslConfig>,
     key_config: Option<SslConfig>,
 }
@@ -160,6 +183,7 @@ pub struct ListenerConfig {
 pub struct ListenerConfig {
     iface: String,
     request_timeout_ms: Option<u64>,
+    server_name: String,
 }
 
 #[cfg(feature = "https")]
@@ -255,6 +279,7 @@ impl Server {
     /// or await it in a async context
     pub async fn run(self) -> Result<(), SaphirError> {
         let Server { listener_config, stack } = self;
+        let server_value = HeaderValue::from_str(&listener_config.server_name)?;
 
         if INIT_STACK.state() != OnceState::New {
             return Err(SaphirError::Other("cannot run a second server".to_owned()));
@@ -266,6 +291,7 @@ impl Server {
             // Above check also make sure there is no second server.
             unsafe {
                 STACK.as_mut_ptr().write(stack);
+                SERVER_NAME.as_mut_ptr().write(server_value);
             }
         });
 
@@ -307,7 +333,7 @@ impl Server {
                     }
                     _ => {
                         let incoming = listener.incoming();
-                        info!("Saphir started and listening on : http://{}", local_addr);
+                        info!("{} started and listening on : http://{}", &listener_config.server_name, local_addr);
                         MaybeTlsAcceptor::Plain(Box::pin(incoming))
                     }
                 }
@@ -315,7 +341,7 @@ impl Server {
 
             #[cfg(not(feature = "https"))]
             {
-                info!("Saphir started and listening on : http://{}", local_addr);
+                info!("{} started and listening on : http://{}", &listener_config.server_name, local_addr);
                 listener.incoming()
             }
         };
@@ -399,7 +425,16 @@ impl Service<hyper::Request<hyper::Body>> for StackHandler {
 
     fn call(&mut self, req: hyper::Request<hyper::Body>) -> Self::Future {
         let req = Request::new(req.map(Body::from_raw), self.peer_addr.take());
-        let fut = Box::pin(self.stack.invoke(req).map(|r| r.and_then(|r| r.into_raw().map(|r| r.map(|b| b.into_raw())))));
+        let fut = Box::pin(self.stack.invoke(req).map(|r| {
+            r.and_then(|mut r| {
+                // # SAFETY #
+                // Memory has been initialized at server startup.
+                r.headers_mut().insert(http::header::SERVER, unsafe {
+                    SERVER_NAME.as_ptr().as_ref().expect("Memory has been initialized at server startup.").clone()
+                });
+                r.into_raw().map(|r| r.map(|b| b.into_raw()))
+            })
+        }));
 
         Box::new(fut) as Box<dyn Future<Output = Result<hyper::Response<hyper::Body>, SaphirError>> + Send + Unpin>
     }

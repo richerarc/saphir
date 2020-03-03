@@ -30,6 +30,18 @@ macro_rules! impl_body_responder {
     }
 }
 
+macro_rules! impl_plain_body_responder {
+    ( $( $x:ty ),+ ) => {
+        $(
+            impl Responder for $x {
+                fn respond_with_builder(self, builder: Builder) -> Builder {
+                    builder.header(http::header::CONTENT_TYPE, "text/plain").body(self)
+                }
+            }
+        )+
+    }
+}
+
 macro_rules! impl_tuple_responder {
 
     ( $($idx:tt -> $T:ident),+ ) => {
@@ -141,7 +153,8 @@ mod form {
 }
 
 impl_status_responder!(u16, i16, u32, i32, u64, i64, usize, isize);
-impl_body_responder!(String, &'static str, Vec<u8>, &'static [u8], hyper::body::Bytes);
+impl_plain_body_responder!(String, &'static str);
+impl_body_responder!(Vec<u8>, &'static [u8], hyper::body::Bytes);
 impl_tuple_responder!(0->A, 1->B);
 impl_tuple_responder!(0->A, 1->B, 2->C);
 impl_tuple_responder!(0->A, 1->B, 2->C, 3->D);

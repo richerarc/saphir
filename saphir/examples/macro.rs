@@ -1,5 +1,4 @@
 use saphir::prelude::*;
-use saphir_macro::controller;
 use serde_derive::{Deserialize, Serialize};
 
 fn guard_string(_controller: &UserController) -> String {
@@ -46,8 +45,8 @@ impl UserController {
         (200, Json(u.clone()))
     }
 
-    #[guard(fn = "print_string_guard", data = "guard_string")]
     #[get("/")]
+    #[guard(fn = "print_string_guard", data = "guard_string")]
     async fn list_user(&self, _req: Request<Body<Vec<u8>>>) -> (u16, String) {
         (200, "Yo".to_string())
     }

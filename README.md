@@ -10,28 +10,33 @@
 ### Saphir is a fully async-await http server framework for rust
 The goal is to give low-level control to your web stack (as hyper does) without the time consuming task of doing everything from scratch.
 
-## Quick server setup
+## Quick Overview
 ```rust
 use saphir::prelude::*;
-
-
-async fn test_handler(mut req: Request<Body>) -> (u16, Option<String>) {
+struct TestController {}
+#[controller]
+impl TestController {
+    #[get("/{var}/print")]
+    async fn print_test(&self, var: String) -> (u16, String) {
+        (200, var)
+    }
+}
+async fn test_handler(mut req: Request) -> (u16, Option<String>) {
     (200, req.captures_mut().remove("variable"))
 }
-
 #[tokio::main]
 async fn main() -> Result<(), SaphirError> {
     env_logger::init();
-
     let server = Server::builder()
         .configure_listener(|l| {
             l.interface("127.0.0.1:3000")
         })
         .configure_router(|r| {
             r.route("/{variable}/print", Method::GET, test_handler)
+                .controller(TestController {})
         })
-        .build().await?;
-
+        .build();
+    
     server.run().await
 }
 ```

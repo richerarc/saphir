@@ -1,41 +1,3 @@
-//! Saphir macro for auto trait implementation on controllers
-//!
-//! The base macro attribule look like this : `#[controller]` and is to be put on top of a Controller's method impl block
-//!
-//! ```ignore
-//! #use saphir::prelude::*;
-//! #use saphir_macro::controller;
-//!
-//! #struct ExampleController;
-//!
-//! #[controller]
-//! impl ExampleController {
-//!     // ....
-//! }
-//! ```
-//!
-//! Different arguments can be passed to the controller macro:
-//! - `name="<newName>"` will take place of the default controller name (by default the controller name is the struct name, lowercase, with the "controller keyword stripped"). the name will result as the basepath of the controller.
-//! - `version=<u16>` use for api version, the version will be added before the name as the controller basepath
-//! - `prefix="<prefix>"` add a prefix before the basepath and the version.
-//!
-//! ##Example
-//!
-//! ```ignore
-//! use saphir::prelude::*;
-//! use saphir_macro::controller;
-//!
-//! struct ExampleController;
-//!
-//! #[controller(name="test", version=1, prefix="api")]
-//! impl ExampleController {
-//!     // ....
-//! }
-//! ```
-//!
-//! This will result in the Example controller being routed to `/api/v1/test`
-//!
-
 // The `quote!` macro requires deep recursion.
 #![recursion_limit = "512"]
 
@@ -44,47 +6,91 @@ extern crate proc_macro;
 use proc_macro::TokenStream as TokenStream1;
 
 use proc_macro2::{Ident, Span, TokenStream};
-use syn::{export::ToTokens, parse_macro_input, AttributeArgs, ItemImpl};
+use syn::{export::ToTokens, parse_macro_input, spanned::Spanned, AttributeArgs, Error, GenericArgument, ItemImpl, PathArguments, Result, Type};
 
 use quote::quote;
 
 use crate::{
     controller::ControllerAttr,
-    handler::{HandlerRepr, HandlerWrapperOpt, MapAfterLoad},
+    handler::{ArgsRepr, ArgsReprType, HandlerRepr, HandlerWrapperOpt, MapAfterLoad},
 };
 
 mod controller;
 mod handler;
 
+/// Saphir macro for auto trait implementation on controllers
+///
+/// The base macro attribule look like this : `#[controller]` and is to be put on top of a Controller's method impl block
+///
+/// ```ignore
+/// #use saphir::prelude::*;
+/// #use saphir_macro::controller;
+///
+/// #struct ExampleController;
+///
+/// #[controller]
+/// impl ExampleController {
+///     // ....
+/// }
+/// ```
+///
+/// Different arguments can be passed to the controller macro:
+/// - `name="<newName>"` will take place of the default controller name (by default the controller name is the struct name, lowercase, with the "controller keyword stripped"). the name will result as the basepath of the controller.
+/// - `version=<u16>` use for api version, the version will be added before the name as the controller basepath
+/// - `prefix="<prefix>"` add a prefix before the basepath and the version.
+///
+/// ##Example
+///
+/// ```ignore
+/// use saphir::prelude::*;
+/// use saphir_macro::controller;
+///
+/// struct ExampleController;
+///
+/// #[controller(name="test", version=1, prefix="api")]
+/// impl ExampleController {
+///     // ....
+/// }
+/// ```
+///
+/// This will result in the Example controller being routed to `/api/v1/test`
+///
 #[proc_macro_attribute]
 pub fn controller(args: TokenStream1, input: TokenStream1) -> TokenStream1 {
     let args = parse_macro_input!(args as AttributeArgs);
     let input = parse_macro_input!(input as ItemImpl);
-    let controller_attr = ControllerAttr::new(args, &input);
-    let handlers = handler::parse_handlers(input);
 
-    let controller_implementation = controller::gen_controller_trait_implementation(&controller_attr, handlers.as_slice());
-    let struct_implementaion = gen_struct_implementation(controller_attr.ident.clone(), handlers);
-
-    let mod_ident = Ident::new(&format!("SAPHIR_GEN_CONTROLLER_{}", &controller_attr.name), Span::call_site());
-    let expanded = quote! {
-        mod #mod_ident {
-            use super::*;
-            use saphir::prelude::*;
-            #struct_implementaion
-
-            #controller_implementation
-        }
-    };
+    let expanded = expand_controller(args, input).unwrap_or_else(|e| e.to_compile_error());
 
     TokenStream1::from(expanded)
 }
 
-fn gen_struct_implementation(controller_ident: Ident, handlers: Vec<HandlerRepr>) -> TokenStream {
+fn expand_controller(args: AttributeArgs, input: ItemImpl) -> Result<TokenStream> {
+    let controller_attr = ControllerAttr::new(args, &input)?;
+    let handlers = handler::parse_handlers(input)?;
+
+    let controller_implementation = controller::gen_controller_trait_implementation(&controller_attr, handlers.as_slice());
+    let struct_implementaion = gen_struct_implementation(controller_attr.ident.clone(), handlers)?;
+
+    let mod_ident = Ident::new(&format!("SAPHIR_GEN_CONTROLLER_{}", &controller_attr.name), Span::call_site());
+    Ok(quote! {
+        mod #mod_ident {
+            use super::*;
+            use saphir::prelude::*;
+            use std::str::FromStr;
+            use std::collections::HashMap;
+            #struct_implementaion
+
+            #controller_implementation
+        }
+    })
+}
+
+fn gen_struct_implementation(controller_ident: Ident, handlers: Vec<HandlerRepr>) -> Result<TokenStream> {
     let mut handler_tokens = TokenStream::new();
     for handler in handlers {
         if handler.wrapper_options.needs_wrapper_fn() {
-            gen_wrapper_handler(&mut handler_tokens, handler);
+            gen_wrapper_handler(&mut handler_tokens, handler)?;
         } else {
             handler.original_method.to_tokens(&mut handler_tokens);
         }
@@ -96,10 +102,11 @@ fn gen_struct_implementation(controller_ident: Ident, handlers: Vec<HandlerRepr>
         }
     };
 
-    e
+    Ok(e)
 }
 
-fn gen_wrapper_handler(handler_tokens: &mut TokenStream, handler: HandlerRepr) {
+fn gen_wrapper_handler(handler_tokens: &mut TokenStream, handler: HandlerRepr) -> Result<()> {
+    let opts = &handler.wrapper_options;
     let m_ident = handler.original_method.sig.ident.clone();
     let return_type = handler.return_type;
     let mut o_method = handler.original_method;
@@ -113,21 +120,50 @@ fn gen_wrapper_handler(handler_tokens: &mut TokenStream, handler: HandlerRepr) {
     o_method.to_tokens(handler_tokens);
 
     let mut body_stream = TokenStream::new();
-    (quote! {let req = req}).to_tokens(&mut body_stream);
-    gen_body_mapping(&mut body_stream, &handler.wrapper_options);
-    gen_body_load(&mut body_stream, &handler.wrapper_options);
-    gen_map_after_load(&mut body_stream, &handler.wrapper_options);
+    (quote! {let mut req = req}).to_tokens(&mut body_stream);
+    gen_body_mapping(&mut body_stream, opts);
+    gen_body_load(&mut body_stream, opts);
+    gen_map_after_load(&mut body_stream, opts);
     (quote! {;}).to_tokens(&mut body_stream);
-    let inner_call = gen_call_to_inner(inner_method_ident, &handler.wrapper_options);
+    gen_cookie_load(&mut body_stream, opts);
+    gen_query_load(&mut body_stream, opts);
+    let mut call_params_ident = Vec::new();
+    for arg in &opts.fn_arguments {
+        arg.gen_parameter(&mut body_stream, &mut call_params_ident)?;
+    }
+    let inner_call = gen_call_to_inner(inner_method_ident, call_params_ident, opts);
 
     let t = quote! {
-        async fn #m_ident(&self, req: Request) -> Result<#return_type, SaphirError> {
+        #[allow(unused_mut)]
+        async fn #m_ident(&self, mut req: Request) -> Result<#return_type, SaphirError> {
             #body_stream
             Ok(#inner_call)
         }
     };
 
     t.to_tokens(handler_tokens);
+
+    Ok(())
+}
+
+fn gen_cookie_load(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
+    if opts.parse_cookies {
+        (quote! {
+
+            req.parse_cookies();
+        })
+        .to_tokens(stream);
+    }
+}
+
+fn gen_query_load(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
+    if opts.parse_query {
+        (quote! {
+
+        let mut query = req.uri().query().map(|query_str| serde_urlencoded::from_str::<HashMap<String, String>>(query_str)).transpose()?.unwrap_or_default();
+        })
+        .to_tokens(stream);
+    }
 }
 
 fn gen_body_load(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
@@ -156,12 +192,12 @@ fn gen_body_mapping(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
     }
 }
 
-fn gen_call_to_inner(inner_method_ident: Ident, opts: &HandlerWrapperOpt) -> TokenStream {
+fn gen_call_to_inner(inner_method_ident: Ident, idents: Vec<Ident>, opts: &HandlerWrapperOpt) -> TokenStream {
     let mut call = TokenStream::new();
 
     (quote! {self.#inner_method_ident}).to_tokens(&mut call);
 
-    gen_call_params(opts).to_tokens(&mut call);
+    gen_call_params(idents).to_tokens(&mut call);
 
     if !opts.sync_handler {
         (quote! {.await}).to_tokens(&mut call);
@@ -170,15 +206,200 @@ fn gen_call_to_inner(inner_method_ident: Ident, opts: &HandlerWrapperOpt) -> Tok
     call
 }
 
-fn gen_call_params(opts: &HandlerWrapperOpt) -> TokenStream {
+fn gen_call_params(idents: Vec<Ident>) -> TokenStream {
     let mut params = TokenStream::new();
     let paren = syn::token::Paren { span: Span::call_site() };
 
     paren.surround(&mut params, |params| {
-        if !opts.request_unused {
-            (quote! {req}).to_tokens(params)
+        let mut ident_iter = idents.into_iter();
+
+        if let Some(first_param) = ident_iter.next() {
+            (quote! {#first_param}).to_tokens(params);
+
+            for i in ident_iter {
+                (quote! {, #i}).to_tokens(params)
+            }
         }
     });
 
     params
+}
+
+impl ArgsRepr {
+    pub fn gen_parameter(&self, stream: &mut TokenStream, call_ident: &mut Vec<Ident>) -> Result<()> {
+        let mut self_flatten = self.clone();
+        let (parameter_repr_type, optional) = if let ArgsReprType::Option(a) = &self.a_type {
+            self_flatten.typ = self
+                .typ
+                .clone()
+                .and_then(|t| t.path.segments.into_iter().next())
+                .map(|first| first.arguments)
+                .and_then(|a| {
+                    if let PathArguments::AngleBracketed(p_a) = a {
+                        return p_a.args.first().and_then(|g_a| {
+                            if let GenericArgument::Type(Type::Path(type_path)) = g_a {
+                                return Some(type_path.clone());
+                            }
+
+                            None
+                        });
+                    }
+
+                    None
+                });
+            match a.as_ref() {
+                ArgsReprType::SelfType | ArgsReprType::Request | ArgsReprType::Cookie => {
+                    return Err(Error::new(
+                        self.typ.as_ref().map(|t| t.span()).unwrap_or_else(Span::call_site),
+                        "Optional parameters are only allowed for quey params, route params, or body param (Json or Form)",
+                    ));
+                }
+                ArgsReprType::Option(_) => {
+                    return Err(Error::new(
+                        self.typ.as_ref().map(|t| t.span()).unwrap_or_else(Span::call_site),
+                        "Option within option are not allowed as handler parameters",
+                    ));
+                }
+                a => (a.clone(), true),
+            }
+        } else {
+            (self.a_type.clone(), false)
+        };
+
+        self_flatten.a_type = parameter_repr_type;
+
+        match &self_flatten.a_type {
+            ArgsReprType::SelfType => {
+                return Ok(());
+            }
+            ArgsReprType::Request => {
+                call_ident.push(Ident::new("req", Span::call_site()));
+                return Ok(());
+            }
+            ArgsReprType::Json => self_flatten.gen_json_param(stream, optional),
+            ArgsReprType::Form => self_flatten.gen_form_param(stream, optional),
+            ArgsReprType::Cookie => self_flatten.gen_cookie_param(stream),
+            ArgsReprType::Params { is_query_param, .. } => {
+                if *is_query_param {
+                    self_flatten.gen_query_param(stream, optional);
+                } else {
+                    self_flatten.gen_path_param(stream, optional);
+                }
+            }
+            _ => { /* Nothing to do */ }
+        }
+
+        call_ident.push(Ident::new(self.name.as_str(), Span::call_site()));
+        Ok(())
+    }
+
+    fn gen_form_param(&self, stream: &mut TokenStream, optional: bool) {
+        let id = Ident::new(self.name.as_str(), Span::call_site());
+        let typ_raw = self.typ.as_ref().expect("This should not happens");
+
+        let typ = self
+            .typ
+            .clone()
+            .and_then(|t| t.path.segments.into_iter().next())
+            .map(|first| first.arguments)
+            .and_then(|a| {
+                if let PathArguments::AngleBracketed(p_a) = a {
+                    return p_a.args.first().and_then(|g_a| {
+                        if let GenericArgument::Type(Type::Path(type_path)) = g_a {
+                            return Some(type_path.clone());
+                        }
+
+                        None
+                    });
+                }
+
+                None
+            })
+            .expect("This should not happens");
+
+        (quote! {
+
+            let #id = if let Some(form) = req.uri().query().map(|query_str| serde_urlencoded::from_str::<#typ>(query_str).map_err(SaphirError::SerdeUrlDe)) {
+                Some(form.map(|x| Form(x)))
+            } else {
+                Some(req.body_mut().take_as::<#typ_raw>().await.map(|x| Form(x)))
+            }.transpose()
+        })
+        .to_tokens(stream);
+
+        if optional {
+            (quote! {.ok().flatten()}).to_tokens(stream);
+        } else {
+            (quote! {?.ok_or_else(|| SaphirError::MissingParameter("form body".to_string(), false))?}).to_tokens(stream);
+        }
+
+        (quote! {;}).to_tokens(stream);
+    }
+
+    fn gen_json_param(&self, stream: &mut TokenStream, optional: bool) {
+        let id = Ident::new(self.name.as_str(), Span::call_site());
+        let typ = self.typ.as_ref().expect("This should not happens");
+
+        (quote! {
+
+            let #id = req.body_mut().take_as::<#typ>().await.map(|x| Json(x))
+        })
+        .to_tokens(stream);
+
+        if optional {
+            (quote! {.ok()}).to_tokens(stream);
+        } else {
+            (quote! {?}).to_tokens(stream);
+        }
+
+        (quote! {;}).to_tokens(stream);
+    }
+
+    fn gen_cookie_param(&self, stream: &mut TokenStream) {
+        let id = Ident::new(self.name.as_str(), Span::call_site());
+        (quote! {
+
+            let #id = req.take_cookies();
+        })
+        .to_tokens(stream);
+    }
+
+    fn gen_path_param(&self, stream: &mut TokenStream, optional: bool) {
+        let name = self.name.as_str();
+        let id = Ident::new(self.name.as_str(), Span::call_site());
+        (quote! {
+
+            let #id = req.captures_mut().remove(#name)
+        })
+        .to_tokens(stream);
+
+        self.gen_param_str_parsing(stream, name, optional);
+
+        (quote! {;}).to_tokens(stream);
+    }
+
+    fn gen_query_param(&self, stream: &mut TokenStream, optional: bool) {
+        let name = self.name.as_str();
+        let id = Ident::new(self.name.as_str(), Span::call_site());
+        (quote! {
+
+            let #id = query.remove(#name)
+        })
+        .to_tokens(stream);
+
+        self.gen_param_str_parsing(stream, name, optional);
+
+        (quote! {;}).to_tokens(stream);
+    }
+
+    fn gen_param_str_parsing(&self, stream: &mut TokenStream, name: &str, optional: bool) {
+        if !self.is_string() && self.typ.is_some() {
+            let typ = self.typ.as_ref().unwrap();
+            (quote! {.map(|p| p.parse::<#typ>()).transpose().map_err(|_| SaphirError::InvalidParameter(#name.to_string(), false))?}).to_tokens(stream);
+        }
+
+        if !optional {
+            (quote! {.ok_or_else(|| SaphirError::MissingParameter(#name.to_string(), false))?}).to_tokens(stream);
+        }
+    }
 }

@@ -1,5 +1,4 @@
 use saphir::prelude::*;
-use saphir_macro::controller;
 use serde_derive::{Deserialize, Serialize};
 
 fn guard_string(_controller: &UserController) -> String {
@@ -20,13 +19,25 @@ struct User {
 
 struct UserController {}
 
-#[controller(name = "/users", version = 1, prefix = "api")]
+#[controller(name = "users", version = 1, prefix = "api")]
 impl UserController {
     #[get("/<user_id>")]
-    async fn get_user(&self, _req: Request) -> (u16, String) {
-        (200, "Yo".to_string())
+    async fn get_user(&self, user_id: String, action: Option<u16>) -> (u16, String) {
+        (200, format!("user_id: {}, action: {:?}", user_id, action))
     }
 
+    #[post("/json")]
+    async fn post_user_json(&self, user: Json<User>) -> (u16, Json<User>) {
+        (200, user)
+    }
+
+    #[get("/form")]
+    #[post("/form")]
+    async fn user_form(&self, user: Form<User>) -> (u16, Form<User>) {
+        (200, user)
+    }
+
+    #[cookies]
     #[post("/sync")]
     fn get_user_sync(&self, mut req: Request<Json<User>>) -> (u16, Json<User>) {
         let u = req.body_mut();
@@ -34,8 +45,8 @@ impl UserController {
         (200, Json(u.clone()))
     }
 
-    #[guard(fn = "print_string_guard", data = "guard_string")]
     #[get("/")]
+    #[guard(fn = "print_string_guard", data = "guard_string")]
     async fn list_user(&self, _req: Request<Body<Vec<u8>>>) -> (u16, String) {
         (200, "Yo".to_string())
     }

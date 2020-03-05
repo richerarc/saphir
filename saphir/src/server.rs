@@ -620,7 +620,7 @@ mod ssl_loading_utils {
 }
 
 /// Inject a http request into saphir
-pub async fn inject_request(req: RawRequest<RawBody>) -> Result<RawResponse<RawBody>, SaphirError> {
+pub async fn inject_raw(req: RawRequest<RawBody>) -> Result<RawResponse<RawBody>, SaphirError> {
     if INIT_STACK.state() != OnceState::Done {
         return Err(SaphirError::Other("Stack is not initialized".to_owned()));
     }

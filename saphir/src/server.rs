@@ -14,6 +14,7 @@ use futures::{
     stream::StreamExt,
     task::{Context, Poll},
 };
+use hyper::body::Body as RawBody;
 use hyper::{server::conn::Http, service::Service};
 use parking_lot::{Once, OnceState};
 use tokio::net::TcpListener;
@@ -28,6 +29,8 @@ use crate::{
     router::{Builder as RouterBuilder, Router, RouterChain, RouterChainEnd},
 };
 use http::HeaderValue;
+use http::Request as RawRequest;
+use http::Response as RawResponse;
 
 /// Default time for request handling is 30 seconds
 pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
@@ -614,4 +617,19 @@ mod ssl_loading_utils {
 
         Ok(ders)
     }
+}
+
+/// Inject a http request into saphir
+pub async fn inject_request(req: RawRequest<RawBody>) -> Result<RawResponse<RawBody>, SaphirError> {
+    if INIT_STACK.state() != OnceState::Done {
+        return Err(SaphirError::Other("Stack is not initialized".to_owned()));
+    }
+
+    // # SAFETY #
+    // We checked that memory has been initialized above
+    let stack = unsafe { STACK.as_ptr().as_ref().expect("Memory has been initialized above.") };
+
+    let saphir_req = Request::new(req.map(|body| Body::from_raw(body)), None);
+    let saphir_res = stack.invoke(saphir_req).await?;
+    Ok(saphir_res.into_raw().map(|r| r.map(|b| b.into_raw()))?)
 }

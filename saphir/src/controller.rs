@@ -8,7 +8,8 @@
 //! response/struct.Response.html) being generated
 //!
 //! To create a controller, simply implement the
-//! [Controller](trait.Controller.html) trait on a struct: ```rust
+//! [Controller](trait.Controller.html) trait on a struct:
+//! ```rust
 //! use saphir::prelude::*;
 //!
 //! struct BasicController;

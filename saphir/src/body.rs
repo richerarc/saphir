@@ -53,7 +53,8 @@ where
         self.inner.unwrap_or_else(RawBody::empty)
     }
 
-    /// Performing `take` will give your a owned version of the body, leaving a empty one behind
+    /// Performing `take` will give your a owned version of the body, leaving a
+    /// empty one behind
     #[inline]
     pub fn take(&mut self) -> Self {
         Body {
@@ -62,7 +63,8 @@ where
         }
     }
 
-    /// Performing `take_as` will give your a owned version of the body as U, leaving a empty one behind
+    /// Performing `take_as` will give your a owned version of the body as U,
+    /// leaving a empty one behind
     #[inline]
     pub fn take_as<U: FromBytes>(&mut self) -> Body<U> {
         Body {

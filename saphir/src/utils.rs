@@ -9,9 +9,11 @@ use std::{
 };
 
 // TODO: Add possibility to match any route like /page/<path..>/view
-// this will match any route that begins with /page and ends with /view, the in between path will be saved in the capture
+// this will match any route that begins with /page and ends with /view, the in
+// between path will be saved in the capture
 
-// TODO: Add prefix and suffix literal to match if some path segment start or end with something
+// TODO: Add prefix and suffix literal to match if some path segment start or
+// end with something
 
 static ENDPOINT_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -278,8 +280,8 @@ pub(crate) enum UriPathSegmentMatcher {
 }
 
 impl UriPathSegmentMatcher {
-    const SEGMENT_VARIABLE_OPENING_CHARS: &'static [char] = &['{', '<'];
     const SEGMENT_VARIABLE_CLOSING_CHARS: &'static [char] = &['}', '>'];
+    const SEGMENT_VARIABLE_OPENING_CHARS: &'static [char] = &['{', '<'];
 
     ///
     pub fn new(segment: &str) -> Result<UriPathSegmentMatcher, String> {

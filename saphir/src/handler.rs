@@ -8,8 +8,9 @@ use std::pin::Pin;
 
 /// Define a Handler of a potential http request
 ///
-/// Implementing this trait on any type will allow the router to route request towards it.
-/// Implemented by default on Controllers and on any `async fn(Request<Body>) -> impl Responder`
+/// Implementing this trait on any type will allow the router to route request
+/// towards it. Implemented by default on Controllers and on any `async
+/// fn(Request<Body>) -> impl Responder`
 pub trait Handler<T> {
     /// Responder returned by the handler
     type Responder: Responder;
@@ -26,8 +27,8 @@ where
     Fut: 'static + Future<Output = R> + Send,
     R: Responder,
 {
-    type Responder = R;
     type Future = Box<dyn Future<Output = Self::Responder> + Unpin + Send>;
+    type Responder = R;
 
     #[inline]
     fn handle(&self, req: Request<T>) -> Self::Future {

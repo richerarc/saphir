@@ -1,11 +1,13 @@
 //! # Saphir is a fully async-await http server framework for rust
-//! The goal is to give low-level control to your web stack (as hyper does) without the time consuming task of doing everything from scratch.
+//! The goal is to give low-level control to your web stack (as hyper does)
+//! without the time consuming task of doing everything from scratch.
 //!
 //! Just `use` the prelude module, and you're ready to go!
 //!
 //! # Quick Overview
 //!
-//!  Saphir provide multiple functionality through features. To try it out without fuss, we suggest that use all the features:
+//!  Saphir provide multiple functionality through features. To try it out
+//! without fuss, we suggest that use all the features:
 //!
 //! ```toml
 //! saphir = { version = "2.0.0", features = ["full"] }
@@ -46,18 +48,22 @@
 //!
 //!     // Start server with
 //!     // server.run().await
-//!#    Ok(())
+//! #    Ok(())
 //! }
 //! ```
 //! # Saphir's Features
 //!
-//! Even though we strongly recommend that you use at least the `macro` feature, Saphir will work without any of the following
-//! feature, Saphir's features don't rely on each other to work.
+//! Even though we strongly recommend that you use at least the `macro` feature,
+//! Saphir will work without any of the following feature, Saphir's features
+//! don't rely on each other to work.
 //!
-//! - `macro` : Enable the `#[controller]` macro attribute for code generation, Recommended and active by default
-//! - `https` : Provide everything to allow Saphir server to listen an accept HTTPS traffic
+//! - `macro` : Enable the `#[controller]` macro attribute for code generation,
+//!   Recommended and active by default
+//! - `https` : Provide everything to allow Saphir server to listen an accept
+//!   HTTPS traffic
 //! - `json`  : Add the `Json` wrapper type to simplify working with json data
-//! - `form`  : Add the `Form` wrapper type to simplify working with urlencoded data
+//! - `form`  : Add the `Form` wrapper type to simplify working with urlencoded
+//!   data
 //!
 //! *_More feature will be added in the future_*
 

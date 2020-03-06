@@ -60,7 +60,7 @@ pub trait Responder {
     /// Consume self into a builder
     ///
     /// ```rust
-    ///# use saphir::prelude::*;
+    /// # use saphir::prelude::*;
     /// struct CustomResponder(String);
     ///
     /// impl Responder for CustomResponder {

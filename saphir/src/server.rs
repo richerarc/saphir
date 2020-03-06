@@ -1,11 +1,11 @@
-//! Server is the centerpiece on saphir, it contains everything to handle request and dispatch
-//! it the proper router
+//! Server is the centerpiece on saphir, it contains everything to handle
+//! request and dispatch it the proper router
 //!
 //! *SAFETY NOTICE*
 //!
-//! To allow controller and middleware to respond future with static lifetime, the server stack is
-//! put inside a static variable. This is needed for safety, but also means that only one saphir
-//! server can run at a time
+//! To allow controller and middleware to respond future with static lifetime,
+//! the server stack is put inside a static variable. This is needed for safety,
+//! but also means that only one saphir server can run at a time
 
 use std::{future::Future, mem::MaybeUninit, net::SocketAddr};
 
@@ -14,8 +14,7 @@ use futures::{
     stream::StreamExt,
     task::{Context, Poll},
 };
-use hyper::body::Body as RawBody;
-use hyper::{server::conn::Http, service::Service};
+use hyper::{body::Body as RawBody, server::conn::Http, service::Service};
 use parking_lot::{Once, OnceState};
 use tokio::net::TcpListener;
 
@@ -28,9 +27,7 @@ use crate::{
     response::Response,
     router::{Builder as RouterBuilder, Router, RouterChain, RouterChainEnd},
 };
-use http::HeaderValue;
-use http::Request as RawRequest;
-use http::Response as RawResponse;
+use http::{HeaderValue, Request as RawRequest, Response as RawResponse};
 
 /// Default time for request handling is 30 seconds
 pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
@@ -110,8 +107,8 @@ impl ListenerBuilder {
 
     /// Using Feature `https`
     ///
-    /// Set the listener ssl certificates files. The cert needs to be PEM encoded
-    /// while the key can be either RSA or PKCS8
+    /// Set the listener ssl certificates files. The cert needs to be PEM
+    /// encoded while the key can be either RSA or PKCS8
     #[inline]
     #[cfg(feature = "https")]
     pub fn set_ssl_certificates(self, cert_path: &str, key_path: &str) -> Self {
@@ -121,8 +118,8 @@ impl ListenerBuilder {
     /// Using Feature `https`
     ///
     /// Set the listener ssl config. The cert needs to be PEM encoded
-    /// while the key can be either RSA or PKCS8. The file path can be used or the
-    /// file content directly where all \n and space have been removed.
+    /// while the key can be either RSA or PKCS8. The file path can be used or
+    /// the file content directly where all \n and space have been removed.
     #[inline]
     #[cfg(feature = "https")]
     pub fn set_ssl_config(mut self, cert_config: SslConfig, key_config: SslConfig) -> Self {
@@ -278,8 +275,8 @@ impl Server {
         }
     }
 
-    /// Return a future with will run the server. Simply run this future inside the tokio executor
-    /// or await it in a async context
+    /// Return a future with will run the server. Simply run this future inside
+    /// the tokio executor or await it in a async context
     pub async fn run(self) -> Result<(), SaphirError> {
         let Server { listener_config, stack } = self;
         let server_value = HeaderValue::from_str(&listener_config.server_name)?;
@@ -418,9 +415,9 @@ pub struct StackHandler {
 }
 
 impl Service<hyper::Request<hyper::Body>> for StackHandler {
-    type Response = hyper::Response<hyper::Body>;
     type Error = SaphirError;
     type Future = Box<dyn Future<Output = Result<hyper::Response<hyper::Body>, Self::Error>> + Send + Unpin>;
+    type Response = hyper::Response<hyper::Body>;
 
     fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))

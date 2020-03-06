@@ -37,7 +37,8 @@ impl<T> Request<T> {
         }
     }
 
-    /// Return the Peer SocketAddr if one was available when receiving the request
+    /// Return the Peer SocketAddr if one was available when receiving the
+    /// request
     #[inline]
     pub fn peer_addr(&self) -> Option<&SocketAddr> {
         self.peer_addr.as_ref()
@@ -51,13 +52,13 @@ impl<T> Request<T> {
 
     /// Get the cookies sent by the browsers.
     ///
-    /// Before accessing cookies, you will need to parse them, it is done with the
-    /// [`parse_cookies`](#method.parse_cookies) method
+    /// Before accessing cookies, you will need to parse them, it is done with
+    /// the [`parse_cookies`](#method.parse_cookies) method
     ///
     /// ```rust
-    ///# use saphir::prelude::*;
-    ///# use hyper::Request as RawRequest;
-    ///# let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(()).unwrap(), None);
+    /// # use saphir::prelude::*;
+    /// # use hyper::Request as RawRequest;
+    /// # let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(()).unwrap(), None);
     /// // Parse cookies
     /// req.parse_cookies();
     /// // then use cookies
@@ -70,13 +71,13 @@ impl<T> Request<T> {
 
     /// Get the cookies sent by the browsers in a mutable way
     ///
-    /// Before accessing cookies, you will need to parse them, it is done with the
-    /// [`parse_cookies`](#method.parse_cookies) method
+    /// Before accessing cookies, you will need to parse them, it is done with
+    /// the [`parse_cookies`](#method.parse_cookies) method
     ///
     /// ```rust
-    ///# use saphir::prelude::*;
-    ///# use hyper::Request as RawRequest;
-    ///# let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(()).unwrap(), None);
+    /// # use saphir::prelude::*;
+    /// # use hyper::Request as RawRequest;
+    /// # let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(()).unwrap(), None);
     /// // Parse cookies
     /// req.parse_cookies();
     /// // then use cookies
@@ -93,13 +94,14 @@ impl<T> Request<T> {
         std::mem::take(&mut self.cookies)
     }
 
-    /// Access the captured variables from the request path. E.g. a path composed as
-    /// `/user/{user_id}/profile` will store a capture named `"user_id"`.
+    /// Access the captured variables from the request path. E.g. a path
+    /// composed as `/user/{user_id}/profile` will store a capture named
+    /// `"user_id"`.
     ///
     /// ```rust
-    ///# use saphir::prelude::*;
-    ///# use hyper::Request as RawRequest;
-    ///# let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(()).unwrap(), None);
+    /// # use saphir::prelude::*;
+    /// # use hyper::Request as RawRequest;
+    /// # let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(()).unwrap(), None);
     /// let user_id = req.captures().get("user_id");
     /// // retrieve user by id
     /// ```
@@ -117,9 +119,9 @@ impl<T> Request<T> {
     /// Convert a request of T in a request of U
     ///
     /// ```rust
-    ///# use saphir::prelude::*;
-    ///# use hyper::Request as RawRequest;
-    ///# let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(()).unwrap(), None);
+    /// # use saphir::prelude::*;
+    /// # use hyper::Request as RawRequest;
+    /// # let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(()).unwrap(), None);
     /// // req is Request<Body>
     /// let req: Request<String> = req.map(|_ignored_body| "New body".to_string());
     /// ```
@@ -145,9 +147,9 @@ impl<T> Request<T> {
     /// Convert a request of T in a request of U through a future
     ///
     /// ```rust
-    ///# use saphir::prelude::*;
-    ///# use hyper::Request as RawRequest;
-    ///# let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(Body::empty()).unwrap(), None);
+    /// # use saphir::prelude::*;
+    /// # use hyper::Request as RawRequest;
+    /// # let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(Body::empty()).unwrap(), None);
     /// // req is Request<Body>
     /// let req = req.async_map(|b| async {hyper::body::to_bytes(b).await});
     /// ```
@@ -195,14 +197,14 @@ impl<T: FromBytes + Unpin + 'static> Request<Body<T>> {
     /// Convert a request of T in a request of U through a future
     ///
     /// ```rust
-    ///# use saphir::prelude::*;
-    ///# use hyper::Request as RawRequest;
-    ///# async {
-    ///# let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(Body::empty()).unwrap(), None);
+    /// # use saphir::prelude::*;
+    /// # use hyper::Request as RawRequest;
+    /// # async {
+    /// # let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(Body::empty()).unwrap(), None);
     /// // req is Request<Body<Bytes>>
     /// let req = req.load_body().await.unwrap();
     /// // req is now Request<Bytes>
-    ///# };
+    /// # };
     /// ```
     #[inline]
     pub async fn load_body(self) -> Result<Request<T::Out>, SaphirError> {
@@ -231,10 +233,10 @@ impl<T, E> Request<Result<T, E>> {
     /// Convert a request of Result<T, E> in a Result<Request<T>, E>
     ///
     /// ```rust
-    ///# use saphir::prelude::*;
-    ///# use hyper::Request as RawRequest;
-    ///# let r: Result<String, String> = Ok("Body".to_string());
-    ///# let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(r).unwrap(), None);
+    /// # use saphir::prelude::*;
+    /// # use hyper::Request as RawRequest;
+    /// # let r: Result<String, String> = Ok("Body".to_string());
+    /// # let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(r).unwrap(), None);
     /// // req is Request<Result<String, String>>
     /// let res = req.transpose();
     /// assert!(res.is_ok());
@@ -261,9 +263,9 @@ impl<T> Request<Option<T>> {
     /// Convert a request of Option<T> in a Option<Request<T>, E>
     ///
     /// ```rust
-    ///# use saphir::prelude::*;
-    ///# use hyper::Request as RawRequest;
-    ///# let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(Some("Body".to_string())).unwrap(), None);
+    /// # use saphir::prelude::*;
+    /// # use hyper::Request as RawRequest;
+    /// # let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(Some("Body".to_string())).unwrap(), None);
     /// // req is Request<Option<String>>
     /// let opt = req.transpose();
     /// assert!(opt.is_some());

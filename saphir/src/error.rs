@@ -7,7 +7,8 @@ use std::{
     io::Error as IoError,
 };
 
-/// Type representing an internal error inerrant to the underlining logic behind saphir
+/// Type representing an internal error inerrant to the underlining logic behind
+/// saphir
 #[derive(Debug)]
 pub enum InternalError {
     Http(HttpCrateError),

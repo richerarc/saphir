@@ -1,5 +1,6 @@
 //! A guard is called before the request is processed by the router and
-//! can modify the request data or stops request processing by returning a response immediately.
+//! can modify the request data or stops request processing by returning a
+//! response immediately.
 
 use crate::{
     body::Body,
@@ -9,7 +10,8 @@ use crate::{
 use futures::{future::BoxFuture, FutureExt};
 use futures_util::future::Future;
 
-/// Auto trait implementation over every function that match the definition of a guard.
+/// Auto trait implementation over every function that match the definition of a
+/// guard.
 pub trait GuardHandler<Data> {
     type Responder: Responder + Send;
     type Future: Future<Output = Result<Request<Body>, Self::Responder>> + Send;
@@ -24,8 +26,8 @@ where
     Fun: Fn(&'static Data, Request<Body>) -> Fut,
     Fut: 'static + Future<Output = Result<Request<Body>, Resp>> + Send,
 {
-    type Responder = Resp;
     type Future = BoxFuture<'static, Result<Request<Body>, Self::Responder>>;
+    type Responder = Resp;
 
     #[inline]
     fn validate(&self, data: &'static Data, req: Request<Body>) -> Self::Future {

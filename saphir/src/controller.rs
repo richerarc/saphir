@@ -1,12 +1,14 @@
-//! Controllers are responsible for handling requests and returning responses to the client.
+//! Controllers are responsible for handling requests and returning responses to
+//! the client.
 //!
-//! More specifically a Controller defines a list of endpoint (Handlers) that handle a request and
-//! return a Future of a [`Responder`](../responder/trait.Responder.html).
-//! The [`Responder`](../responder/trait.Responder.html) is responsible for the
-//! [`Response`](../response/struct.Response.html) being generated
+//! More specifically a Controller defines a list of endpoint (Handlers) that
+//! handle a request and return a Future of a
+//! [`Responder`](../responder/trait.Responder.html). The [`Responder`](../
+//! responder/trait.Responder.html) is responsible for the [`Response`](../
+//! response/struct.Response.html) being generated
 //!
-//! To create a controller, simply implement the [Controller](trait.Controller.html) trait on a struct:
-//! ```rust
+//! To create a controller, simply implement the
+//! [Controller](trait.Controller.html) trait on a struct: ```rust
 //! use saphir::prelude::*;
 //!
 //! struct BasicController;
@@ -43,27 +45,31 @@ pub type ControllerEndpoint<C> = (Method, &'static str, Box<dyn DynControllerHan
 
 /// Trait that defines how a controller handles its requests
 pub trait Controller {
-    /// Defines the base path from which requests are to be handled by this controller
+    /// Defines the base path from which requests are to be handled by this
+    /// controller
     const BASE_PATH: &'static str;
 
     /// Returns a list of [`ControllerEndpoint`](type.ControllerEndpoint.html)
     ///
-    /// Each [`ControllerEndpoint`](type.ControllerEndpoint.html) is then added to the router, which
-    /// will dispatch requests accordingly
+    /// Each [`ControllerEndpoint`](type.ControllerEndpoint.html) is then added
+    /// to the router, which will dispatch requests accordingly
     fn handlers(&self) -> Vec<ControllerEndpoint<Self>>
     where
         Self: Sized;
 }
 
 /// Trait that defines a handler within a controller.
-/// This trait is not meant to be implemented manually as there is a blanket implementation for Async Fns
+/// This trait is not meant to be implemented manually as there is a blanket
+/// implementation for Async Fns
 pub trait ControllerHandler<C, B> {
-    /// An instance of a [`Responder`](../responder/trait.Responder.html) being returned by the handler
+    /// An instance of a [`Responder`](../responder/trait.Responder.html) being
+    /// returned by the handler
     type Responder: Responder;
     ///
     type Future: Future<Output = Self::Responder>;
 
-    /// Handle the request dispatched from the [`Router`](../router/struct.Router.html)
+    /// Handle the request dispatched from the
+    /// [`Router`](../router/struct.Router.html)
     fn handle(&self, controller: &'static C, req: Request<B>) -> Self::Future;
 }
 
@@ -73,7 +79,8 @@ pub trait DynControllerHandler<C, B> {
     fn dyn_handle(&self, controller: &'static C, req: Request<B>) -> BoxFuture<'static, Box<dyn DynResponder + Send>>;
 }
 
-/// Builder to simplify returning a list of endpoint in the `handlers` method of the controller trait
+/// Builder to simplify returning a list of endpoint in the `handlers` method of
+/// the controller trait
 #[derive(Default)]
 pub struct EndpointsBuilder<C: Controller> {
     handlers: Vec<ControllerEndpoint<C>>,
@@ -89,22 +96,22 @@ impl<C: Controller> EndpointsBuilder<C> {
     /// Add a endpoint the the builder
     ///
     /// ```rust
-    ///# use saphir::prelude::*;
+    /// # use saphir::prelude::*;
     ///
-    ///# struct BasicController;
+    /// # struct BasicController;
     ///
-    ///# impl Controller for BasicController {
-    ///#     const BASE_PATH: &'static str = "/basic";
-    ///#
-    ///#     fn handlers(&self) -> Vec<ControllerEndpoint<Self>>
-    ///#     where
-    ///#         Self: Sized {
-    ///#         EndpointsBuilder::new()
-    ///#             .add(Method::GET, "/healthz", BasicController::healthz)
-    ///#             .build()
-    ///#     }
-    ///# }
-    ///#
+    /// # impl Controller for BasicController {
+    /// #     const BASE_PATH: &'static str = "/basic";
+    /// #
+    /// #     fn handlers(&self) -> Vec<ControllerEndpoint<Self>>
+    /// #     where
+    /// #         Self: Sized {
+    /// #         EndpointsBuilder::new()
+    /// #             .add(Method::GET, "/healthz", BasicController::healthz)
+    /// #             .build()
+    /// #     }
+    /// # }
+    /// #
     /// impl BasicController {
     ///     async fn healthz(&self, req: Request<Body>) -> impl Responder {200}
     /// }
@@ -146,8 +153,8 @@ where
     Fut: 'static + Future<Output = R> + Send,
     R: Responder,
 {
-    type Responder = R;
     type Future = Box<dyn Future<Output = Self::Responder> + Unpin + Send>;
+    type Responder = R;
 
     #[inline]
     fn handle(&self, controller: &'static C, req: Request<B>) -> Self::Future {

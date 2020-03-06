@@ -41,9 +41,9 @@ impl<T> Response<T> {
     /// Convert a response of T in a response of U
     ///
     /// ```rust
-    ///# use saphir::prelude::*;
-    ///# use hyper::Response as RawResponse;
-    ///# let mut res = Response::new(());
+    /// # use saphir::prelude::*;
+    /// # use hyper::Response as RawResponse;
+    /// # let mut res = Response::new(());
     ///
     /// // res is Response<()>
     /// let res: Response<String> = res.map(|_ignored_body| "New body".to_string());

@@ -1,5 +1,6 @@
-use saphir::prelude::*;
 use serde_derive::{Deserialize, Serialize};
+
+use saphir::prelude::*;
 
 fn guard_string(_controller: &UserController) -> String {
     UserController::BASE_PATH.to_string()
@@ -49,6 +50,19 @@ impl UserController {
     #[guard(fn = "print_string_guard", data = "guard_string")]
     async fn list_user(&self, _req: Request<Body<Vec<u8>>>) -> (u16, String) {
         (200, "Yo".to_string())
+    }
+
+    #[post("/multi")]
+    async fn multipart(&self, mul: Multipart) -> (u16, String) {
+        let mut multipart_image_count = 0;
+        while let Ok(Some(mut f)) = mul.next_field().await {
+            if f.content_type() == &mime::IMAGE_PNG {
+                let _ = f.save(format!("/tmp/{}.png", f.name())).await;
+                multipart_image_count += 1;
+            }
+        }
+
+        (200, format!("Multipart form data image saved on disk: {}", multipart_image_count))
     }
 }
 

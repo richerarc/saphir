@@ -124,6 +124,7 @@ fn gen_wrapper_handler(handler_tokens: &mut TokenStream, handler: HandlerRepr) -
     o_method.to_tokens(handler_tokens);
 
     let mut body_stream = TokenStream::new();
+    init_multipart(&mut body_stream, opts);
     (quote! {let mut req = req}).to_tokens(&mut body_stream);
     gen_body_mapping(&mut body_stream, opts);
     gen_body_load(&mut body_stream, opts);
@@ -148,6 +149,15 @@ fn gen_wrapper_handler(handler_tokens: &mut TokenStream, handler: HandlerRepr) -
     t.to_tokens(handler_tokens);
 
     Ok(())
+}
+
+fn init_multipart(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
+    if opts.init_multipart {
+        (quote! {let multipart = Multipart::from_request(&mut req)?;
+
+        })
+        .to_tokens(stream);
+    }
 }
 
 fn gen_cookie_load(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
@@ -191,7 +201,9 @@ fn gen_map_after_load(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
 }
 
 fn gen_body_mapping(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
-    if let Some(ty) = &opts.take_body_as {
+    if opts.map_multipart {
+        (quote! {.map(|_| multipart)}).to_tokens(stream);
+    } else if let Some(ty) = &opts.take_body_as {
         (quote! {.map(|mut b| b.take_as::<#ty>())}).to_tokens(stream);
     }
 }
@@ -290,11 +302,21 @@ impl ArgsRepr {
                     self_flatten.gen_path_param(stream, optional);
                 }
             }
+            ArgsReprType::Multipart => self_flatten.gen_multipart_param(stream),
             _ => { /* Nothing to do */ }
         }
 
         call_ident.push(Ident::new(self.name.as_str(), Span::call_site()));
         Ok(())
+    }
+
+    fn gen_multipart_param(&self, stream: &mut TokenStream) {
+        let id = Ident::new(self.name.as_str(), Span::call_site());
+        (quote! {
+
+            let #id = multipart;
+        })
+        .to_tokens(stream);
     }
 
     fn gen_form_param(&self, stream: &mut TokenStream, optional: bool) {

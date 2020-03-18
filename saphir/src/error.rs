@@ -102,6 +102,7 @@ impl From<ToStrError> for SaphirError {
     }
 }
 
+#[cfg(feature = "multipart")]
 impl From<crate::multipart::MultipartError> for SaphirError {
     fn from(e: crate::multipart::MultipartError) -> Self {
         SaphirError::Multipart(e)

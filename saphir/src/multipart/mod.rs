@@ -64,7 +64,7 @@ impl Drop for FieldStream {
 pub(crate) struct ParseStream {
     pub buf: Vec<u8>,
     pub exhausted: bool,
-    pub stream: Box<dyn Stream<Item = Result<Bytes, MultipartError>> + Unpin + Send>,
+    pub stream: Box<dyn Stream<Item = Result<Bytes, MultipartError>> + Unpin + Send + Sync>,
 }
 
 #[derive(Clone)]
@@ -75,7 +75,7 @@ struct DataStream {
 impl DataStream {
     pub fn new<S>(s: S) -> Self
     where
-        S: Stream<Item = Result<Bytes, MultipartError>> + Send + Unpin + 'static,
+        S: Stream<Item = Result<Bytes, MultipartError>> + Send + Sync + Unpin + 'static,
     {
         DataStream {
             inner: Arc::new(Mutex::new(Some(ParseStream {
@@ -226,7 +226,7 @@ impl Debug for Field {
     }
 }
 
-type NextFieldFuture = Pin<Box<dyn Future<Output = Result<Option<Field>, MultipartError>>>>;
+type NextFieldFuture = Pin<Box<dyn Future<Output = Result<Option<Field>, MultipartError>> + Send + Sync>>;
 
 /// Struct used to parse a multipart body into fields
 pub struct Multipart {
@@ -258,7 +258,7 @@ impl Multipart {
     /// Initialize the Multipart from raw parts
     pub fn from_part<S>(boundary: String, stream: S) -> Self
     where
-        S: Stream<Item = Result<Bytes, MultipartError>> + Send + Unpin + 'static,
+        S: Stream<Item = Result<Bytes, MultipartError>> + Send + Sync + Unpin + 'static,
     {
         Multipart {
             boundary,
@@ -272,7 +272,11 @@ impl Multipart {
     /// parsed
     pub async fn next_field(&self) -> Result<Option<Field>, MultipartError> {
         if let Some(s) = self.inner.take() {
-            Self::next_field_owned(s, self.boundary.clone()).await
+            match parser::parse_field(s, self.boundary.as_str()).await {
+                Ok(f) => Ok(Some(f)),
+                Err(MultipartError::Finished) => Ok(None),
+                Err(e) => Err(e),
+            }
         } else {
             Err(MultipartError::NotConsumed)
         }

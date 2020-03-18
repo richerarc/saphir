@@ -53,11 +53,11 @@ impl UserController {
     }
 
     #[post("/multi")]
-    async fn multipart(&self, mut mul: Multipart) -> (u16, String) {
+    async fn multipart(&self, mul: Multipart) -> (u16, String) {
         let mut multipart_image_count = 0;
         while let Ok(Some(mut f)) = mul.next_field().await {
             if f.content_type() == &mime::IMAGE_PNG {
-                f.save(format!("/tmp/{}.png", f.name())).await;
+                let _ = f.save(format!("/tmp/{}.png", f.name())).await;
                 multipart_image_count += 1;
             }
         }

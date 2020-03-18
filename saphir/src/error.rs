@@ -1,5 +1,8 @@
 use crate::{responder::Responder, response::Builder};
-use http::{header::InvalidHeaderValue, Error as HttpCrateError};
+use http::{
+    header::{InvalidHeaderValue, ToStrError},
+    Error as HttpCrateError,
+};
 use hyper::error::Error as HyperError;
 use std::{
     error::Error as StdError,
@@ -13,6 +16,7 @@ use std::{
 pub enum InternalError {
     Http(HttpCrateError),
     Hyper(HyperError),
+    ToStr(ToStrError),
     Stack,
 }
 
@@ -42,6 +46,9 @@ pub enum SaphirError {
     MissingParameter(String, bool),
     ///
     InvalidParameter(String, bool),
+    ///
+    #[cfg(feature = "multipart")]
+    Multipart(crate::multipart::MultipartError),
 }
 
 #[cfg(feature = "json")]
@@ -86,6 +93,18 @@ impl From<HyperError> for SaphirError {
 impl From<IoError> for SaphirError {
     fn from(e: IoError) -> Self {
         SaphirError::Io(e)
+    }
+}
+
+impl From<ToStrError> for SaphirError {
+    fn from(e: ToStrError) -> Self {
+        SaphirError::Internal(InternalError::ToStr(e))
+    }
+}
+
+impl From<crate::multipart::MultipartError> for SaphirError {
+    fn from(e: crate::multipart::MultipartError) -> Self {
+        SaphirError::Multipart(e)
     }
 }
 
@@ -151,6 +170,11 @@ impl Responder for SaphirError {
                     debug!("Unable to parse path parameter {}", name);
                 }
 
+                builder.status(400)
+            }
+            #[cfg(feature = "multipart")]
+            SaphirError::Multipart(e) => {
+                debug!("Unable to parse multipart data: {:?}", e);
                 builder.status(400)
             }
         }

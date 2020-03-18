@@ -87,6 +87,9 @@ pub mod http_context;
 pub mod macros;
 ///
 pub mod middleware;
+/// The async Multipart Form-Data representation
+#[cfg(feature = "multipart")]
+pub mod multipart;
 /// The Http Request type
 pub mod request;
 /// Definition of type which can map to a response
@@ -141,6 +144,9 @@ pub mod prelude {
     pub use crate::macros::controller;
     ///
     pub use crate::middleware::MiddlewareChain;
+    ///
+    #[cfg(feature = "multipart")]
+    pub use crate::multipart::Multipart;
     ///
     pub use crate::request::Request;
     ///

@@ -29,6 +29,7 @@ pub enum ArgsReprType {
     Request,
     Json,
     Form,
+    Multipart,
     Params { is_query_param: bool, is_string: bool },
     Cookie,
     Option(Box<ArgsReprType>),
@@ -42,6 +43,7 @@ impl ArgsReprType {
             "CookieJar" => Ok(ArgsReprType::Cookie),
             "Json" => Ok(ArgsReprType::Json),
             "Form" => Ok(ArgsReprType::Form),
+            "Multipart" => Ok(ArgsReprType::Multipart),
             "Option" => {
                 if let PathArguments::AngleBracketed(a) = &p.arguments {
                     let a = a.args.first().ok_or_else(|| Error::new_spanned(a, "Option types need an type argument"))?;
@@ -103,7 +105,6 @@ impl ArgsRepr {
         if let Some(rf) = i.by_ref {
             return Err(Error::new_spanned(rf, "Invalid handler argument, consider removing 'ref'"));
         }
-
         if let Type::Path(p) = t.ty.as_ref() {
             let typ = Some(p.clone());
             let p = p
@@ -136,6 +137,8 @@ pub struct HandlerWrapperOpt {
     pub request_unused: bool,
     pub parse_cookies: bool,
     pub parse_query: bool,
+    pub init_multipart: bool,
+    pub map_multipart: bool,
     pub take_body_as: Option<TypePath>,
     pub map_after_load: Option<MapAfterLoad>,
     pub fn_arguments: Vec<ArgsRepr>,
@@ -150,6 +153,8 @@ impl HandlerWrapperOpt {
         let mut parse_cookies = attrs.cookie;
         let mut take_body_as = None;
         let mut map_after_load = None;
+        let mut init_multipart = false;
+        let mut map_multipart = false;
 
         if m.sig.asyncness.is_none() {
             sync_handler = true
@@ -157,18 +162,16 @@ impl HandlerWrapperOpt {
 
         let fn_arguments = m.sig.inputs.iter().map(|fn_a| ArgsRepr::new(attrs, fn_a)).collect::<Result<Vec<ArgsRepr>>>()?;
 
-        fn_arguments.iter().for_each(|a_repr| {
-            if let ArgsReprType::Cookie = a_repr.a_type {
-                parse_cookies = true;
-            }
-            if let ArgsReprType::Params { is_query_param: true, .. } = a_repr.a_type {
-                parse_query = true;
-            }
-            if let ArgsReprType::Option(inner) = &a_repr.a_type {
+        fn_arguments.iter().for_each(|a_repr| match &a_repr.a_type {
+            ArgsReprType::Cookie => parse_cookies = true,
+            ArgsReprType::Params { is_query_param: true, .. } => parse_query = true,
+            ArgsReprType::Multipart => init_multipart = true,
+            ArgsReprType::Option(inner) => {
                 if let ArgsReprType::Params { is_query_param: true, .. } = inner.as_ref() {
                     parse_query = true;
                 }
             }
+            _ => {}
         });
 
         let req_param: Option<&ArgsRepr> = fn_arguments
@@ -180,12 +183,26 @@ impl HandlerWrapperOpt {
             if let Some(PathArguments::AngleBracketed(a)) = req_param.typ.as_ref().and_then(|t| t.path.segments.first()).map(|s| &s.arguments) {
                 if let Some(GenericArgument::Type(Type::Path(request_body_type))) = a.args.first() {
                     let request_body_type = request_body_type.path.segments.first();
-                    let a = match request_body_type.as_ref().map(|b| (b.ident.to_string().eq("Body"), &b.arguments)) {
+                    let a = match request_body_type
+                        .as_ref()
+                        .map(|b| (b.ident.to_string(), &b.arguments))
+                        .as_ref()
+                        .map(|(id, ar)| (id.as_str(), ar))
+                    {
                         // Body<_>
-                        Some((true, PathArguments::AngleBracketed(a2))) => Some(a2),
-                        // Type<_>
-                        Some((false, PathArguments::AngleBracketed(_))) => {
+                        Some(("Body", PathArguments::AngleBracketed(a2))) => Some(a2),
+                        // Type<_> of Type
+                        Some((_, PathArguments::AngleBracketed(_))) => {
                             need_body_load = true;
+                            Some(a)
+                        }
+                        Some((id, PathArguments::None)) => {
+                            if id == "Multipart" {
+                                init_multipart = true;
+                                map_multipart = true;
+                            } else {
+                                need_body_load = true;
+                            }
                             Some(a)
                         }
 
@@ -218,6 +235,8 @@ impl HandlerWrapperOpt {
             request_unused,
             parse_cookies,
             parse_query,
+            init_multipart,
+            map_multipart,
             take_body_as,
             map_after_load,
             fn_arguments,

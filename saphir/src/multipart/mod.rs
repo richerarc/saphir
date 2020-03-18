@@ -7,7 +7,12 @@ use nom::lib::std::fmt::Formatter;
 use parking_lot::Mutex;
 
 use crate::{body::Bytes, multipart::parser::ParseFieldError, request::Request};
+use futures_util::{
+    future::Future,
+    task::{Context, Poll},
+};
 use std::path::Path;
+use tokio::macros::support::Pin;
 
 mod parser;
 
@@ -221,10 +226,13 @@ impl Debug for Field {
     }
 }
 
+type NextFieldFuture = Pin<Box<dyn Future<Output = Result<Option<Field>, MultipartError>>>>;
+
 /// Struct used to parse a multipart body into fields
 pub struct Multipart {
     boundary: String,
     inner: DataStream,
+    next_field_fut: Option<NextFieldFuture>,
 }
 
 impl Multipart {
@@ -255,6 +263,7 @@ impl Multipart {
         Multipart {
             boundary,
             inner: DataStream::new(stream),
+            next_field_fut: None,
         }
     }
 
@@ -263,13 +272,48 @@ impl Multipart {
     /// parsed
     pub async fn next_field(&self) -> Result<Option<Field>, MultipartError> {
         if let Some(s) = self.inner.take() {
-            match parser::parse_field(s, self.boundary.as_str()).await {
-                Ok(f) => Ok(Some(f)),
-                Err(MultipartError::Finished) => Ok(None),
-                Err(e) => Err(e),
-            }
+            Self::next_field_owned(s, self.boundary.clone()).await
         } else {
             Err(MultipartError::NotConsumed)
+        }
+    }
+
+    async fn next_field_owned(stream: FieldStream, boundary: String) -> Result<Option<Field>, MultipartError> {
+        match parser::parse_field(stream, boundary.as_str()).await {
+            Ok(f) => Ok(Some(f)),
+            Err(MultipartError::Finished) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+}
+
+impl Stream for Multipart {
+    type Item = Result<Field, MultipartError>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut current_fut = self.next_field_fut.take();
+
+        let res = if let Some(current) = current_fut.as_mut() {
+            current.as_mut().poll(cx)
+        } else {
+            let stream = match self.inner.take() {
+                Some(s) => s,
+                None => return Poll::Ready(Some(Err(MultipartError::NotConsumed))),
+            };
+
+            let boundary = self.boundary.clone();
+            let mut current = Box::pin(Self::next_field_owned(stream, boundary));
+            let res = current.as_mut().poll(cx);
+            current_fut = Some(current);
+            res
+        };
+
+        match res {
+            Poll::Ready(res) => Poll::Ready(res.transpose()),
+            Poll::Pending => {
+                self.next_field_fut = current_fut;
+                Poll::Pending
+            }
         }
     }
 }

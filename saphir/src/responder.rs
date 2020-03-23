@@ -90,7 +90,7 @@ impl Responder for StatusCode {
 impl<T: Responder> Responder for Option<T> {
     fn respond_with_builder(self, builder: Builder) -> Builder {
         if let Some(r) = self {
-            r.respond_with_builder(builder.status(200))
+            r.respond_with_builder(builder.status_if_not_set(200))
         } else {
             builder.status(404)
         }

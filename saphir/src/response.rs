@@ -20,6 +20,11 @@ pub struct Response<T> {
 }
 
 impl<T> Response<T> {
+    /// Creates an instance of a response builder
+    pub fn builder() -> Builder {
+        Builder::new()
+    }
+
     /// Create a new response with T as body
     pub fn new(body: T) -> Self {
         Response {
@@ -88,6 +93,7 @@ pub struct Builder {
     inner: RawBuilder,
     cookies: Option<CookieJar>,
     body: Box<dyn TransmuteBody + Send + Sync>,
+    status_set: bool,
 }
 
 impl Builder {
@@ -107,6 +113,20 @@ impl Builder {
             inner: RawBuilder::new(),
             cookies: None,
             body: Box::new(Option::<String>::None),
+            status_set: false,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn status_if_not_set<T>(mut self, status: T) -> Builder
+    where
+        StatusCode: TryFrom<T>,
+        <StatusCode as TryFrom<T>>::Error: Into<http::Error>,
+    {
+        if !self.status_set {
+            self.status(status)
+        } else {
+            self
         }
     }
 
@@ -130,6 +150,7 @@ impl Builder {
         StatusCode: TryFrom<T>,
         <StatusCode as TryFrom<T>>::Error: Into<http::Error>,
     {
+        self.status_set = true;
         self.inner = self.inner.status(status);
         self
     }
@@ -277,7 +298,12 @@ impl Builder {
     /// Finish the builder into Response<Body>
     #[inline]
     pub fn build(self) -> Result<Response<Body>, SaphirError> {
-        let Builder { inner, cookies, mut body } = self;
+        let Builder {
+            inner,
+            cookies,
+            mut body,
+            status_set,
+        } = self;
         let b = body.transmute();
         let raw = inner.body(b)?;
 

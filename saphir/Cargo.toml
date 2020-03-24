@@ -13,7 +13,7 @@ license = "MIT"
 
 [features]
 default = ["macro"]
-full = ["macro", "json", "form", "https", "multipart"]
+full = ["macro", "json", "form", "https", "multipart", "operation"]
 https = ["base64", "rustls", "tokio-rustls"]
 json = ["serde", "serde_json"]
 form = ["serde", "serde_urlencoded"]

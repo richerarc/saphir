@@ -14,8 +14,10 @@ use crate::{
 };
 
 /// Struct that wraps a hyper response + some magic
-pub struct Response<T> {
+pub struct Response<T = Body> {
+    #[doc(hidden)]
     inner: RawResponse<T>,
+    #[doc(hidden)]
     cookies: CookieJar,
 }
 
@@ -90,9 +92,13 @@ impl<T> DerefMut for Response<T> {
 
 /// Struct used to conveniently build a response
 pub struct Builder {
+    #[doc(hidden)]
     inner: RawBuilder,
+    #[doc(hidden)]
     cookies: Option<CookieJar>,
+    #[doc(hidden)]
     body: Box<dyn TransmuteBody + Send + Sync>,
+    #[doc(hidden)]
     status_set: bool,
 }
 
@@ -118,7 +124,7 @@ impl Builder {
     }
 
     #[inline]
-    pub(crate) fn status_if_not_set<T>(mut self, status: T) -> Builder
+    pub(crate) fn status_if_not_set<T>(self, status: T) -> Builder
     where
         StatusCode: TryFrom<T>,
         <StatusCode as TryFrom<T>>::Error: Into<http::Error>,
@@ -302,7 +308,7 @@ impl Builder {
             inner,
             cookies,
             mut body,
-            status_set,
+            status_set: _,
         } = self;
         let b = body.transmute();
         let raw = inner.body(b)?;

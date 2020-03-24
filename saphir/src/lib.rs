@@ -137,6 +137,8 @@ pub mod prelude {
     pub use crate::error::SaphirError;
     ///
     pub use crate::handler::Handler;
+    #[cfg(feature = "operation")]
+    pub use crate::http_context::operation::OperationId;
     ///
     pub use crate::http_context::HttpContext;
     ///

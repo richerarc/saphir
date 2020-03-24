@@ -136,32 +136,40 @@ impl StatsData {
         }
     }
 
-    async fn stats_middleware(&self, ctx: HttpContext<Body>, chain: &dyn MiddlewareChain) -> Result<Response<Body>, SaphirError> {
+    async fn stats_middleware(&self, ctx: HttpContext, chain: &dyn MiddlewareChain) -> Result<HttpContext, SaphirError> {
+        #[cfg(feature = "operation")]
         {
             let mut entered = self.entered.write().await;
             let exited = self.exited.read().await;
             *entered += 1;
-            info!("entered stats middleware! Current data: entered={} ; exited={}", *entered, *exited);
+            info!(
+                "[Operation: {}] entered stats middleware! Current data: entered={} ; exited={}",
+                &ctx.operation_id, *entered, *exited
+            );
         }
 
-        let res = chain.next(ctx).await?;
+        let ctx = chain.next(ctx).await?;
 
+        #[cfg(feature = "operation")]
         {
             let mut exited = self.exited.write().await;
             let entered = self.entered.read().await;
             *exited += 1;
-            info!("exited stats middleware! Current data: entered={} ; exited={}", *entered, *exited);
+            info!(
+                "[Operation: {}] exited stats middleware! Current data: entered={} ; exited={}",
+                &ctx.operation_id, *entered, *exited
+            );
         }
 
-        Ok(res)
+        Ok(ctx)
     }
 }
 
-async fn log_middleware(prefix: &String, ctx: HttpContext<Body>, chain: &dyn MiddlewareChain) -> Result<Response<Body>, SaphirError> {
-    info!("{} | new request on path: {}", prefix, ctx.request.uri().path());
-    let res = chain.next(ctx).await?;
-    info!("{} | new response with status: {}", prefix, res.status());
-    Ok(res)
+async fn log_middleware(prefix: &String, ctx: HttpContext, chain: &dyn MiddlewareChain) -> Result<HttpContext, SaphirError> {
+    info!("{} | new request on path: {}", prefix, ctx.state.request_unchecked().uri().path());
+    let ctx = chain.next(ctx).await?;
+    info!("{} | new response with status: {}", prefix, ctx.state.response_unchecked().status());
+    Ok(ctx)
 }
 
 // == handlers with no controller == //
@@ -190,7 +198,7 @@ impl ForbidderData {
     }
 }
 
-async fn forbidder_guard(data: &ForbidderData, req: Request<Body>) -> Result<Request<Body>, u16> {
+async fn forbidden_guard(data: &ForbidderData, req: Request<Body>) -> Result<Request<Body>, u16> {
     if req.captures().get("variable").and_then(|v| data.filter_forbidden(v)).is_some() {
         Err(403)
     } else {
@@ -216,8 +224,8 @@ async fn main() -> Result<(), SaphirError> {
             r.route("/", Method::GET, hello_world)
                 .route("/{variable}/print", Method::GET, test_handler)
                 .route_with_guards("/{variable}/guarded_print", Method::GET, test_handler, |g| {
-                    g.add(forbidder_guard, ForbidderData { forbidden: "forbidden" })
-                        .add(forbidder_guard, ForbidderData { forbidden: "password" })
+                    g.add(forbidden_guard, ForbidderData { forbidden: "forbidden" })
+                        .add(forbidden_guard, ForbidderData { forbidden: "password" })
                 })
                 .controller(MagicController::new("Just Like Magic!"))
         })

@@ -24,14 +24,14 @@
 //! # use saphir::prelude::*;
 //! # struct CustomData;
 //! #
-//! async fn example_middleware(data: &CustomData, ctx: HttpContext<Body>, chain: &dyn MiddlewareChain) -> Result<Response<Body>, SaphirError> {
+//! async fn example_middleware(data: &CustomData, ctx: HttpContext, chain: &dyn MiddlewareChain) -> Result<HttpContext, SaphirError> {
 //!     // Do work before the request is handled by the router
 //!
-//!     let res = chain.next(ctx).await?;
+//!     let ctx = chain.next(ctx).await?;
 //!
 //!     // Do work with the response
 //!
-//!     Ok(res)
+//!     Ok(ctx)
 //! }
 //! ```
 //!
@@ -43,24 +43,28 @@
 //! stack which has a static lifetime over your application. We plan to remove
 //! this unsafe code as soon as we find another solution to it.
 
-use crate::{body::Body, error::SaphirError, http_context::HttpContext, response::Response, utils::UriPathMatcher};
+use crate::{
+    error::{InternalError, SaphirError},
+    http_context::HttpContext,
+    utils::UriPathMatcher,
+};
 use futures::{future::BoxFuture, FutureExt};
 use futures_util::future::Future;
 
 /// Auto trait implementation over every function that match the definition of a
 /// middleware.
 pub trait MiddlewareHandler<Data> {
-    fn next(&self, data: &Data, ctx: HttpContext<Body>, chain: &dyn MiddlewareChain) -> BoxFuture<'static, Result<Response<Body>, SaphirError>>;
+    fn next(&self, data: &Data, ctx: HttpContext, chain: &dyn MiddlewareChain) -> BoxFuture<'static, Result<HttpContext, SaphirError>>;
 }
 
 impl<Data, Fun, Fut> MiddlewareHandler<Data> for Fun
 where
     Data: 'static,
-    Fun: Fn(&'static Data, HttpContext<Body>, &'static dyn MiddlewareChain) -> Fut,
-    Fut: 'static + Future<Output = Result<Response<Body>, SaphirError>> + Send,
+    Fun: Fn(&'static Data, HttpContext, &'static dyn MiddlewareChain) -> Fut,
+    Fut: 'static + Future<Output = Result<HttpContext, SaphirError>> + Send,
 {
     #[inline]
-    fn next(&self, data: &Data, ctx: HttpContext<Body>, chain: &dyn MiddlewareChain) -> BoxFuture<'static, Result<Response<Body>, SaphirError>> {
+    fn next(&self, data: &Data, ctx: HttpContext, chain: &dyn MiddlewareChain) -> BoxFuture<'static, Result<HttpContext, SaphirError>> {
         // # SAFETY #
         // The middleware chain and data are initialized in static memory when calling
         // run on Server.
@@ -96,13 +100,13 @@ impl<Chain: MiddlewareChain + 'static> Builder<Chain> {
     ///
     /// # async fn log_middleware(
     /// #     prefix: &String,
-    /// #     ctx: HttpContext<Body>,
+    /// #     ctx: HttpContext,
     /// #     chain: &dyn MiddlewareChain,
-    /// # ) -> Result<Response<Body>, SaphirError> {
-    /// #     println!("{} | new request on path: {}", prefix, ctx.request.uri().path());
-    /// #     let res = chain.next(ctx).await?;
-    /// #     println!("{} | new response with status: {}", prefix, res.status());
-    /// #     Ok(res)
+    /// # ) -> Result<HttpContext, SaphirError> {
+    /// #     println!("{} | new request on path: {}", prefix, ctx.state.request_unchecked().uri().path());
+    /// #     let ctx = chain.next(ctx).await?;
+    /// #     println!("{} | new response with status: {}", prefix, ctx.state.response_unchecked().status());
+    /// #     Ok(ctx)
     /// # }
     /// #
     /// let builder = MBuilder::default().apply(log_middleware, "LOG".to_string(), vec!["/"], None);
@@ -180,7 +184,7 @@ impl Rule {
 
 #[doc(hidden)]
 pub trait MiddlewareChain: Sync + Send {
-    fn next(&self, ctx: HttpContext<Body>) -> BoxFuture<'static, Result<Response<Body>, SaphirError>>;
+    fn next(&self, ctx: HttpContext) -> BoxFuture<'static, Result<HttpContext, SaphirError>>;
 }
 
 #[doc(hidden)]
@@ -188,11 +192,12 @@ pub struct MiddleChainEnd;
 
 impl MiddlewareChain for MiddleChainEnd {
     #[doc(hidden)]
+    #[allow(unused_mut)]
     #[inline]
-    fn next(&self, ctx: HttpContext<Body>) -> BoxFuture<'static, Result<Response<Body>, SaphirError>> {
+    fn next(&self, mut ctx: HttpContext) -> BoxFuture<'static, Result<HttpContext, SaphirError>> {
         async {
-            let (router, request) = (ctx.router, ctx.request);
-            router.handle(request).await
+            let router = ctx.router.take().ok_or_else(|| SaphirError::Internal(InternalError::Stack))?;
+            router.handle(ctx).await
         }
         .boxed()
     }
@@ -215,8 +220,8 @@ where
 {
     #[doc(hidden)]
     #[inline]
-    fn next(&self, ctx: HttpContext<Body>) -> BoxFuture<'static, Result<Response<Body>, SaphirError>> {
-        if self.rule.validate_path(ctx.request.uri().path()) {
+    fn next(&self, ctx: HttpContext) -> BoxFuture<'static, Result<HttpContext, SaphirError>> {
+        if ctx.state.request().filter(|req| self.rule.validate_path(req.uri().path())).is_some() {
             self.handler.next(&self.data, ctx, &self.rest)
         } else {
             self.rest.next(ctx)

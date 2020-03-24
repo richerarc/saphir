@@ -15,9 +15,9 @@ use crate::{
     error::SaphirError,
     guard::{Builder as GuardBuilder, GuardChain, GuardChainEnd},
     handler::DynHandler,
+    http_context::{HttpContext, State},
     request::Request,
     responder::{DynResponder, Responder},
-    response::Response,
     utils::{EndpointResolver, EndpointResolverResult},
 };
 use futures::{future::BoxFuture, FutureExt};
@@ -210,22 +210,31 @@ impl Router {
         }
     }
 
-    pub async fn handle(self, mut req: Request<Body>) -> Result<Response<Body>, SaphirError> {
+    pub async fn handle(self, mut ctx: HttpContext) -> Result<HttpContext, SaphirError> {
+        let mut req = ctx.state.take_request().ok_or_else(|| SaphirError::RequestMovedBeforeHandler)?;
         match self.resolve(&mut req) {
-            Ok(id) => self.dispatch(id, req).await,
-            Err(status) => status.respond(),
+            Ok(id) => self.dispatch(id, req, ctx).await,
+            Err(status) => {
+                ctx.state = State::After(status.respond(&ctx)?);
+                Ok(ctx)
+            }
         }
     }
 
-    pub async fn dispatch(&self, resolver_id: u64, req: Request<Body>) -> Result<Response<Body>, SaphirError> {
+    pub async fn dispatch(&self, resolver_id: u64, req: Request<Body>, mut ctx: HttpContext) -> Result<HttpContext, SaphirError> {
         // # SAFETY #
         // The router is initialized in static memory when calling run on Server.
         let static_self = unsafe { std::mem::transmute::<&'_ Self, &'static Self>(self) };
-        if let Some(responder) = static_self.inner.chain.dispatch(resolver_id, req) {
-            responder.await.dyn_respond()
+        let res = if let Some(responder) = static_self.inner.chain.dispatch(resolver_id, req) {
+            responder.await.dyn_respond(&ctx)
         } else {
-            404.respond()
-        }
+            404.respond(&ctx)
+        };
+
+        res.map(|r| {
+            ctx.state = State::After(r);
+            ctx
+        })
     }
 }
 

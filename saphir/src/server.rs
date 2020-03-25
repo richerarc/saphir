@@ -28,6 +28,7 @@ use crate::{
     router::{Builder as RouterBuilder, Router, RouterChain, RouterChainEnd},
 };
 use http::{HeaderValue, Request as RawRequest, Response as RawResponse};
+use std::sync::atomic::AtomicU32;
 
 /// Default time for request handling is 30 seconds
 pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
@@ -39,6 +40,8 @@ pub const DEFAULT_SERVER_NAME: &str = "Saphir";
 static mut STACK: MaybeUninit<Stack> = MaybeUninit::uninit();
 #[doc(hidden)]
 static mut SERVER_NAME: MaybeUninit<HeaderValue> = MaybeUninit::uninit();
+#[doc(hidden)]
+static SERVER_ID: AtomicU32 = AtomicU32::new(0);
 #[doc(hidden)]
 static INIT_STACK: Once = Once::new();
 
@@ -60,6 +63,7 @@ pub struct ListenerBuilder {
     iface: Option<String>,
     server_name: Option<String>,
     request_timeout_ms: Option<u64>,
+    server_id: Option<u32>,
     #[cfg(feature = "https")]
     cert_config: Option<SslConfig>,
     #[cfg(feature = "https")]
@@ -105,6 +109,12 @@ impl ListenerBuilder {
         self
     }
 
+    #[inline]
+    pub fn server_id(mut self, id: u32) -> Self {
+        self.server_id = Some(id);
+        self
+    }
+
     /// Using Feature `https`
     ///
     /// Set the listener ssl certificates files. The cert needs to be PEM
@@ -135,16 +145,31 @@ impl ListenerBuilder {
             iface,
             server_name,
             request_timeout_ms,
+            server_id,
             cert_config,
             key_config,
         } = self;
 
         let iface = iface.unwrap_or_else(|| DEFAULT_LISTENER_IFACE.to_string());
+        let server_id = server_id.unwrap_or_else(|| {
+            #[cfg(not(feature = "operation"))]
+            {
+                0
+            }
+
+            #[cfg(feature = "operation")]
+            {
+                use rand::Rng;
+                let mut rng = rand::thread_rng();
+                rng.gen::<u32>()
+            }
+        });
 
         ListenerConfig {
             iface,
             request_timeout_ms,
             server_name: server_name.unwrap_or_else(|| DEFAULT_SERVER_NAME.to_string()),
+            server_id,
             cert_config,
             key_config,
         }
@@ -158,14 +183,29 @@ impl ListenerBuilder {
             iface,
             server_name,
             request_timeout_ms,
+            server_id,
         } = self;
 
         let iface = iface.unwrap_or_else(|| DEFAULT_LISTENER_IFACE.to_string());
+        let server_id = server_id.unwrap_or_else(|| {
+            #[cfg(not(feature = "operation"))]
+            {
+                0
+            }
+
+            #[cfg(feature = "operation")]
+            {
+                use rand::Rng;
+                let mut rng = rand::thread_rng();
+                rng.gen::<u32>()
+            }
+        });
 
         ListenerConfig {
             iface,
             request_timeout_ms,
             server_name: server_name.unwrap_or_else(|| DEFAULT_SERVER_NAME.to_string()),
+            server_id,
         }
     }
 }
@@ -175,6 +215,7 @@ pub struct ListenerConfig {
     iface: String,
     request_timeout_ms: Option<u64>,
     server_name: String,
+    server_id: u32,
     cert_config: Option<SslConfig>,
     key_config: Option<SslConfig>,
 }
@@ -184,6 +225,7 @@ pub struct ListenerConfig {
     iface: String,
     request_timeout_ms: Option<u64>,
     server_name: String,
+    server_id: u32,
 }
 
 #[cfg(feature = "https")]
@@ -280,6 +322,7 @@ impl Server {
     pub async fn run(self) -> Result<(), SaphirError> {
         let Server { listener_config, stack } = self;
         let server_value = HeaderValue::from_str(&listener_config.server_name)?;
+        let server_id = listener_config.server_id;
 
         if INIT_STACK.state() != OnceState::New {
             return Err(SaphirError::Other("cannot run a second server".to_owned()));
@@ -293,6 +336,8 @@ impl Server {
                 STACK.as_mut_ptr().write(stack);
                 SERVER_NAME.as_mut_ptr().write(server_value);
             }
+
+            SERVER_ID.store(server_id, std::sync::atomic::Ordering::Relaxed);
         });
 
         // # SAFETY #
@@ -402,8 +447,21 @@ impl Stack {
     }
 
     async fn invoke(&self, req: Request<Body>) -> Result<Response<Body>, SaphirError> {
-        let ctx = HttpContext::new(req, self.router.clone());
-        self.middlewares.next(ctx).await
+        let ctx = {
+            #[cfg(feature = "operation")]
+            {
+                HttpContext::new(SERVER_ID.load(std::sync::atomic::Ordering::Relaxed), req, self.router.clone())
+            }
+
+            #[cfg(not(feature = "operation"))]
+            {
+                HttpContext::new(req, self.router.clone())
+            }
+        };
+        self.middlewares
+            .next(ctx)
+            .await
+            .and_then(|mut ctx| ctx.state.take_response().ok_or_else(|| SaphirError::ResponseMoved))
     }
 }
 

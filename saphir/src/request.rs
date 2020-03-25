@@ -14,6 +14,9 @@ use crate::{
     error::SaphirError,
 };
 
+#[cfg(feature = "operation")]
+use crate::http_context::operation::OperationId;
+
 /// Struct that wraps a hyper request + some magic
 pub struct Request<T = Body<Bytes>> {
     #[doc(hidden)]
@@ -24,6 +27,9 @@ pub struct Request<T = Body<Bytes>> {
     cookies: CookieJar,
     #[doc(hidden)]
     peer_addr: Option<SocketAddr>,
+    #[doc(hidden)]
+    #[cfg(feature = "operation")]
+    operation_id: OperationId,
 }
 
 impl<T> Request<T> {
@@ -34,6 +40,8 @@ impl<T> Request<T> {
             captures: Default::default(),
             cookies: Default::default(),
             peer_addr,
+            #[cfg(feature = "operation")]
+            operation_id: OperationId::with_bytes([0u8; 16]),
         }
     }
 
@@ -42,6 +50,20 @@ impl<T> Request<T> {
     #[inline]
     pub fn peer_addr(&self) -> Option<&SocketAddr> {
         self.peer_addr.as_ref()
+    }
+
+    /// Return the OperationId of the request
+    #[inline]
+    #[cfg(feature = "operation")]
+    pub fn operation_id(&self) -> &OperationId {
+        &self.operation_id
+    }
+
+    /// Return the mutable OperationId of the request
+    #[inline]
+    #[cfg(feature = "operation")]
+    pub fn operation_id_mut(&mut self) -> &mut OperationId {
+        &mut self.operation_id
     }
 
     ///
@@ -135,12 +157,17 @@ impl<T> Request<T> {
             captures,
             cookies,
             peer_addr,
+            #[cfg(feature = "operation")]
+            operation_id,
         } = self;
+
         Request {
             inner: inner.map(f),
             captures,
             cookies,
             peer_addr,
+            #[cfg(feature = "operation")]
+            operation_id,
         }
     }
 
@@ -164,6 +191,8 @@ impl<T> Request<T> {
             captures,
             cookies,
             peer_addr,
+            #[cfg(feature = "operation")]
+            operation_id,
         } = self;
         let (head, body) = inner.into_parts();
         let mapped = f(body).await;
@@ -174,6 +203,8 @@ impl<T> Request<T> {
             captures,
             cookies,
             peer_addr,
+            #[cfg(feature = "operation")]
+            operation_id,
         }
     }
 
@@ -213,6 +244,8 @@ impl<T: FromBytes + Unpin + 'static> Request<Body<T>> {
             captures,
             cookies,
             peer_addr,
+            #[cfg(feature = "operation")]
+            operation_id,
         } = self;
         let (head, body) = inner.into_parts();
 
@@ -225,6 +258,8 @@ impl<T: FromBytes + Unpin + 'static> Request<Body<T>> {
             captures,
             cookies,
             peer_addr,
+            #[cfg(feature = "operation")]
+            operation_id,
         })
     }
 }
@@ -247,6 +282,8 @@ impl<T, E> Request<Result<T, E>> {
             captures,
             cookies,
             peer_addr,
+            #[cfg(feature = "operation")]
+            operation_id,
         } = self;
         let (head, body) = inner.into_parts();
 
@@ -255,6 +292,8 @@ impl<T, E> Request<Result<T, E>> {
             captures,
             cookies,
             peer_addr,
+            #[cfg(feature = "operation")]
+            operation_id,
         })
     }
 }
@@ -276,6 +315,8 @@ impl<T> Request<Option<T>> {
             captures,
             cookies,
             peer_addr,
+            #[cfg(feature = "operation")]
+            operation_id,
         } = self;
         let (head, body) = inner.into_parts();
 
@@ -284,6 +325,8 @@ impl<T> Request<Option<T>> {
             captures,
             cookies,
             peer_addr,
+            #[cfg(feature = "operation")]
+            operation_id,
         })
     }
 }

@@ -304,12 +304,7 @@ impl Builder {
     /// Finish the builder into Response<Body>
     #[inline]
     pub fn build(self) -> Result<Response<Body>, SaphirError> {
-        let Builder {
-            inner,
-            cookies,
-            mut body,
-            status_set: _,
-        } = self;
+        let Builder { inner, cookies, mut body, .. } = self;
         let b = body.transmute();
         let raw = inner.body(b)?;
 

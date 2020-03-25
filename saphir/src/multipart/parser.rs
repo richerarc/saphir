@@ -369,9 +369,8 @@ mod tests {
         assert_eq!(field_h.content_type, Some(Mime::from_str("text/plain").unwrap()));
 
         if let Err(ParseFieldError::Finished) = field(out, "AaB03x") {
-            assert!(true);
         } else {
-            assert!(false);
+            unreachable!("This should be unreachable");
         }
     }
 }

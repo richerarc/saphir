@@ -155,6 +155,12 @@ pub mod json {
 
     pub struct Json<T>(pub T);
 
+    impl<T> Json<T> {
+        pub fn unwrap(self) -> T {
+            self.0
+        }
+    }
+
     impl<T> Deref for Json<T> {
         type Target = T;
 
@@ -193,6 +199,12 @@ pub mod form {
     use std::ops::{Deref, DerefMut};
 
     pub struct Form<T>(pub T);
+
+    impl<T> Form<T> {
+        pub fn unwrap(self) -> T {
+            self.0
+        }
+    }
 
     impl<T> Deref for Form<T> {
         type Target = T;

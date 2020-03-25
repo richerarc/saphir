@@ -29,32 +29,30 @@ impl ControllerAttr {
                 Meta::List(l) => {
                     return Err(Error::new_spanned(l, "Unexpected Attribute on controller impl"));
                 }
-                Meta::NameValue(MetaNameValue { path, lit, .. }) => {
-                    match (path.segments.first().map(|p| p.ident.to_string()).as_ref().map(|s| s.as_str()), lit) {
-                        (Some("name"), Lit::Str(bp)) => {
-                            name = Some(bp.value().trim_matches('/').to_string());
-                        }
-                        (Some("version"), Lit::Str(v)) => {
-                            version = Some(
-                                v.value()
-                                    .parse::<u16>()
-                                    .or_else(|_| Err(Error::new_spanned(v, "Invalid version, expected number between 1 & u16::MAX")))?,
-                            );
-                        }
-                        (Some("version"), Lit::Int(v)) => {
-                            version = Some(
-                                v.base10_parse::<u16>()
-                                    .or_else(|_| Err(Error::new_spanned(v, "Invalid version, expected number between 1 & u16::MAX")))?,
-                            );
-                        }
-                        (Some("prefix"), Lit::Str(p)) => {
-                            prefix = Some(p.value().trim_matches('/').to_string());
-                        }
-                        _ => {
-                            return Err(Error::new_spanned(path, "Unexpected Param in controller macro"));
-                        }
+                Meta::NameValue(MetaNameValue { path, lit, .. }) => match (path.segments.first().map(|p| p.ident.to_string()).as_deref(), lit) {
+                    (Some("name"), Lit::Str(bp)) => {
+                        name = Some(bp.value().trim_matches('/').to_string());
                     }
-                }
+                    (Some("version"), Lit::Str(v)) => {
+                        version = Some(
+                            v.value()
+                                .parse::<u16>()
+                                .or_else(|_| Err(Error::new_spanned(v, "Invalid version, expected number between 1 & u16::MAX")))?,
+                        );
+                    }
+                    (Some("version"), Lit::Int(v)) => {
+                        version = Some(
+                            v.base10_parse::<u16>()
+                                .or_else(|_| Err(Error::new_spanned(v, "Invalid version, expected number between 1 & u16::MAX")))?,
+                        );
+                    }
+                    (Some("prefix"), Lit::Str(p)) => {
+                        prefix = Some(p.value().trim_matches('/').to_string());
+                    }
+                    _ => {
+                        return Err(Error::new_spanned(path, "Unexpected Param in controller macro"));
+                    }
+                },
             }
         }
 

@@ -23,4 +23,4 @@ jobs:
       - name: Fmt
         run: cargo +nightly fmt -- --check
       - name: Clippy
-          run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets --all-features -- -D warnings

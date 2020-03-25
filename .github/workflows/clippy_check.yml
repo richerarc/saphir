@@ -1,5 +1,5 @@
 name: Clippy check
-on: [pull_request]
+on: [push]
 jobs:
   clippy_check:
     runs-on: ubuntu-latest

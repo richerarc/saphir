@@ -14,13 +14,23 @@ jobs:
       - name: Run tests
         run: cargo test --verbose --all-features
 
-  job_2:
-    name: Format & Code checks
+  rustfmt:
+    name: Format
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v2
-      - name: Fmt
-        run: cargo +nightly fmt -- --check
-      - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Install nightly toolchain with rustfmt available
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+          components: rustfmt
+
+      - name: Run cargo fmt
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check

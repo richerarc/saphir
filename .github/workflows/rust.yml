@@ -3,8 +3,8 @@ name: Rust
 on: [push]
 
 jobs:
-  build:
-
+  job_1:
+    name: Build & Run Tests
     runs-on: ubuntu-latest
 
     steps:
@@ -13,3 +13,14 @@ jobs:
         run: cargo build --verbose --all-features
       - name: Run tests
         run: cargo test --verbose --all-features
+
+  job_2:
+    name: Format & Code checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Fmt
+        run: cargo +nightly fmt -- --check
+      - name: Clippy
+          run: cargo clippy --all-targets --all-features -- -D warnings

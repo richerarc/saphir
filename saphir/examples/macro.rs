@@ -1,3 +1,5 @@
+#![allow(clippy::trivially_copy_pass_by_ref)]
+#![allow(clippy::ptr_arg)]
 use serde_derive::{Deserialize, Serialize};
 
 use saphir::prelude::*;

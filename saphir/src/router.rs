@@ -215,7 +215,7 @@ impl Router {
         match self.resolve(&mut req) {
             Ok(id) => self.dispatch(id, req, ctx).await,
             Err(status) => {
-                ctx.state = State::After(status.respond(&ctx)?);
+                ctx.state = State::After(Box::new(status.respond(&ctx)?));
                 Ok(ctx)
             }
         }
@@ -232,7 +232,7 @@ impl Router {
         };
 
         res.map(|r| {
-            ctx.state = State::After(r);
+            ctx.state = State::After(Box::new(r));
             ctx
         })
     }

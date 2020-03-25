@@ -6,8 +6,8 @@ use crate::{request::Request, response::Response, router::Router};
 /// processed by the handler, or when its original state has been moved by using
 /// take & take unchecked methods
 pub enum State {
-    Before(Request),
-    After(Response),
+    Before(Box<Request>),
+    After(Box<Response>),
     Empty,
 }
 
@@ -28,7 +28,7 @@ impl State {
     /// something else
     pub fn take_request(&mut self) -> Option<Request> {
         match std::mem::take(self) {
-            State::Before(r) => Some(r),
+            State::Before(r) => Some(*r),
             _ => None,
         }
     }
@@ -39,7 +39,7 @@ impl State {
     /// Panics if the state is not `Before`
     pub fn take_request_unchecked(&mut self) -> Request {
         match std::mem::take(self) {
-            State::Before(r) => r,
+            State::Before(r) => *r,
             _ => panic!("State::take_request_unchecked should be called only before the handler & when it is ensured that the request wasn't moved"),
         }
     }
@@ -49,7 +49,7 @@ impl State {
     /// something else
     pub fn take_response(&mut self) -> Option<Response> {
         match std::mem::take(self) {
-            State::After(r) => Some(r),
+            State::After(r) => Some(*r),
             _ => None,
         }
     }
@@ -60,7 +60,7 @@ impl State {
     /// Panics if the state is not `After`
     pub fn take_response_unchecked(&mut self) -> Response {
         match std::mem::take(self) {
-            State::After(r) => r,
+            State::After(r) => *r,
             _ => panic!("State::take_response_unchecked should be called only after the handler & when it is ensured that the response wasn't moved"),
         }
     }
@@ -164,7 +164,7 @@ pub struct HttpContext {
 impl HttpContext {
     #[cfg(not(feature = "operation"))]
     pub(crate) fn new(request: Request, router: Router) -> Self {
-        let state = State::Before(request);
+        let state = State::Before(Box::new(request));
         let router = Some(router);
         HttpContext { state, router }
     }
@@ -173,7 +173,7 @@ impl HttpContext {
     pub(crate) fn new(server_id: u32, mut request: Request, router: Router) -> Self {
         let operation_id = crate::http_context::operation::OperationId::new(server_id);
         *request.operation_id_mut() = operation_id.clone();
-        let state = State::Before(request);
+        let state = State::Before(Box::new(request));
         let router = Some(router);
         HttpContext { state, router, operation_id }
     }
@@ -229,25 +229,6 @@ pub mod operation {
             OperationId { bytes }
         }
 
-        pub fn to_string(&self) -> String {
-            let mut vec = vec![0u8; OPERATION_ID_STR_LEN];
-
-            vec.get_mut(..)
-                .map(|bytes| {
-                    bytes.get_mut(SERVER_ID_OFFSET..TIMESTAMP_OFFSET * 2).map(|dst| self.encode_part(dst, 0));
-                    bytes.get_mut(TIMESTAMP_OFFSET * 2).map(|byte| *byte = '-' as u8);
-                    bytes
-                        .get_mut(TIMESTAMP_OFFSET * 2 + 1..OPERATION_ID_OFFSET * 2 + 1)
-                        .map(|dst| self.encode_part(dst, 1));
-                    bytes.get_mut(OPERATION_ID_OFFSET * 2 + 1).map(|byte| *byte = '-' as u8);
-                    bytes
-                        .get_mut(OPERATION_ID_OFFSET * 2 + 2..OPERATION_ID_MAX * 2 + 2)
-                        .map(|dst| self.encode_part(dst, 2));
-                })
-                .and_then(|_| String::from_utf8(vec).ok())
-                .expect("Encode should never produce non-ascii chars")
-        }
-
         pub fn to_u128(&self) -> u128 {
             let mut bytes = [0u8; 16];
             bytes.copy_from_slice(&self.bytes);
@@ -256,7 +237,9 @@ pub mod operation {
 
         pub fn server_id(&self) -> u32 {
             let mut s_id_bytes = [0u8; 4];
-            self.bytes.get(SERVER_ID_OFFSET..TIMESTAMP_OFFSET).map(|b| s_id_bytes.copy_from_slice(b));
+            if let Some(b) = self.bytes.get(SERVER_ID_OFFSET..TIMESTAMP_OFFSET) {
+                s_id_bytes.copy_from_slice(b)
+            }
             u32::from_be_bytes(s_id_bytes)
         }
 
@@ -302,7 +285,31 @@ pub mod operation {
 
     impl Display for OperationId {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            f.write_str(self.to_string().as_str())
+            let mut vec = vec![0u8; OPERATION_ID_STR_LEN];
+
+            let str = vec
+                .get_mut(..)
+                .map(|bytes| {
+                    if let Some(dst) = bytes.get_mut(SERVER_ID_OFFSET..TIMESTAMP_OFFSET * 2) {
+                        self.encode_part(dst, 0)
+                    }
+                    if let Some(byte) = bytes.get_mut(TIMESTAMP_OFFSET * 2) {
+                        *byte = b'-'
+                    }
+                    if let Some(dst) = bytes.get_mut(TIMESTAMP_OFFSET * 2 + 1..OPERATION_ID_OFFSET * 2 + 1) {
+                        self.encode_part(dst, 1)
+                    }
+                    if let Some(byte) = bytes.get_mut(OPERATION_ID_OFFSET * 2 + 1) {
+                        *byte = b'-'
+                    }
+                    if let Some(dst) = bytes.get_mut(OPERATION_ID_OFFSET * 2 + 2..OPERATION_ID_MAX * 2 + 2) {
+                        self.encode_part(dst, 2)
+                    }
+                })
+                .and_then(|_| std::str::from_utf8(vec.as_slice()).ok())
+                .expect("Encode should never produce non-ascii chars");
+
+            f.write_str(str)
         }
     }
 
@@ -332,17 +339,17 @@ pub mod operation {
                 split.next().ok_or_else(|| ParseError::MissingSegment)?,
                 &mut bytes[SERVER_ID_OFFSET..TIMESTAMP_OFFSET],
             )
-            .map_err(|e| ParseError::InvalidHex(e))?;
+            .map_err(ParseError::InvalidHex)?;
             hex::decode_to_slice(
                 split.next().ok_or_else(|| ParseError::MissingSegment)?,
                 &mut bytes[TIMESTAMP_OFFSET..OPERATION_ID_OFFSET],
             )
-            .map_err(|e| ParseError::InvalidHex(e))?;
+            .map_err(ParseError::InvalidHex)?;
             hex::decode_to_slice(
                 split.next().ok_or_else(|| ParseError::MissingSegment)?,
                 &mut bytes[OPERATION_ID_OFFSET..OPERATION_ID_MAX],
             )
-            .map_err(|e| ParseError::InvalidHex(e))?;
+            .map_err(ParseError::InvalidHex)?;
 
             Ok(OperationId { bytes })
         }
@@ -361,14 +368,14 @@ pub mod operation {
         where
             E: serde::de::Error,
         {
-            v.parse::<OperationId>().map_err(|e| serde::de::Error::custom(e))
+            v.parse::<OperationId>().map_err(serde::de::Error::custom)
         }
 
         fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
         where
             E: serde::de::Error,
         {
-            v.parse::<OperationId>().map_err(|e| serde::de::Error::custom(e))
+            v.parse::<OperationId>().map_err(serde::de::Error::custom)
         }
     }
 
@@ -397,12 +404,12 @@ pub mod operation {
 
         #[test]
         pub fn operation_with_part() {
-            let op_id = OperationId::with_part(1, 1530000000, 12);
+            let op_id = OperationId::with_part(1, 1_530_000_000, 12);
 
             assert_eq!(op_id.server_id(), 1);
-            assert_eq!(op_id.timestamp(), 1530000000);
+            assert_eq!(op_id.timestamp(), 1_530_000_000);
             assert_eq!(op_id.count(), 12);
-            assert_eq!(op_id.to_u128(), 15950735949419599405423994206418894848);
+            assert_eq!(op_id.to_u128(), 15_950_735_949_419_599_405_423_994_206_418_894_848);
 
             let str_id = op_id.to_string();
             let mut split = str_id.split('-');
@@ -418,9 +425,9 @@ pub mod operation {
             let op_id = OperationId::from_str("00000001-00005b31f280-00000000000c").unwrap();
 
             assert_eq!(op_id.server_id(), 1);
-            assert_eq!(op_id.timestamp(), 1530000000);
+            assert_eq!(op_id.timestamp(), 1_530_000_000);
             assert_eq!(op_id.count(), 12);
-            assert_eq!(op_id.to_u128(), 15950735949419599405423994206418894848);
+            assert_eq!(op_id.to_u128(), 15_950_735_949_419_599_405_423_994_206_418_894_848);
         }
     }
 }

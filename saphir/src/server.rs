@@ -651,20 +651,16 @@ mod ssl_loading_utils {
     fn extract_der_data<A>(mut data: String, start_mark: &str, end_mark: &str, f: &dyn Fn(Vec<u8>) -> A) -> Result<Vec<A>, ()> {
         let mut ders = Vec::new();
 
-        loop {
-            if let Some(start_index) = data.find(start_mark) {
-                let drain_index = start_index + start_mark.len();
-                data.drain(..drain_index);
-                if let Some(index) = data.find(end_mark) {
-                    let base64_buf = &data[..index];
-                    let der = base64::decode(&base64_buf).map_err(|_| ())?;
-                    ders.push(f(der));
+        while let Some(start_index) = data.find(start_mark) {
+            let drain_index = start_index + start_mark.len();
+            data.drain(..drain_index);
+            if let Some(index) = data.find(end_mark) {
+                let base64_buf = &data[..index];
+                let der = base64::decode(&base64_buf).map_err(|_| ())?;
+                ders.push(f(der));
 
-                    let drain_index = index + end_mark.len();
-                    data.drain(..drain_index);
-                } else {
-                    break;
-                }
+                let drain_index = index + end_mark.len();
+                data.drain(..drain_index);
             } else {
                 break;
             }

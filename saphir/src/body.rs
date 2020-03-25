@@ -155,6 +155,12 @@ pub mod json {
 
     pub struct Json<T>(pub T);
 
+    impl<T> Json<T> {
+        pub fn unwrap(self) -> T {
+            self.0
+        }
+    }
+
     impl<T> Deref for Json<T> {
         type Target = T;
 
@@ -183,12 +189,6 @@ pub mod json {
             Ok(serde_json::from_slice(bytes.as_ref())?)
         }
     }
-
-    impl<T> From<Json<T>> for T {
-        fn from(j: Json<T>) -> Self {
-            j.0
-        }
-    }
 }
 
 #[cfg(feature = "form")]
@@ -199,6 +199,12 @@ pub mod form {
     use std::ops::{Deref, DerefMut};
 
     pub struct Form<T>(pub T);
+
+    impl<T> Form<T> {
+        pub fn unwrap(self) -> T {
+            self.0
+        }
+    }
 
     impl<T> Deref for Form<T> {
         type Target = T;
@@ -226,12 +232,6 @@ pub mod form {
             Self: Sized,
         {
             Ok(serde_urlencoded::from_bytes(bytes.as_ref())?)
-        }
-    }
-
-    impl<T> From<Form<T>> for T {
-        fn from(j: Form<T>) -> Self {
-            j.0
         }
     }
 }

@@ -34,6 +34,8 @@ impl State {
     }
 
     /// Take the current request leaving `State::Empty` behind
+    ///
+    /// # Panics
     /// Panics if the state is not `Before`
     pub fn take_request_unchecked(&mut self) -> Request {
         match std::mem::take(self) {
@@ -53,6 +55,8 @@ impl State {
     }
 
     /// Take the current response leaving `State::Empty` behind
+    ///
+    /// # Panics
     /// Panics if the state is not `After`
     pub fn take_response_unchecked(&mut self) -> Response {
         match std::mem::take(self) {
@@ -78,7 +82,10 @@ impl State {
         }
     }
 
-    /// Returns the current request, panics if state is not `Before`
+    /// Returns the current request
+    ///
+    /// # Panics
+    /// Panics if state is not `Before`
     pub fn request_unchecked(&self) -> &Request {
         match self {
             State::Before(r) => r,
@@ -86,8 +93,10 @@ impl State {
         }
     }
 
-    /// Returns the current request as a mutable ref, panics if state is not
-    /// `Before`
+    /// Returns the current request as a mutable ref
+    ///
+    /// # Panics
+    /// panics if state is not `Before`
     pub fn request_unchecked_mut(&mut self) -> &mut Request {
         match self {
             State::Before(r) => r,
@@ -112,7 +121,10 @@ impl State {
         }
     }
 
-    /// Returns the current response, panics if state is not `After`
+    /// Returns the current response
+    ///
+    /// # Panics
+    /// Panics if state is not `After`
     pub fn response_unchecked(&self) -> &Response {
         match self {
             State::After(r) => r,
@@ -120,8 +132,10 @@ impl State {
         }
     }
 
-    /// Returns the current response as a mutable ref, panics if state is not
-    /// `After`
+    /// Returns the current response as a mutable ref
+    ///
+    /// # Panics
+    /// Panics if state is not `After`
     pub fn response_unchecked_mut(&mut self) -> &mut Response {
         match self {
             State::After(r) => r,

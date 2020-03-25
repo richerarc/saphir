@@ -1,4 +1,5 @@
 #![allow(clippy::trivially_copy_pass_by_ref)]
+#![allow(clippy::ptr_arg)]
 #[macro_use]
 extern crate log;
 

@@ -508,7 +508,6 @@ mod ssl_loading_utils {
         stream::Stream,
         task::{Context, Poll},
     };
-    use rustls;
     use tokio::io::{AsyncRead, AsyncWrite};
 
     use crate::server::SslConfig;

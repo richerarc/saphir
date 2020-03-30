@@ -87,17 +87,16 @@ impl<Chain: MiddlewareChain + 'static> Builder<Chain> {
     /// # use saphir::prelude::*;
     ///
     /// # async fn log_middleware(
-    /// #     prefix: &String,
     /// #     ctx: HttpContext,
     /// #     chain: &dyn MiddlewareChain,
     /// # ) -> Result<HttpContext, SaphirError> {
-    /// #     println!("{} | new request on path: {}", prefix, ctx.state.request_unchecked().uri().path());
+    /// #     println!("new request on path: {}", ctx.state.request_unchecked().uri().path());
     /// #     let ctx = chain.next(ctx).await?;
-    /// #     println!("{} | new response with status: {}", prefix, ctx.state.response_unchecked().status());
+    /// #     println!("new response with status: {}", ctx.state.response_unchecked().status());
     /// #     Ok(ctx)
     /// # }
     /// #
-    /// let builder = MBuilder::default().apply(log_middleware, "LOG".to_string(), vec!["/"], None);
+    /// let builder = MBuilder::default().apply(log_middleware, vec!["/"], None);
     /// ```
     // pub fn apply<'a, Data, Handler, E>(
     //     self,

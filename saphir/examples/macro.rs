@@ -2,6 +2,7 @@
 #![allow(clippy::ptr_arg)]
 use serde_derive::{Deserialize, Serialize};
 
+use saphir::file::File;
 use saphir::prelude::*;
 
 fn guard_string(_controller: &UserController) -> String {
@@ -66,6 +67,14 @@ impl UserController {
 
         (200, format!("Multipart form data image saved on disk: {}", multipart_image_count))
     }
+
+    #[get("/file")]
+    async fn file(&self, _req: Request<Body<Vec<u8>>>) -> (u16, Option<File>) {
+        match File::open("/path/to/file").await {
+            Ok(file) => (200, Some(file)),
+            Err(_) => (500, None),
+        }
+    }
 }
 
 #[tokio::main]
@@ -73,7 +82,7 @@ async fn main() -> Result<(), SaphirError> {
     env_logger::init();
 
     let server = Server::builder()
-        .configure_listener(|l| l.interface("127.0.0.1:3000").server_name("MacroExample"))
+        .configure_listener(|l| l.interface("127.0.0.1:3000").server_name("MacroExample").request_timeout(None))
         .configure_router(|r| r.controller(UserController {}))
         .build();
 

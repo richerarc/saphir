@@ -13,18 +13,19 @@ license = "MIT"
 
 [features]
 default = ["macro"]
-full = ["macro", "json", "form", "https", "multipart", "operation"]
+full = ["macro", "json", "form", "https", "multipart", "operation", "file"]
 https = ["base64", "rustls", "tokio-rustls"]
 json = ["serde", "serde_json"]
 form = ["serde", "serde_urlencoded"]
 macro = ["saphir_macro"]
 multipart = ["mime", "nom"]
 operation = ["hex", "rand", "serde"]
+file = ["mime", "mime_guess"]
 
 [dependencies]
 log = "0.4"
 hyper = { version = "0.13", features = ["stream"] }
-tokio = { version = "0.2", features = ["full"] }
+tokio = { version = "0.2.13", features = ["full"] }
 futures = "0.3"
 futures-util = "0.3"
 tower-service = "0.3"
@@ -44,6 +45,7 @@ mime = { version = "0.3", optional = true }
 nom = { version = "5", optional = true }
 hex = { version = "0.4", optional = true }
 rand = { version = "0.7.3", optional = true }
+mime_guess = { version = "2.0.3", optional = true }
 
 [dev-dependencies]
 tokio-timer = "0.2.13"

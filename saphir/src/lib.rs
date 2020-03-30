@@ -77,6 +77,9 @@ pub mod controller;
 /// Error definitions
 pub mod error;
 ///
+#[cfg(feature = "file")]
+pub mod file;
+///
 pub mod guard;
 /// Definition of types which can handle an http request
 pub mod handler;

@@ -1,9 +1,10 @@
-#![allow(clippy::trivially_copy_pass_by_ref)]
-#![allow(clippy::ptr_arg)]
 #[macro_use]
 extern crate log;
 
-use futures::future::Ready;
+use futures::{
+    future::{BoxFuture, Ready},
+    FutureExt,
+};
 use saphir::prelude::*;
 use serde_derive::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -138,7 +139,7 @@ impl StatsData {
         }
     }
 
-    async fn stats_middleware(&self, ctx: HttpContext, chain: &dyn MiddlewareChain) -> Result<HttpContext, SaphirError> {
+    async fn stats(&self, ctx: HttpContext, chain: &dyn MiddlewareChain) -> Result<HttpContext, SaphirError> {
         #[cfg(feature = "operation")]
         {
             let mut entered = self.entered.write().await;
@@ -167,10 +168,16 @@ impl StatsData {
     }
 }
 
-async fn log_middleware(prefix: &String, ctx: HttpContext, chain: &dyn MiddlewareChain) -> Result<HttpContext, SaphirError> {
-    info!("{} | new request on path: {}", prefix, ctx.state.request_unchecked().uri().path());
+impl Middleware for StatsData {
+    fn next(&'static self, ctx: HttpContext, chain: &'static dyn MiddlewareChain) -> BoxFuture<'static, Result<HttpContext, SaphirError>> {
+        self.stats(ctx, chain).boxed()
+    }
+}
+
+async fn log_middleware(ctx: HttpContext, chain: &'static dyn MiddlewareChain) -> Result<HttpContext, SaphirError> {
+    info!("new request on path: {}", ctx.state.request_unchecked().uri().path());
     let ctx = chain.next(ctx).await?;
-    info!("{} | new response with status: {}", prefix, ctx.state.response_unchecked().status());
+    info!("new response with status: {}", ctx.state.response_unchecked().status());
     Ok(ctx)
 }
 
@@ -208,6 +215,7 @@ async fn forbidden_guard(data: &ForbidderData, req: Request<Body>) -> Result<Req
     }
 }
 
+#[allow(clippy::trivially_copy_pass_by_ref)]
 async fn numeric_delay_guard(_: &(), req: Request<Body>) -> Result<Request<Body>, &'static str> {
     if req.captures().get("delay").and_then(|v| v.parse::<u64>().ok()).is_some() {
         Ok(req)
@@ -231,10 +239,7 @@ async fn main() -> Result<(), SaphirError> {
                 })
                 .controller(MagicController::new("Just Like Magic!"))
         })
-        .configure_middlewares(|m| {
-            m.apply(log_middleware, "LOG".to_string(), vec!["/**/*.html"], None)
-                .apply(StatsData::stats_middleware, StatsData::new(), vec!["/"], None)
-        })
+        .configure_middlewares(|m| m.apply(log_middleware, vec!["/**/*.html"], None).apply(StatsData::new(), vec!["/"], None))
         .build();
 
     server.run().await

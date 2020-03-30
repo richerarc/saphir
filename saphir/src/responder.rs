@@ -88,6 +88,12 @@ impl Responder for StatusCode {
     }
 }
 
+impl Responder for () {
+    fn respond_with_builder(self, builder: Builder, _ctx: &HttpContext) -> Builder {
+        builder.status(200)
+    }
+}
+
 impl<T: Responder> Responder for Option<T> {
     fn respond_with_builder(self, builder: Builder, ctx: &HttpContext) -> Builder {
         if let Some(r) = self {

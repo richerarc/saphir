@@ -1,13 +1,12 @@
-#![allow(clippy::trivially_copy_pass_by_ref)]
-#![allow(clippy::ptr_arg)]
-use serde_derive::{Deserialize, Serialize};
-
+use log::info;
 use saphir::prelude::*;
+use serde_derive::{Deserialize, Serialize};
 
 fn guard_string(_controller: &UserController) -> String {
     UserController::BASE_PATH.to_string()
 }
 
+#[allow(clippy::ptr_arg)]
 async fn print_string_guard(string: &String, req: Request<Body>) -> Result<Request<Body>, &'static str> {
     println!("{}", string);
 
@@ -68,12 +67,38 @@ impl UserController {
     }
 }
 
+struct ApiKeyMiddleware(String);
+
+#[middleware]
+impl ApiKeyMiddleware {
+    pub fn new(api_key: &str) -> Self {
+        ApiKeyMiddleware(api_key.to_string())
+    }
+
+    async fn next(&self, ctx: HttpContext, chain: &dyn MiddlewareChain) -> Result<HttpContext, SaphirError> {
+        if let Some(Ok("Bearer secure-key")) = ctx
+            .state
+            .request_unchecked()
+            .headers()
+            .get(header::AUTHORIZATION)
+            .map(|auth_value| auth_value.to_str())
+        {
+            info!("Authenticated");
+        } else {
+            info!("Not Authenticated");
+        }
+
+        chain.next(ctx).await
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), SaphirError> {
     env_logger::init();
 
     let server = Server::builder()
         .configure_listener(|l| l.interface("127.0.0.1:3000").server_name("MacroExample"))
+        .configure_middlewares(|m| m.apply(ApiKeyMiddleware::new("secure-key"), vec!["/"], None))
         .configure_router(|r| r.controller(UserController {}))
         .build();
 

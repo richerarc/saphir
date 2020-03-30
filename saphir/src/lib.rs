@@ -143,7 +143,9 @@ pub mod prelude {
     pub use crate::http_context::HttpContext;
     ///
     #[cfg(feature = "macro")]
-    pub use crate::macros::controller;
+    pub use crate::macros::*;
+    ///
+    pub use crate::middleware::Middleware;
     ///
     pub use crate::middleware::MiddlewareChain;
     ///

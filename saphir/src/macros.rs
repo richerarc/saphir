@@ -40,4 +40,5 @@
 //!   the data that will be passed to the guard function. this function takes a
 //!   reference of the controller type it is used in.
 
-pub use saphir_macro::controller;
+pub use futures::future::{BoxFuture, FutureExt};
+pub use saphir_macro::{controller, middleware};

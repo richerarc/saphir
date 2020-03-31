@@ -177,6 +177,16 @@ impl HttpContext {
         let router = Some(router);
         HttpContext { state, router, operation_id }
     }
+
+    /// Explicitly set the inner state to `Before` with the given response
+    pub fn before(&mut self, request: Request) {
+        self.state = State::Before(Box::new(request))
+    }
+
+    /// Explicitly set the inner state to `After` with the given response
+    pub fn after(&mut self, response: Response) {
+        self.state = State::After(Box::new(response))
+    }
 }
 
 #[cfg(feature = "operation")]

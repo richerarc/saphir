@@ -1,10 +1,11 @@
 use std::str::FromStr;
 
 use http::Method;
-use proc_macro2::Ident;
+use proc_macro2::{Ident, Span, TokenStream};
+use quote::quote;
 use syn::{
-    Attribute, Error, FnArg, GenericArgument, ImplItem, ImplItemMethod, ItemImpl, Lit, Meta, MetaNameValue, NestedMeta, Pat, PatIdent, PatType, Path,
-    PathArguments, PathSegment, Result, ReturnType, Type, TypePath,
+    export::ToTokens, Attribute, Error, Expr, FnArg, GenericArgument, ImplItem, ImplItemMethod, ItemImpl, Lit, Meta, MetaNameValue, NestedMeta, Pat, PatIdent,
+    PatType, Path, PathArguments, PathSegment, Result, ReturnType, Type, TypePath,
 };
 
 #[derive(Clone, Debug)]
@@ -255,9 +256,49 @@ impl HandlerWrapperOpt {
 }
 
 #[derive(Clone)]
+pub struct GuardDef {
+    pub guard_type: Path,
+    pub init_data: Option<Lit>,
+    pub init_expr: Option<Expr>,
+    pub init_fn: Option<Path>,
+}
+
+impl ToTokens for GuardDef {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let guard_type = &self.guard_type;
+        (quote! {let guard:#guard_type = }).to_tokens(tokens);
+        if let Some(init_fn) = self.init_fn.as_ref() {
+            init_fn.to_tokens(tokens);
+        } else {
+            (quote! {#guard_type::new}).to_tokens(tokens);
+        }
+
+        let paren = syn::token::Paren { span: Span::call_site() };
+
+        paren.surround(tokens, |t| {
+            if self.init_fn.is_some() {
+                (quote! {self}).to_tokens(t);
+                if self.init_expr.is_some() || self.init_data.is_some() {
+                    syn::token::Comma { spans: [Span::call_site()] }.to_tokens(t);
+                }
+            }
+
+            if let Some(init_expr) = self.init_expr.as_ref() {
+                syn::token::Brace { span: Span::call_site() }.surround(t, |t2| {
+                    init_expr.to_tokens(t2);
+                });
+            } else if let Some(init_data) = self.init_data.as_ref() {
+                init_data.to_tokens(t);
+            }
+        });
+        syn::token::Semi { spans: [Span::call_site()] }.to_tokens(tokens);
+    }
+}
+
+#[derive(Clone)]
 pub struct HandlerAttrs {
     pub methods_paths: Vec<(Method, String)>,
-    pub guards: Vec<(Path, Option<Path>)>,
+    pub guards: Vec<GuardDef>,
     pub cookie: bool,
 }
 
@@ -299,38 +340,61 @@ impl HandlerAttrs {
                 Meta::List(l) => {
                     if let Some(ident) = l.path.get_ident() {
                         if ident.to_string().eq("guard") {
-                            let mut fn_path = None;
-                            let mut data_path = None;
+                            let mut guard_type_path = None;
+                            let mut init_fn = None;
+                            let mut init_data = None;
+                            let mut init_expr = None;
 
                             for n in l.nested {
-                                if let NestedMeta::Meta(Meta::NameValue(MetaNameValue { path, lit: Lit::Str(l), .. })) = n {
+                                if let NestedMeta::Meta(Meta::NameValue(MetaNameValue { path, lit, .. })) = n {
                                     let path = path
                                         .segments
                                         .first()
                                         .ok_or_else(|| Error::new_spanned(&path, "Missing parameters in guard attributes"))?;
                                     match path.ident.to_string().as_str() {
-                                        "fn" => {
-                                            fn_path = Some(
-                                                syn::parse_str::<Path>(l.value().as_str())
-                                                    .map_err(|_e| Error::new_spanned(path, "Expected path to a guard function"))?,
-                                            );
+                                        "init_fn" => {
+                                            if let Lit::Str(lit_str) = lit {
+                                                init_fn = Some(
+                                                    syn::parse_str::<Path>(lit_str.value().as_str())
+                                                        .map_err(|_e| Error::new_spanned(path, "Expected path to a guard function"))?,
+                                                );
+                                            } else {
+                                                return Err(Error::new_spanned(lit, "Expected path to a guard function"));
+                                            }
                                         }
 
-                                        "data" => {
-                                            data_path = Some(
-                                                syn::parse_str::<Path>(l.value().as_str())
-                                                    .map_err(|_e| Error::new_spanned(path, "Expected path to a guard initializer function"))?,
-                                            );
+                                        "init_data" => {
+                                            init_data = Some(lit);
+                                        }
+
+                                        "init_expr" => {
+                                            if let Lit::Str(lit_str) = lit {
+                                                init_expr = Some(
+                                                    syn::parse_str::<Expr>(lit_str.value().as_str())
+                                                        .map_err(|_e| Error::new_spanned(path, "Expected a valid rust expression"))?,
+                                                );
+                                            } else {
+                                                return Err(Error::new_spanned(lit, "Expected a string of a valid rust expression"));
+                                            }
                                         }
 
                                         _ => {
                                             return Err(Error::new_spanned(path, "Unauthorized param in guard macro"));
                                         }
                                     }
+                                } else if let NestedMeta::Meta(Meta::Path(p)) = n {
+                                    guard_type_path = Some(p);
                                 }
                             }
 
-                            guards.push((fn_path.ok_or_else(|| Error::new_spanned(&ident, "Missing guard function"))?, data_path));
+                            let guard = GuardDef {
+                                guard_type: guard_type_path.ok_or_else(|| Error::new_spanned(&ident, "Missing guard"))?,
+                                init_data,
+                                init_fn,
+                                init_expr,
+                            };
+
+                            guards.push(guard);
                         } else {
                             let method =
                                 Method::from_str(ident.to_string().to_uppercase().as_str()).map_err(|_e| Error::new_spanned(ident, "Invalid HTTP method"))?;

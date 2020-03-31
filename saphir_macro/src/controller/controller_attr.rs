@@ -1,6 +1,6 @@
-use crate::handler::{HandlerAttrs, HandlerRepr};
+use crate::controller::handler::{HandlerAttrs, HandlerRepr};
 use proc_macro2::{Ident, TokenStream};
-use syn::{AttributeArgs, Error, ItemImpl, Lit, Meta, MetaNameValue, NestedMeta, Result, Type};
+use syn::{AttributeArgs, Error, ItemImpl, Lit, Meta, MetaNameValue, NestedMeta, Result};
 
 use quote::quote;
 use syn::export::ToTokens;
@@ -19,7 +19,7 @@ impl ControllerAttr {
         let mut version = None;
         let mut prefix = None;
 
-        let ident = parse_controller_ident(input)?;
+        let ident = crate::utils::parse_item_impl_ident(input)?;
 
         for m in args.into_iter().filter_map(|a| if let NestedMeta::Meta(m) = a { Some(m) } else { None }) {
             match m {
@@ -60,16 +60,6 @@ impl ControllerAttr {
 
         Ok(ControllerAttr { ident, name, version, prefix })
     }
-}
-
-fn parse_controller_ident(input: &ItemImpl) -> Result<Ident> {
-    if let Type::Path(p) = input.self_ty.as_ref() {
-        if let Some(f) = p.path.segments.first() {
-            return Ok(f.ident.clone());
-        }
-    }
-
-    Err(Error::new_spanned(input, "Unable to parse impl ident. this is fatal"))
 }
 
 pub fn gen_controller_trait_implementation(attrs: &ControllerAttr, handlers: &[HandlerRepr]) -> TokenStream {
@@ -129,18 +119,12 @@ fn gen_controller_handlers_fn(attr: &ControllerAttr, handlers: &[HandlerRepr]) -
             } else {
                 let mut guard_stream = TokenStream::new();
 
-                for (fn_path, data) in guards {
-                    let guard_e = if let Some(data) = data {
-                        quote! {
-                            let g = g.add(#fn_path, #data(self));
-                        }
-                    } else {
-                        quote! {
-                            let g = g.add(#fn_path, ());
-                        }
-                    };
-
-                    guard_e.to_tokens(&mut guard_stream);
+                for guard_def in guards {
+                    guard_def.to_tokens(&mut guard_stream);
+                    (quote! {
+                        let g = g.apply(guard);
+                    })
+                    .to_tokens(&mut guard_stream);
                 }
 
                 let handler_e = quote! {

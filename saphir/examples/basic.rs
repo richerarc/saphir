@@ -1,9 +1,10 @@
-#![allow(clippy::trivially_copy_pass_by_ref)]
-#![allow(clippy::ptr_arg)]
 #[macro_use]
 extern crate log;
 
-use futures::future::Ready;
+use futures::{
+    future::{BoxFuture, Ready},
+    FutureExt,
+};
 use saphir::prelude::*;
 use serde_derive::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -40,9 +41,7 @@ impl Controller for MagicController {
         let b = b.add(Method::GET, "/form", MagicController::get_user_form);
 
         b.add(Method::GET, "/delay/{delay}", MagicController::magic_delay)
-            .add_with_guards(Method::GET, "/guarded/{delay}", MagicController::magic_delay, |g| {
-                g.add(numeric_delay_guard, ())
-            })
+            .add_with_guards(Method::GET, "/guarded/{delay}", MagicController::magic_delay, |g| g.apply(numeric_delay_guard))
             .add(Method::GET, "/", magic_handler)
             .add(Method::POST, "/", MagicController::read_body)
             .add(Method::GET, "/match/*/**", MagicController::match_any_route)
@@ -138,7 +137,7 @@ impl StatsData {
         }
     }
 
-    async fn stats_middleware(&self, ctx: HttpContext, chain: &dyn MiddlewareChain) -> Result<HttpContext, SaphirError> {
+    async fn stats(&self, ctx: HttpContext, chain: &dyn MiddlewareChain) -> Result<HttpContext, SaphirError> {
         #[cfg(feature = "operation")]
         {
             let mut entered = self.entered.write().await;
@@ -167,10 +166,16 @@ impl StatsData {
     }
 }
 
-async fn log_middleware(prefix: &String, ctx: HttpContext, chain: &dyn MiddlewareChain) -> Result<HttpContext, SaphirError> {
-    info!("{} | new request on path: {}", prefix, ctx.state.request_unchecked().uri().path());
+impl Middleware for StatsData {
+    fn next(&'static self, ctx: HttpContext, chain: &'static dyn MiddlewareChain) -> BoxFuture<'static, Result<HttpContext, SaphirError>> {
+        self.stats(ctx, chain).boxed()
+    }
+}
+
+async fn log_middleware(ctx: HttpContext, chain: &'static dyn MiddlewareChain) -> Result<HttpContext, SaphirError> {
+    info!("new request on path: {}", ctx.state.request_unchecked().uri().path());
     let ctx = chain.next(ctx).await?;
-    info!("{} | new response with status: {}", prefix, ctx.state.response_unchecked().status());
+    info!("new response with status: {}", ctx.state.response_unchecked().status());
     Ok(ctx)
 }
 
@@ -198,17 +203,26 @@ impl ForbidderData {
             None
         }
     }
-}
 
-async fn forbidden_guard(data: &ForbidderData, req: Request<Body>) -> Result<Request<Body>, u16> {
-    if req.captures().get("variable").and_then(|v| data.filter_forbidden(v)).is_some() {
-        Err(403)
-    } else {
-        Ok(req)
+    async fn forbidden_guard(&self, req: Request<Body>) -> Result<Request<Body>, u16> {
+        if req.captures().get("variable").and_then(|v| self.filter_forbidden(v)).is_some() {
+            Err(403)
+        } else {
+            Ok(req)
+        }
     }
 }
 
-async fn numeric_delay_guard(_: &(), req: Request<Body>) -> Result<Request<Body>, &'static str> {
+impl Guard for ForbidderData {
+    type Future = BoxFuture<'static, Result<Request, Self::Responder>>;
+    type Responder = u16;
+
+    fn validate(&'static self, req: Request<Body<Bytes>>) -> Self::Future {
+        self.forbidden_guard(req).boxed()
+    }
+}
+
+async fn numeric_delay_guard(req: Request<Body>) -> Result<Request<Body>, &'static str> {
     if req.captures().get("delay").and_then(|v| v.parse::<u64>().ok()).is_some() {
         Ok(req)
     } else {
@@ -226,15 +240,11 @@ async fn main() -> Result<(), SaphirError> {
             r.route("/", Method::GET, hello_world)
                 .route("/{variable}/print", Method::GET, test_handler)
                 .route_with_guards("/{variable}/guarded_print", Method::GET, test_handler, |g| {
-                    g.add(forbidden_guard, ForbidderData { forbidden: "forbidden" })
-                        .add(forbidden_guard, ForbidderData { forbidden: "password" })
+                    g.apply(ForbidderData { forbidden: "forbidden" }).apply(ForbidderData { forbidden: "password" })
                 })
                 .controller(MagicController::new("Just Like Magic!"))
         })
-        .configure_middlewares(|m| {
-            m.apply(log_middleware, "LOG".to_string(), vec!["/**/*.html"], None)
-                .apply(StatsData::stats_middleware, StatsData::new(), vec!["/"], None)
-        })
+        .configure_middlewares(|m| m.apply(log_middleware, vec!["/**/*.html"], None).apply(StatsData::new(), vec!["/"], None))
         .build();
 
     server.run().await

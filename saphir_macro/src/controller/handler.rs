@@ -197,7 +197,7 @@ impl HandlerWrapperOpt {
                             } else {
                                 None
                             }
-                        },
+                        }
                         // Type<_> of Type
                         Some((_, PathArguments::AngleBracketed(_))) => {
                             need_body_load = true;

@@ -29,9 +29,9 @@ struct UserController {}
 #[controller(name = "users", version = 1, prefix = "api")]
 impl UserController {
     // #[get("/<user_id>")]
-    // async fn get_user(&self, user_id: String, action: Option<u16>) -> (u16, String) {
-    //     (200, format!("user_id: {}, action: {:?}", user_id, action))
-    // }
+    // async fn get_user(&self, user_id: String, action: Option<u16>) -> (u16,
+    // String) {     (200, format!("user_id: {}, action: {:?}", user_id,
+    // action)) }
     //
     // #[post("/json")]
     // async fn post_user_json(&self, user: Json<User>) -> (u16, Json<User>) {
@@ -68,8 +68,8 @@ impl UserController {
     //         }
     //     }
     //
-    //     (200, format!("Multipart form data image saved on disk: {}", multipart_image_count))
-    // }
+    //     (200, format!("Multipart form data image saved on disk: {}",
+    // multipart_image_count)) }
 }
 
 struct ApiKeyMiddleware(String);

@@ -194,12 +194,10 @@ pub mod operation {
     use hex::encode_to_slice;
     use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
     use std::{
-        fmt::{Display, Formatter},
+        fmt::{Debug, Display, Formatter},
         str::FromStr,
         sync::atomic::AtomicU64,
     };
-    use std::fmt::Debug;
-    use nom::lib::std::fmt::Error;
 
     const SERVER_ID_OFFSET: usize = 0;
     const TIMESTAMP_OFFSET: usize = 4;
@@ -345,7 +343,7 @@ pub mod operation {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             match self {
                 ParseError::MissingSegment => f.write_str("Missing Segment"),
-                ParseError::InvalidHex(e) => e.fmt(f),
+                ParseError::InvalidHex(e) => std::fmt::Display::fmt(e, f),
             }
         }
     }

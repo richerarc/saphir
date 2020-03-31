@@ -136,6 +136,8 @@ pub mod prelude {
     ///
     pub use crate::error::SaphirError;
     ///
+    pub use crate::guard::Guard;
+    ///
     pub use crate::handler::Handler;
     #[cfg(feature = "operation")]
     pub use crate::http_context::operation::OperationId;
@@ -144,8 +146,6 @@ pub mod prelude {
     ///
     #[cfg(feature = "macro")]
     pub use crate::macros::*;
-    ///
-    pub use crate::guard::Guard;
     ///
     pub use crate::middleware::Middleware;
     ///

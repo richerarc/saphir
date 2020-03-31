@@ -7,6 +7,7 @@ use proc_macro::TokenStream as TokenStream1;
 use syn::{parse_macro_input, AttributeArgs, ItemImpl};
 
 mod controller;
+mod guard;
 mod middleware;
 mod utils;
 
@@ -66,6 +67,15 @@ pub fn middleware(_args: TokenStream1, input: TokenStream1) -> TokenStream1 {
     let input = parse_macro_input!(input as ItemImpl);
 
     let expanded = middleware::expand_middleware(input).unwrap_or_else(|e| e.to_compile_error());
+
+    TokenStream1::from(expanded)
+}
+
+#[proc_macro_attribute]
+pub fn guard(_args: TokenStream1, input: TokenStream1) -> TokenStream1 {
+    let input = parse_macro_input!(input as ItemImpl);
+
+    let expanded = guard::expand_guard(input).unwrap_or_else(|e| e.to_compile_error());
 
     TokenStream1::from(expanded)
 }

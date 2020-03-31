@@ -6,37 +6,16 @@ struct PrintGuard {
     inner: String,
 }
 
+#[guard]
 impl PrintGuard {
     pub fn new(inner: &str) -> Self {
-        PrintGuard {
-            inner: inner.to_string()
-        }
+        PrintGuard { inner: inner.to_string() }
     }
 
-    async fn guard(&self, req: Request) -> Result<Request, u16> {
+    async fn validate(&self, req: Request) -> Result<Request, u16> {
         println!("{}", self.inner);
         Ok(req)
     }
-}
-
-impl Guard for PrintGuard {
-    type Future = BoxFuture<'static, Result<Request, u16>>;
-    type Responder = u16;
-
-    fn validate(&'static self, req: Request<Body<Bytes>>) -> Self::Future {
-        self.guard(req).boxed()
-    }
-}
-
-fn print_guard_init(_controller: &UserController) -> PrintGuard {
-    PrintGuard::new(UserController::BASE_PATH)
-}
-
-#[allow(clippy::ptr_arg)]
-async fn print_string_guard(string: &String, req: Request<Body>) -> Result<Request<Body>, &'static str> {
-    println!("{}", string);
-
-    Ok(req)
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -74,7 +53,6 @@ impl UserController {
     }
 
     #[get("/")]
-    // #[guard(PrintGuard, init_fn = "print_guard_init")]
     #[guard(PrintGuard, init_expr = "UserController::BASE_PATH")]
     async fn list_user(&self, _req: Request<Body<Vec<u8>>>) -> (u16, String) {
         (200, "Yo".to_string())

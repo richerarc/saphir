@@ -41,4 +41,4 @@
 //!   reference of the controller type it is used in.
 
 pub use futures::future::{BoxFuture, FutureExt};
-pub use saphir_macro::{controller, middleware};
+pub use saphir_macro::{controller, guard, middleware};

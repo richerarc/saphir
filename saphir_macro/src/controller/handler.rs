@@ -1,10 +1,12 @@
 use std::str::FromStr;
 
 use http::Method;
-use proc_macro2::{Ident, TokenStream, Span};
-use syn::{Attribute, Error, FnArg, GenericArgument, ImplItem, ImplItemMethod, ItemImpl, Lit, Meta, MetaNameValue, NestedMeta, Pat, PatIdent, PatType, Path, PathArguments, PathSegment, Result, ReturnType, Type, TypePath, Expr};
+use proc_macro2::{Ident, Span, TokenStream};
 use quote::quote;
-use syn::export::ToTokens;
+use syn::{
+    export::ToTokens, Attribute, Error, Expr, FnArg, GenericArgument, ImplItem, ImplItemMethod, ItemImpl, Lit, Meta, MetaNameValue, NestedMeta, Pat, PatIdent,
+    PatType, Path, PathArguments, PathSegment, Result, ReturnType, Type, TypePath,
+};
 
 #[derive(Clone, Debug)]
 pub enum MapAfterLoad {
@@ -277,7 +279,7 @@ impl ToTokens for GuardDef {
             if self.init_fn.is_some() {
                 (quote! {self}).to_tokens(t);
                 if self.init_expr.is_some() || self.init_data.is_some() {
-                    syn::token::Comma{ spans: [Span::call_site()] }.to_tokens(t);
+                    syn::token::Comma { spans: [Span::call_site()] }.to_tokens(t);
                 }
             }
 
@@ -389,7 +391,7 @@ impl HandlerAttrs {
                                 guard_type: guard_type_path.ok_or_else(|| Error::new_spanned(&ident, "Missing guard"))?,
                                 init_data,
                                 init_fn,
-                                init_expr
+                                init_expr,
                             };
 
                             guards.push(guard);

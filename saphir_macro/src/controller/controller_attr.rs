@@ -122,8 +122,9 @@ fn gen_controller_handlers_fn(attr: &ControllerAttr, handlers: &[HandlerRepr]) -
                 for guard_def in guards {
                     guard_def.to_tokens(&mut guard_stream);
                     (quote! {
-                        let g = g.add(guard);
-                    }).to_tokens(&mut guard_stream);
+                        let g = g.apply(guard);
+                    })
+                    .to_tokens(&mut guard_stream);
                 }
 
                 let handler_e = quote! {

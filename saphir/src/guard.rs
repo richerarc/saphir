@@ -46,15 +46,12 @@ impl Default for Builder<GuardChainEnd> {
 }
 
 impl<Chain: GuardChain + 'static> Builder<Chain> {
-    pub fn add<Handler>(self, handler: Handler) -> Builder<GuardChainLink<Handler, Chain>>
+    pub fn apply<Handler>(self, handler: Handler) -> Builder<GuardChainLink<Handler, Chain>>
     where
         Handler: 'static + Guard + Sync + Send,
     {
         Builder {
-            chain: GuardChainLink {
-                handler,
-                rest: self.chain,
-            },
+            chain: GuardChainLink { handler, rest: self.chain },
         }
     }
 

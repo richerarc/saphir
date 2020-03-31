@@ -41,9 +41,7 @@ impl Controller for MagicController {
         let b = b.add(Method::GET, "/form", MagicController::get_user_form);
 
         b.add(Method::GET, "/delay/{delay}", MagicController::magic_delay)
-            .add_with_guards(Method::GET, "/guarded/{delay}", MagicController::magic_delay, |g| {
-                g.add(numeric_delay_guard)
-            })
+            .add_with_guards(Method::GET, "/guarded/{delay}", MagicController::magic_delay, |g| g.apply(numeric_delay_guard))
             .add(Method::GET, "/", magic_handler)
             .add(Method::POST, "/", MagicController::read_body)
             .add(Method::GET, "/match/*/**", MagicController::match_any_route)
@@ -242,8 +240,7 @@ async fn main() -> Result<(), SaphirError> {
             r.route("/", Method::GET, hello_world)
                 .route("/{variable}/print", Method::GET, test_handler)
                 .route_with_guards("/{variable}/guarded_print", Method::GET, test_handler, |g| {
-                    g.add(ForbidderData { forbidden: "forbidden" })
-                        .add(ForbidderData { forbidden: "password" })
+                    g.apply(ForbidderData { forbidden: "forbidden" }).add(ForbidderData { forbidden: "password" })
                 })
                 .controller(MagicController::new("Just Like Magic!"))
         })

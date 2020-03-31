@@ -28,48 +28,48 @@ struct UserController {}
 
 #[controller(name = "users", version = 1, prefix = "api")]
 impl UserController {
-    #[get("/<user_id>")]
-    async fn get_user(&self, user_id: String, action: Option<u16>) -> (u16, String) {
-        (200, format!("user_id: {}, action: {:?}", user_id, action))
-    }
-
-    #[post("/json")]
-    async fn post_user_json(&self, user: Json<User>) -> (u16, Json<User>) {
-        (200, user)
-    }
-
-    #[get("/form")]
-    #[post("/form")]
-    async fn user_form(&self, user: Form<User>) -> (u16, Form<User>) {
-        (200, user)
-    }
-
-    #[cookies]
-    #[post("/sync")]
-    fn get_user_sync(&self, mut req: Request<Json<User>>) -> (u16, Json<User>) {
-        let u = req.body_mut();
-        u.username = "Samuel".to_string();
-        (200, Json(u.clone()))
-    }
+    // #[get("/<user_id>")]
+    // async fn get_user(&self, user_id: String, action: Option<u16>) -> (u16, String) {
+    //     (200, format!("user_id: {}, action: {:?}", user_id, action))
+    // }
+    //
+    // #[post("/json")]
+    // async fn post_user_json(&self, user: Json<User>) -> (u16, Json<User>) {
+    //     (200, user)
+    // }
+    //
+    // #[get("/form")]
+    // #[post("/form")]
+    // async fn user_form(&self, user: Form<User>) -> (u16, Form<User>) {
+    //     (200, user)
+    // }
+    //
+    // #[cookies]
+    // #[post("/sync")]
+    // fn get_user_sync(&self, mut req: Request<Json<User>>) -> (u16, Json<User>) {
+    //     let u = req.body_mut();
+    //     u.username = "Samuel".to_string();
+    //     (200, Json(u.clone()))
+    // }
 
     #[get("/")]
     #[guard(PrintGuard, init_expr = "UserController::BASE_PATH")]
-    async fn list_user(&self, _req: Request<Body<Vec<u8>>>) -> (u16, String) {
+    async fn list_user(&self, _req: Request<Body>) -> (u16, String) {
         (200, "Yo".to_string())
     }
 
-    #[post("/multi")]
-    async fn multipart(&self, mul: Multipart) -> (u16, String) {
-        let mut multipart_image_count = 0;
-        while let Ok(Some(mut f)) = mul.next_field().await {
-            if f.content_type() == &mime::IMAGE_PNG {
-                let _ = f.save(format!("/tmp/{}.png", f.name())).await;
-                multipart_image_count += 1;
-            }
-        }
-
-        (200, format!("Multipart form data image saved on disk: {}", multipart_image_count))
-    }
+    // #[post("/multi")]
+    // async fn multipart(&self, mul: Multipart) -> (u16, String) {
+    //     let mut multipart_image_count = 0;
+    //     while let Ok(Some(mut f)) = mul.next_field().await {
+    //         if f.content_type() == &mime::IMAGE_PNG {
+    //             let _ = f.save(format!("/tmp/{}.png", f.name())).await;
+    //             multipart_image_count += 1;
+    //         }
+    //     }
+    //
+    //     (200, format!("Multipart form data image saved on disk: {}", multipart_image_count))
+    // }
 }
 
 struct ApiKeyMiddleware(String);

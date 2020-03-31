@@ -240,7 +240,7 @@ async fn main() -> Result<(), SaphirError> {
             r.route("/", Method::GET, hello_world)
                 .route("/{variable}/print", Method::GET, test_handler)
                 .route_with_guards("/{variable}/guarded_print", Method::GET, test_handler, |g| {
-                    g.apply(ForbidderData { forbidden: "forbidden" }).add(ForbidderData { forbidden: "password" })
+                    g.apply(ForbidderData { forbidden: "forbidden" }).apply(ForbidderData { forbidden: "password" })
                 })
                 .controller(MagicController::new("Just Like Magic!"))
         })

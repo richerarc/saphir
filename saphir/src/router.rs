@@ -85,16 +85,16 @@ impl<Controllers: 'static + RouterChain + Unpin + Send + Sync> Builder<Controlle
     ///
     /// async fn handler(req: Request<Body>) -> impl Responder { 200 }
     ///
-    /// async fn value_guard(allowed_value: &String, req: Request<Body>) -> Result<Request<Body>, u16> {
+    /// async fn value_guard(req: Request<Body>) -> Result<Request<Body>, u16> {
     ///    match req.captures().get("value") {
-    ///        Some(v) if v.eq(allowed_value) => Ok(req),
+    ///        Some(v) if v.eq("allowed_value") => Ok(req),
     ///        Some(_) => Err(403),
     ///        None => Err(400),
     ///    }
     /// }
     ///
     /// builder.route_with_guards("/handler/{value}", Method::GET, handler, |g| {
-    ///     g.add(value_guard, String::from("allowed_value"))
+    ///     g.apply(value_guard)
     /// });
     /// // ...
     /// ```

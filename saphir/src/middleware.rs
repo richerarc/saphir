@@ -51,30 +51,18 @@ use crate::{
 use futures::{future::BoxFuture, FutureExt};
 use futures_util::future::Future;
 
-/// Auto trait implementation over every function that match the definition of a
-/// middleware.
-pub trait MiddlewareHandler<Data> {
-    fn next(&self, data: &Data, ctx: HttpContext, chain: &dyn MiddlewareChain) -> BoxFuture<'static, Result<HttpContext, SaphirError>>;
+pub trait Middleware {
+    fn next(&'static self, ctx: HttpContext, chain: &'static dyn MiddlewareChain) -> BoxFuture<'static, Result<HttpContext, SaphirError>>;
 }
 
-impl<Data, Fun, Fut> MiddlewareHandler<Data> for Fun
+impl<Fun, Fut> Middleware for Fun
 where
-    Data: 'static,
-    Fun: Fn(&'static Data, HttpContext, &'static dyn MiddlewareChain) -> Fut,
+    Fun: Fn(HttpContext, &'static dyn MiddlewareChain) -> Fut,
     Fut: 'static + Future<Output = Result<HttpContext, SaphirError>> + Send,
 {
     #[inline]
-    fn next(&self, data: &Data, ctx: HttpContext, chain: &dyn MiddlewareChain) -> BoxFuture<'static, Result<HttpContext, SaphirError>> {
-        // # SAFETY #
-        // The middleware chain and data are initialized in static memory when calling
-        // run on Server.
-        let (data, chain) = unsafe {
-            (
-                std::mem::transmute::<&'_ Data, &'static Data>(data),
-                std::mem::transmute::<&'_ dyn MiddlewareChain, &'static dyn MiddlewareChain>(chain),
-            )
-        };
-        (*self)(data, ctx, chain).boxed()
+    fn next(&'static self, ctx: HttpContext, chain: &'static dyn MiddlewareChain) -> BoxFuture<'static, Result<HttpContext, SaphirError>> {
+        (*self)(ctx, chain).boxed()
     }
 }
 
@@ -99,38 +87,25 @@ impl<Chain: MiddlewareChain + 'static> Builder<Chain> {
     /// # use saphir::prelude::*;
     ///
     /// # async fn log_middleware(
-    /// #     prefix: &String,
     /// #     ctx: HttpContext,
     /// #     chain: &dyn MiddlewareChain,
     /// # ) -> Result<HttpContext, SaphirError> {
-    /// #     println!("{} | new request on path: {}", prefix, ctx.state.request_unchecked().uri().path());
+    /// #     println!("new request on path: {}", ctx.state.request_unchecked().uri().path());
     /// #     let ctx = chain.next(ctx).await?;
-    /// #     println!("{} | new response with status: {}", prefix, ctx.state.response_unchecked().status());
+    /// #     println!("new response with status: {}", ctx.state.response_unchecked().status());
     /// #     Ok(ctx)
     /// # }
     /// #
-    /// let builder = MBuilder::default().apply(log_middleware, "LOG".to_string(), vec!["/"], None);
+    /// let builder = MBuilder::default().apply(log_middleware, vec!["/"], None);
     /// ```
-    pub fn apply<'a, Data, Handler, E>(
-        self,
-        handler: Handler,
-        data: Data,
-        include_path: Vec<&str>,
-        exclude_path: E,
-    ) -> Builder<MiddlewareChainLink<Data, Handler, Chain>>
+    pub fn apply<'a, Mid, E>(self, mid: Mid, include_path: Vec<&str>, exclude_path: E) -> Builder<MiddlewareChainLink<Mid, Chain>>
     where
-        Data: Sync + Send,
-        Handler: 'static + MiddlewareHandler<Data> + Sync + Send,
+        Mid: 'static + Middleware + Sync + Send,
         E: Into<Option<Vec<&'a str>>>,
     {
         let rule = Rule::new(include_path, exclude_path.into());
         Builder {
-            chain: MiddlewareChainLink {
-                rule,
-                data,
-                handler,
-                rest: self.chain,
-            },
+            chain: MiddlewareChainLink { rule, mid, rest: self.chain },
         }
     }
 
@@ -204,27 +179,36 @@ impl MiddlewareChain for MiddleChainEnd {
 }
 
 #[doc(hidden)]
-pub struct MiddlewareChainLink<Data, Handler: MiddlewareHandler<Data>, Rest: MiddlewareChain> {
+pub struct MiddlewareChainLink<Mid: Middleware, Rest: MiddlewareChain> {
     rule: Rule,
-    data: Data,
-    handler: Handler,
+    mid: Mid,
     rest: Rest,
 }
 
 #[doc(hidden)]
-impl<Data, Handler, Rest> MiddlewareChain for MiddlewareChainLink<Data, Handler, Rest>
+impl<Mid, Rest> MiddlewareChain for MiddlewareChainLink<Mid, Rest>
 where
-    Data: Sync + Send,
-    Handler: MiddlewareHandler<Data> + Sync + Send,
+    Mid: Middleware + Sync + Send + 'static,
     Rest: MiddlewareChain,
 {
     #[doc(hidden)]
+    #[allow(clippy::transmute_ptr_to_ptr)]
     #[inline]
     fn next(&self, ctx: HttpContext) -> BoxFuture<'static, Result<HttpContext, SaphirError>> {
+        // # SAFETY #
+        // The middleware chain and data are initialized in static memory when calling
+        // run on Server.
+        let (mid, rest) = unsafe {
+            (
+                std::mem::transmute::<&'_ Mid, &'static Mid>(&self.mid),
+                std::mem::transmute::<&'_ dyn MiddlewareChain, &'static dyn MiddlewareChain>(&self.rest),
+            )
+        };
+
         if ctx.state.request().filter(|req| self.rule.validate_path(req.uri().path())).is_some() {
-            self.handler.next(&self.data, ctx, &self.rest)
+            mid.next(ctx, rest)
         } else {
-            self.rest.next(ctx)
+            rest.next(ctx)
         }
     }
 }

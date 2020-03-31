@@ -1,17 +1,21 @@
-#![allow(clippy::trivially_copy_pass_by_ref)]
-#![allow(clippy::ptr_arg)]
+use log::info;
+use saphir::prelude::*;
 use serde_derive::{Deserialize, Serialize};
 
-use saphir::prelude::*;
-
-fn guard_string(_controller: &UserController) -> String {
-    UserController::BASE_PATH.to_string()
+struct PrintGuard {
+    inner: String,
 }
 
-async fn print_string_guard(string: &String, req: Request<Body>) -> Result<Request<Body>, &'static str> {
-    println!("{}", string);
+#[guard]
+impl PrintGuard {
+    pub fn new(inner: &str) -> Self {
+        PrintGuard { inner: inner.to_string() }
+    }
 
-    Ok(req)
+    async fn validate(&self, req: Request) -> Result<Request, u16> {
+        info!("{}", self.inner);
+        Ok(req)
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -49,7 +53,7 @@ impl UserController {
     }
 
     #[get("/")]
-    #[guard(fn = "print_string_guard", data = "guard_string")]
+    #[guard(PrintGuard, init_expr = "UserController::BASE_PATH")]
     async fn list_user(&self, _req: Request<Body<Vec<u8>>>) -> (u16, String) {
         (200, "Yo".to_string())
     }
@@ -68,12 +72,38 @@ impl UserController {
     }
 }
 
+struct ApiKeyMiddleware(String);
+
+#[middleware]
+impl ApiKeyMiddleware {
+    pub fn new(api_key: &str) -> Self {
+        ApiKeyMiddleware(api_key.to_string())
+    }
+
+    async fn next(&self, ctx: HttpContext, chain: &dyn MiddlewareChain) -> Result<HttpContext, SaphirError> {
+        if let Some(Ok("Bearer secure-key")) = ctx
+            .state
+            .request_unchecked()
+            .headers()
+            .get(header::AUTHORIZATION)
+            .map(|auth_value| auth_value.to_str())
+        {
+            info!("Authenticated");
+        } else {
+            info!("Not Authenticated");
+        }
+
+        chain.next(ctx).await
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), SaphirError> {
     env_logger::init();
 
     let server = Server::builder()
         .configure_listener(|l| l.interface("127.0.0.1:3000").server_name("MacroExample"))
+        .configure_middlewares(|m| m.apply(ApiKeyMiddleware::new("secure-key"), vec!["/"], None))
         .configure_router(|r| r.controller(UserController {}))
         .build();
 

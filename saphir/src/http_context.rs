@@ -198,6 +198,8 @@ pub mod operation {
         str::FromStr,
         sync::atomic::AtomicU64,
     };
+    use std::fmt::Debug;
+    use nom::lib::std::fmt::Error;
 
     const SERVER_ID_OFFSET: usize = 0;
     const TIMESTAMP_OFFSET: usize = 4;
@@ -320,6 +322,16 @@ pub mod operation {
                 .expect("Encode should never produce non-ascii chars");
 
             f.write_str(str)
+        }
+    }
+
+    impl Debug for OperationId {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("OperationId")
+                .field("server_id", &self.server_id())
+                .field("timestamp", &self.timestamp())
+                .field("operation", &self.count())
+                .finish()
         }
     }
 

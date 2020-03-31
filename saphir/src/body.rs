@@ -3,11 +3,11 @@
 use crate::error::SaphirError;
 use futures::{
     task::{Context, Poll},
-    Future, TryFutureExt,
+    Future,
 };
 use http::HeaderMap;
 use http_body::SizeHint;
-use hyper::body::{to_bytes, Body as RawBody, HttpBody};
+use hyper::body::{Body as RawBody, Buf, HttpBody};
 use std::pin::Pin;
 
 pub use hyper::body::Bytes;
@@ -16,19 +16,92 @@ pub use hyper::body::Bytes;
 pub use form::Form;
 #[cfg(feature = "json")]
 pub use json::Json;
+use std::ops::DerefMut;
+use tokio::stream::StreamExt;
+
+#[doc(hidden)]
+pub(crate) static mut REQUEST_BODY_BYTES_LIMIT: Option<usize> = None;
+
+pub(crate) enum BodyInner {
+    Raw(RawBody),
+    Memory(Bytes),
+}
+
+impl BodyInner {
+    pub fn empty() -> Self {
+        BodyInner::Raw(RawBody::empty())
+    }
+
+    #[inline]
+    pub(crate) fn from_raw(raw: RawBody) -> Self {
+        BodyInner::Raw(raw)
+    }
+
+    #[inline]
+    pub(crate) fn into_raw(self) -> RawBody {
+        match self {
+            BodyInner::Raw(r) => r,
+            BodyInner::Memory(b) => RawBody::from(b),
+        }
+    }
+
+    pub async fn load(self) -> Result<Bytes, SaphirError> {
+        match self {
+            BodyInner::Raw(mut r) => {
+                let first = if let Some(buf) = r.next().await.transpose().map_err(SaphirError::from)? {
+                    buf
+                } else {
+                    return Ok(Bytes::new());
+                };
+
+                let second = if let Some(buf) = r.next().await.transpose().map_err(SaphirError::from)? {
+                    buf
+                } else {
+                    return Ok(first);
+                };
+
+                let cap = first.remaining() + second.remaining() + r.size_hint().lower() as usize;
+                let mut vec = Vec::with_capacity(cap);
+                vec.extend_from_slice(first.as_ref());
+                vec.extend_from_slice(second.as_ref());
+
+                while let Some(buf) = r.next().await.transpose().map_err(SaphirError::from)? {
+                    vec.extend_from_slice(buf.as_ref());
+                    unsafe {
+                        if REQUEST_BODY_BYTES_LIMIT.as_ref().filter(|p| vec.len() >= **p).is_some() {
+                            break;
+                        }
+                    }
+                }
+
+                Ok(vec.into())
+            }
+            BodyInner::Memory(b) => Ok(b),
+        }
+    }
+}
+
+impl<T> From<T> for BodyInner
+where
+    T: Into<RawBody>,
+{
+    fn from(b: T) -> Self {
+        BodyInner::Raw(b.into())
+    }
+}
 
 pub struct Body<T = Bytes>
 where
     T: FromBytes,
 {
-    inner: Option<RawBody>,
-    fut: Option<Pin<Box<dyn Future<Output = Result<T::Out, SaphirError>> + Send + Sync + 'static>>>,
+    inner: Option<BodyInner>,
+    fut: Option<Pin<Box<dyn Future<Output = Result<(T::Out, Bytes), SaphirError>> + Send + Sync + 'static>>>,
 }
 
 impl Body<Bytes> {
     pub fn empty() -> Self {
         Body {
-            inner: Some(RawBody::empty()),
+            inner: Some(BodyInner::empty()),
             fut: None,
         }
     }
@@ -39,18 +112,21 @@ where
     T: FromBytes,
 {
     #[inline]
-    pub(crate) async fn generate(raw: RawBody) -> Result<T::Out, SaphirError> {
-        T::from_bytes(to_bytes(raw).map_err(SaphirError::from).await?)
+    pub(crate) async fn generate(inner: BodyInner) -> Result<(T::Out, Bytes), SaphirError> {
+        T::from_bytes(inner.load().await?)
     }
 
     #[inline]
     pub(crate) fn from_raw(raw: RawBody) -> Self {
-        Body { inner: Some(raw), fut: None }
+        Body {
+            inner: Some(BodyInner::from_raw(raw)),
+            fut: None,
+        }
     }
 
     #[inline]
     pub(crate) fn into_raw(self) -> RawBody {
-        self.inner.unwrap_or_else(RawBody::empty)
+        self.inner.unwrap_or_else(BodyInner::empty).into_raw()
     }
 
     /// Performing `take` will give your a owned version of the body, leaving a
@@ -82,7 +158,7 @@ impl<T: FromBytes> Default for Body<T> {
 
 pub trait FromBytes {
     type Out;
-    fn from_bytes(bytes: Bytes) -> Result<Self::Out, SaphirError>
+    fn from_bytes(bytes: Bytes) -> Result<(Self::Out, Bytes), SaphirError>
     where
         Self: Sized;
 }
@@ -95,15 +171,29 @@ where
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if let Some(fut) = self.fut.as_mut() {
-            fut.as_mut().poll(cx)
+            match fut.as_mut().poll(cx) {
+                Poll::Ready(res) => Poll::Ready(res.map(|(out, b)| {
+                    self.inner = Some(BodyInner::Memory(b));
+                    out
+                })),
+                Poll::Pending => Poll::Pending,
+            }
         } else if let Some(body) = self.inner.take() {
             self.fut = Some(Box::pin(Self::generate(body)));
 
-            self.fut
+            match self
+                .fut
                 .as_mut()
                 .expect("This won't happens since freshly allocated to Some(_)")
                 .as_mut()
                 .poll(cx)
+            {
+                Poll::Ready(res) => Poll::Ready(res.map(|(out, b)| {
+                    self.inner = Some(BodyInner::Memory(b));
+                    out
+                })),
+                Poll::Pending => Poll::Pending,
+            }
         } else {
             Poll::Ready(Err(SaphirError::BodyAlreadyTaken))
         }
@@ -114,11 +204,11 @@ impl FromBytes for Bytes {
     type Out = Bytes;
 
     #[inline]
-    fn from_bytes(bytes: Bytes) -> Result<Self, SaphirError>
+    fn from_bytes(bytes: Bytes) -> Result<(Self, Bytes), SaphirError>
     where
         Self: Sized,
     {
-        Ok(bytes)
+        Ok((bytes.clone(), bytes))
     }
 }
 
@@ -126,11 +216,13 @@ impl FromBytes for String {
     type Out = String;
 
     #[inline]
-    fn from_bytes(bytes: Bytes) -> Result<Self, SaphirError>
+    fn from_bytes(bytes: Bytes) -> Result<(Self, Bytes), SaphirError>
     where
         Self: Sized,
     {
-        String::from_utf8(bytes.to_vec()).map_err(|e| SaphirError::Custom(Box::new(e)))
+        String::from_utf8(bytes.to_vec())
+            .map_err(|e| SaphirError::Custom(Box::new(e)))
+            .map(|s| (s, bytes))
     }
 }
 
@@ -138,11 +230,11 @@ impl FromBytes for Vec<u8> {
     type Out = Vec<u8>;
 
     #[inline]
-    fn from_bytes(bytes: Bytes) -> Result<Self, SaphirError>
+    fn from_bytes(bytes: Bytes) -> Result<(Self, Bytes), SaphirError>
     where
         Self: Sized,
     {
-        Ok(bytes.to_vec())
+        Ok((bytes.to_vec(), bytes))
     }
 }
 
@@ -203,11 +295,11 @@ pub mod json {
         type Out = T;
 
         #[inline]
-        fn from_bytes(bytes: Bytes) -> Result<Self::Out, SaphirError>
+        fn from_bytes(bytes: Bytes) -> Result<(Self::Out, Bytes), SaphirError>
         where
             Self: Sized,
         {
-            Ok(serde_json::from_slice(bytes.as_ref())?)
+            Ok((serde_json::from_slice(bytes.as_ref())?, bytes))
         }
     }
 }
@@ -269,11 +361,11 @@ pub mod form {
         type Out = T;
 
         #[inline]
-        fn from_bytes(bytes: Bytes) -> Result<Self::Out, SaphirError>
+        fn from_bytes(bytes: Bytes) -> Result<(Self::Out, Bytes), SaphirError>
         where
             Self: Sized,
         {
-            Ok(serde_urlencoded::from_bytes(bytes.as_ref())?)
+            Ok((serde_urlencoded::from_bytes(bytes.as_ref())?, bytes))
         }
     }
 }
@@ -287,15 +379,9 @@ impl<T: FromBytes + Unpin> HttpBody for Body<T> {
             return Poll::Ready(Some(Err(SaphirError::BodyAlreadyTaken)));
         }
 
-        let p = unsafe {
+        unsafe {
             self.map_unchecked_mut(|s| s.inner.as_mut().expect("This won't happen since checked in the lines above"))
                 .poll_data(cx)
-        };
-
-        match p {
-            Poll::Ready(Some(res)) => Poll::Ready(Some(res.map_err(SaphirError::from))),
-            Poll::Ready(None) => Poll::Ready(None),
-            Poll::Pending => Poll::Pending,
         }
     }
 
@@ -304,14 +390,9 @@ impl<T: FromBytes + Unpin> HttpBody for Body<T> {
             return Poll::Ready(Err(SaphirError::BodyAlreadyTaken));
         }
 
-        let p = unsafe {
+        unsafe {
             self.map_unchecked_mut(|s| s.inner.as_mut().expect("This won't happen since checked in the lines above"))
                 .poll_trailers(cx)
-        };
-
-        match p {
-            Poll::Ready(res) => Poll::Ready(res.map_err(SaphirError::from)),
-            Poll::Pending => Poll::Pending,
         }
     }
 
@@ -329,6 +410,68 @@ impl<T: FromBytes + Unpin> HttpBody for Body<T> {
         }
 
         self.inner.as_ref().expect("This won't happen since checked in the lines above").size_hint()
+    }
+}
+
+impl HttpBody for BodyInner {
+    type Data = Bytes;
+    type Error = SaphirError;
+
+    fn poll_data(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Self::Data, SaphirError>>> {
+        if let BodyInner::Memory(b) = self.deref_mut() {
+            if !b.is_empty() {
+                Poll::Ready(Some(Ok(b.to_bytes())))
+            } else {
+                Poll::Ready(None)
+            }
+        } else {
+            let p = unsafe {
+                self.map_unchecked_mut(|s| match s {
+                    BodyInner::Raw(r) => r,
+                    BodyInner::Memory(_) => unreachable!("This is unreachable since checked above"),
+                })
+                .poll_data(cx)
+            };
+
+            match p {
+                Poll::Ready(Some(res)) => Poll::Ready(Some(res.map_err(SaphirError::from))),
+                Poll::Ready(None) => Poll::Ready(None),
+                Poll::Pending => Poll::Pending,
+            }
+        }
+    }
+
+    fn poll_trailers(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<Option<HeaderMap>, Self::Error>> {
+        if let BodyInner::Memory(_b) = self.deref_mut() {
+            Poll::Ready(Ok(None))
+        } else {
+            let p = unsafe {
+                self.map_unchecked_mut(|s| match s {
+                    BodyInner::Raw(r) => r,
+                    BodyInner::Memory(_) => unreachable!("This is unreachable since checked above"),
+                })
+                .poll_trailers(cx)
+            };
+
+            match p {
+                Poll::Ready(res) => Poll::Ready(res.map_err(SaphirError::from)),
+                Poll::Pending => Poll::Pending,
+            }
+        }
+    }
+
+    fn is_end_stream(&self) -> bool {
+        match self {
+            BodyInner::Raw(r) => r.is_end_stream(),
+            BodyInner::Memory(b) => b.remaining() > 0,
+        }
+    }
+
+    fn size_hint(&self) -> SizeHint {
+        match self {
+            BodyInner::Raw(r) => r.size_hint(),
+            BodyInner::Memory(b) => SizeHint::with_exact(b.remaining() as u64),
+        }
     }
 }
 
@@ -352,6 +495,6 @@ impl<T: FromBytes> Into<RawBody> for Body<T> {
     #[inline]
     fn into(self) -> RawBody {
         let Body { inner, .. } = self;
-        inner.unwrap_or_else(RawBody::empty)
+        inner.unwrap_or_else(BodyInner::empty).into_raw()
     }
 }

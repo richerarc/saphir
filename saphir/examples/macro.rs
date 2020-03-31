@@ -13,7 +13,7 @@ impl PrintGuard {
     }
 
     async fn validate(&self, req: Request) -> Result<Request, u16> {
-        println!("{}", self.inner);
+        info!("{}", self.inner);
         Ok(req)
     }
 }

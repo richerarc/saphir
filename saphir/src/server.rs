@@ -28,7 +28,6 @@ use crate::{
     router::{Builder as RouterBuilder, Router, RouterChain, RouterChainEnd},
 };
 use http::{HeaderValue, Request as RawRequest, Response as RawResponse};
-use std::sync::atomic::AtomicU32;
 
 /// Default time for request handling is 30 seconds
 pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
@@ -41,7 +40,7 @@ static mut STACK: MaybeUninit<Stack> = MaybeUninit::uninit();
 #[doc(hidden)]
 static mut SERVER_NAME: MaybeUninit<HeaderValue> = MaybeUninit::uninit();
 #[doc(hidden)]
-static SERVER_ID: AtomicU32 = AtomicU32::new(0);
+static mut SERVER_ID: u32 = 0;
 #[doc(hidden)]
 static INIT_STACK: Once = Once::new();
 
@@ -63,6 +62,7 @@ pub struct ListenerBuilder {
     iface: Option<String>,
     server_name: Option<String>,
     request_timeout_ms: Option<u64>,
+    request_body_max: Option<usize>,
     server_id: Option<u32>,
     #[cfg(feature = "https")]
     cert_config: Option<SslConfig>,
@@ -115,6 +115,12 @@ impl ListenerBuilder {
         self
     }
 
+    #[inline]
+    pub fn request_body_max_bytes<I: Into<Option<usize>>>(mut self, size: I) -> Self {
+        self.request_body_max = size.into();
+        self
+    }
+
     /// Using Feature `https`
     ///
     /// Set the listener ssl certificates files. The cert needs to be PEM
@@ -145,6 +151,7 @@ impl ListenerBuilder {
             iface,
             server_name,
             request_timeout_ms,
+            request_body_max,
             server_id,
             cert_config,
             key_config,
@@ -170,6 +177,7 @@ impl ListenerBuilder {
             request_timeout_ms,
             server_name: server_name.unwrap_or_else(|| DEFAULT_SERVER_NAME.to_string()),
             server_id,
+            request_body_max,
             cert_config,
             key_config,
         }
@@ -183,6 +191,7 @@ impl ListenerBuilder {
             iface,
             server_name,
             request_timeout_ms,
+            request_body_max,
             server_id,
         } = self;
 
@@ -206,6 +215,7 @@ impl ListenerBuilder {
             request_timeout_ms,
             server_name: server_name.unwrap_or_else(|| DEFAULT_SERVER_NAME.to_string()),
             server_id,
+            request_body_max,
         }
     }
 }
@@ -214,6 +224,7 @@ impl ListenerBuilder {
 pub struct ListenerConfig {
     iface: String,
     request_timeout_ms: Option<u64>,
+    request_body_max: Option<usize>,
     server_name: String,
     server_id: u32,
     cert_config: Option<SslConfig>,
@@ -224,6 +235,7 @@ pub struct ListenerConfig {
 pub struct ListenerConfig {
     iface: String,
     request_timeout_ms: Option<u64>,
+    request_body_max: Option<usize>,
     server_name: String,
     server_id: u32,
 }
@@ -323,6 +335,7 @@ impl Server {
         let Server { listener_config, stack } = self;
         let server_value = HeaderValue::from_str(&listener_config.server_name)?;
         let server_id = listener_config.server_id;
+        let request_body_max = listener_config.request_body_max;
 
         if INIT_STACK.state() != OnceState::New {
             return Err(SaphirError::Other("cannot run a second server".to_owned()));
@@ -335,9 +348,9 @@ impl Server {
             unsafe {
                 STACK.as_mut_ptr().write(stack);
                 SERVER_NAME.as_mut_ptr().write(server_value);
+                SERVER_ID = server_id;
+                crate::body::REQUEST_BODY_BYTES_LIMIT = request_body_max;
             }
-
-            SERVER_ID.store(server_id, std::sync::atomic::Ordering::Relaxed);
         });
 
         // # SAFETY #
@@ -450,7 +463,9 @@ impl Stack {
         let ctx = {
             #[cfg(feature = "operation")]
             {
-                HttpContext::new(SERVER_ID.load(std::sync::atomic::Ordering::Relaxed), req, self.router.clone())
+                // # SAFETY #
+                // SERVER_ID has been initialized at server startup.
+                HttpContext::new(unsafe { SERVER_ID }, req, self.router.clone())
             }
 
             #[cfg(not(feature = "operation"))]

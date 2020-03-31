@@ -46,6 +46,11 @@ impl BodyInner {
     }
 
     pub async fn load(self) -> Result<Bytes, SaphirError> {
+        unsafe {
+            if let Some(0) = REQUEST_BODY_BYTES_LIMIT {
+                return Ok(Bytes::new());
+            }
+        }
         match self {
             BodyInner::Raw(mut r) => {
                 let first = if let Some(buf) = r.next().await.transpose().map_err(SaphirError::from)? {
@@ -53,6 +58,12 @@ impl BodyInner {
                 } else {
                     return Ok(Bytes::new());
                 };
+
+                unsafe {
+                    if REQUEST_BODY_BYTES_LIMIT.as_ref().filter(|p| first.len() >= **p).is_some() {
+                        return Ok(first);
+                    }
+                }
 
                 let second = if let Some(buf) = r.next().await.transpose().map_err(SaphirError::from)? {
                     buf
@@ -64,6 +75,12 @@ impl BodyInner {
                 let mut vec = Vec::with_capacity(cap);
                 vec.extend_from_slice(first.as_ref());
                 vec.extend_from_slice(second.as_ref());
+
+                unsafe {
+                    if REQUEST_BODY_BYTES_LIMIT.as_ref().filter(|p| vec.len() >= **p).is_some() {
+                        return Ok(vec.into());
+                    }
+                }
 
                 while let Some(buf) = r.next().await.transpose().map_err(SaphirError::from)? {
                     vec.extend_from_slice(buf.as_ref());

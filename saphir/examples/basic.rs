@@ -42,7 +42,7 @@ impl Controller for MagicController {
 
         b.add(Method::GET, "/delay/{delay}", MagicController::magic_delay)
             .add_with_guards(Method::GET, "/guarded/{delay}", MagicController::magic_delay, |g| {
-                g.add(numeric_delay_guard, ())
+                g.add(numeric_delay_guard)
             })
             .add(Method::GET, "/", magic_handler)
             .add(Method::POST, "/", MagicController::read_body)
@@ -205,18 +205,26 @@ impl ForbidderData {
             None
         }
     }
-}
 
-async fn forbidden_guard(data: &ForbidderData, req: Request<Body>) -> Result<Request<Body>, u16> {
-    if req.captures().get("variable").and_then(|v| data.filter_forbidden(v)).is_some() {
-        Err(403)
-    } else {
-        Ok(req)
+    async fn forbidden_guard(&self, req: Request<Body>) -> Result<Request<Body>, u16> {
+        if req.captures().get("variable").and_then(|v| self.filter_forbidden(v)).is_some() {
+            Err(403)
+        } else {
+            Ok(req)
+        }
     }
 }
 
-#[allow(clippy::trivially_copy_pass_by_ref)]
-async fn numeric_delay_guard(_: &(), req: Request<Body>) -> Result<Request<Body>, &'static str> {
+impl Guard for ForbidderData {
+    type Future = BoxFuture<'static, Result<Request, Self::Responder>>;
+    type Responder = u16;
+
+    fn validate(&'static self, req: Request<Body<Bytes>>) -> Self::Future {
+        self.forbidden_guard(req).boxed()
+    }
+}
+
+async fn numeric_delay_guard(req: Request<Body>) -> Result<Request<Body>, &'static str> {
     if req.captures().get("delay").and_then(|v| v.parse::<u64>().ok()).is_some() {
         Ok(req)
     } else {
@@ -234,8 +242,8 @@ async fn main() -> Result<(), SaphirError> {
             r.route("/", Method::GET, hello_world)
                 .route("/{variable}/print", Method::GET, test_handler)
                 .route_with_guards("/{variable}/guarded_print", Method::GET, test_handler, |g| {
-                    g.add(forbidden_guard, ForbidderData { forbidden: "forbidden" })
-                        .add(forbidden_guard, ForbidderData { forbidden: "password" })
+                    g.add(ForbidderData { forbidden: "forbidden" })
+                        .add(ForbidderData { forbidden: "password" })
                 })
                 .controller(MagicController::new("Just Like Magic!"))
         })

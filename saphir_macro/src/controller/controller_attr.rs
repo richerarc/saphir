@@ -119,18 +119,11 @@ fn gen_controller_handlers_fn(attr: &ControllerAttr, handlers: &[HandlerRepr]) -
             } else {
                 let mut guard_stream = TokenStream::new();
 
-                for (fn_path, data) in guards {
-                    let guard_e = if let Some(data) = data {
-                        quote! {
-                            let g = g.add(#fn_path, #data(self));
-                        }
-                    } else {
-                        quote! {
-                            let g = g.add(#fn_path, ());
-                        }
-                    };
-
-                    guard_e.to_tokens(&mut guard_stream);
+                for guard_def in guards {
+                    guard_def.to_tokens(&mut guard_stream);
+                    (quote! {
+                        let g = g.add(guard);
+                    }).to_tokens(&mut guard_stream);
                 }
 
                 let handler_e = quote! {

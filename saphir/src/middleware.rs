@@ -98,29 +98,6 @@ impl<Chain: MiddlewareChain + 'static> Builder<Chain> {
     /// #
     /// let builder = MBuilder::default().apply(log_middleware, vec!["/"], None);
     /// ```
-    // pub fn apply<'a, Data, Handler, E>(
-    //     self,
-    //     handler: Handler,
-    //     data: Data,
-    //     include_path: Vec<&str>,
-    //     exclude_path: E,
-    // ) -> Builder<MiddlewareChainLink<Data, Handler, Chain>>
-    //     where
-    //         Data: Sync + Send,
-    //         Handler: 'static + MiddlewareHandler<Data> + Sync + Send,
-    //         E: Into<Option<Vec<&'a str>>>,
-    // {
-    //     let rule = Rule::new(include_path, exclude_path.into());
-    //     Builder {
-    //         chain: MiddlewareChainLink {
-    //             rule,
-    //             data,
-    //             handler,
-    //             rest: self.chain,
-    //         },
-    //     }
-    // }
-
     pub fn apply<'a, Mid, E>(self, mid: Mid, include_path: Vec<&str>, exclude_path: E) -> Builder<MiddlewareChainLink<Mid, Chain>>
     where
         Mid: 'static + Middleware + Sync + Send,

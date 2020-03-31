@@ -2,8 +2,34 @@ use log::info;
 use saphir::prelude::*;
 use serde_derive::{Deserialize, Serialize};
 
-fn guard_string(_controller: &UserController) -> String {
-    UserController::BASE_PATH.to_string()
+struct PrintGuard {
+    inner: String,
+}
+
+impl PrintGuard {
+    pub fn new(inner: &str) -> Self {
+        PrintGuard {
+            inner: inner.to_string()
+        }
+    }
+
+    async fn guard(&self, req: Request) -> Result<Request, u16> {
+        println!("{}", self.inner);
+        Ok(req)
+    }
+}
+
+impl Guard for PrintGuard {
+    type Future = BoxFuture<'static, Result<Request, u16>>;
+    type Responder = u16;
+
+    fn validate(&'static self, req: Request<Body<Bytes>>) -> Self::Future {
+        self.guard(req).boxed()
+    }
+}
+
+fn print_guard_init(_controller: &UserController) -> PrintGuard {
+    PrintGuard::new(UserController::BASE_PATH)
 }
 
 #[allow(clippy::ptr_arg)]
@@ -48,7 +74,8 @@ impl UserController {
     }
 
     #[get("/")]
-    #[guard(fn = "print_string_guard", data = "guard_string")]
+    // #[guard(PrintGuard, init_fn = "print_guard_init")]
+    #[guard(PrintGuard, init_expr = "UserController::BASE_PATH")]
     async fn list_user(&self, _req: Request<Body<Vec<u8>>>) -> (u16, String) {
         (200, "Yo".to_string())
     }

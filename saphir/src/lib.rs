@@ -145,6 +145,8 @@ pub mod prelude {
     #[cfg(feature = "macro")]
     pub use crate::macros::*;
     ///
+    pub use crate::guard::Guard;
+    ///
     pub use crate::middleware::Middleware;
     ///
     pub use crate::middleware::MiddlewareChain;

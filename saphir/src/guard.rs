@@ -12,26 +12,25 @@ use futures_util::future::Future;
 
 /// Auto trait implementation over every function that match the definition of a
 /// guard.
-pub trait GuardHandler<Data> {
-    type Responder: Responder + Send;
+pub trait Guard {
     type Future: Future<Output = Result<Request<Body>, Self::Responder>> + Send;
+    type Responder: Responder + Send;
 
-    fn validate(&self, data: &'static Data, req: Request<Body>) -> Self::Future;
+    fn validate(&'static self, req: Request<Body>) -> Self::Future;
 }
 
-impl<Data, Fun, Fut, Resp> GuardHandler<Data> for Fun
+impl<Fun, Fut, Resp> Guard for Fun
 where
-    Data: 'static,
     Resp: Responder + Send,
-    Fun: Fn(&'static Data, Request<Body>) -> Fut,
+    Fun: Fn(Request<Body>) -> Fut,
     Fut: 'static + Future<Output = Result<Request<Body>, Resp>> + Send,
 {
     type Future = BoxFuture<'static, Result<Request<Body>, Self::Responder>>;
     type Responder = Resp;
 
     #[inline]
-    fn validate(&self, data: &'static Data, req: Request<Body>) -> Self::Future {
-        (*self)(data, req).boxed()
+    fn validate(&self, req: Request<Body>) -> Self::Future {
+        (*self)(req).boxed()
     }
 }
 
@@ -47,14 +46,12 @@ impl Default for Builder<GuardChainEnd> {
 }
 
 impl<Chain: GuardChain + 'static> Builder<Chain> {
-    pub fn add<Data, Handler>(self, handler: Handler, data: Data) -> Builder<GuardChainLink<Data, Handler, Chain>>
+    pub fn add<Handler>(self, handler: Handler) -> Builder<GuardChainLink<Handler, Chain>>
     where
-        Data: 'static + Sync + Send,
-        Handler: 'static + GuardHandler<Data> + Sync + Send,
+        Handler: 'static + Guard + Sync + Send,
     {
         Builder {
             chain: GuardChainLink {
-                data,
                 handler,
                 rest: self.chain,
             },
@@ -90,22 +87,20 @@ impl GuardChain for GuardChainEnd {
 }
 
 #[doc(hidden)]
-pub struct GuardChainLink<Data, Handler: GuardHandler<Data>, Rest: GuardChain> {
-    data: Data,
+pub struct GuardChainLink<Handler: Guard, Rest: GuardChain> {
     handler: Handler,
     rest: Rest,
 }
 
-impl<Data, Handler, Rest> GuardChain for GuardChainLink<Data, Handler, Rest>
+impl<Handler, Rest> GuardChain for GuardChainLink<Handler, Rest>
 where
-    Data: Sync + Send + 'static,
-    Handler: GuardHandler<Data> + Sync + Send + 'static,
+    Handler: Guard + Sync + Send + 'static,
     Rest: GuardChain + 'static,
 {
     #[inline]
     fn validate(&'static self, req: Request<Body>) -> BoxFuture<'static, Result<Request<Body>, Box<dyn DynResponder + Send>>> {
         async move {
-            match self.handler.validate(&self.data, req).await {
+            match self.handler.validate(req).await {
                 Ok(req) => {
                     if self.rest.is_end() {
                         Ok(req)

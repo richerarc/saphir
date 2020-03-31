@@ -1,19 +1,24 @@
+use crate::file::etag::{EntityTag, SystemTimeExt};
 use crate::http_context::HttpContext;
 use crate::responder::Responder;
 use crate::response::Builder;
 use futures_util::stream::Stream;
 use futures_util::task::{Context, Poll};
 use hyper::body::Bytes;
+use std::fs::Metadata;
 use std::path::PathBuf;
 use tokio::fs::File as TokioFile;
 use tokio::macros::support::Pin;
 use tokio::prelude::*;
 
+mod etag;
+mod range_utils;
+
 const MAX_BUFFER: usize = 65534;
 
 pub struct File {
     inner: Pin<Box<TokioFile>>,
-    file_len: u64,
+    metadata: Metadata,
     buffer: Vec<u8>,
     path: PathBuf,
     end_of_file: bool,
@@ -28,7 +33,7 @@ impl File {
                 buffer: Vec::with_capacity(MAX_BUFFER),
                 path: PathBuf::from(path),
                 end_of_file: false,
-                file_len: metadata.len(),
+                metadata,
             }),
 
             Err(e) => Err(e),
@@ -44,11 +49,21 @@ impl File {
 impl Responder for File {
     fn respond_with_builder(self, builder: Builder, _ctx: &HttpContext) -> Builder {
         let mime = self.guess_mime();
-        let len = self.file_len;
-        let b = match builder.file(self) {
+        let len = self.metadata.len();
+        let last_modified = self.metadata.modified();
+
+        let mut b = match builder.file(self) {
             Ok(b) => b,
             Err((b, _e)) => b.status(500).body("Unable to read file"),
         };
+
+        if let Ok(time) = last_modified {
+            b = b.header(
+                http::header::ETAG,
+                EntityTag::new(false, format!("{}-{}", time.timestamp(), len).as_str()).get_tag(),
+            )
+        }
+
         b.header(http::header::CONTENT_TYPE, mime.to_string()).header(http::header::CONTENT_LENGTH, len)
     }
 }

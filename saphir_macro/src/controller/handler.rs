@@ -191,7 +191,13 @@ impl HandlerWrapperOpt {
                         .map(|(id, ar)| (id.as_str(), ar))
                     {
                         // Body<_>
-                        Some(("Body", PathArguments::AngleBracketed(a2))) => Some(a2),
+                        Some(("Body", pat_arg)) => {
+                            if let PathArguments::AngleBracketed(a2) = pat_arg {
+                                Some(a2)
+                            } else {
+                                None
+                            }
+                        }
                         // Type<_> of Type
                         Some((_, PathArguments::AngleBracketed(_))) => {
                             need_body_load = true;

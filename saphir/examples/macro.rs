@@ -55,7 +55,7 @@ impl UserController {
 
     #[get("/")]
     #[guard(PrintGuard, init_expr = "UserController::BASE_PATH")]
-    async fn list_user(&self, _req: Request<Body<Vec<u8>>>) -> (u16, String) {
+    async fn list_user(&self, _req: Request<Body>) -> (u16, String) {
         (200, "Yo".to_string())
     }
 

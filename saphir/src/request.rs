@@ -208,6 +208,22 @@ impl<T> Request<T> {
         }
     }
 
+    /// Return body, dropping the request
+    ///
+    /// ```rust
+    /// # use saphir::prelude::*;
+    /// # use hyper::Request as RawRequest;
+    /// # async {
+    /// # let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(Body::empty()).unwrap(), None);
+    /// // req is Request<Body<Bytes>>
+    /// let body = req.into_body();
+    /// # };
+    /// ```
+    #[inline]
+    pub fn into_body(self) -> T {
+        self.inner.into_body()
+    }
+
     /// Parse cookies from the Cookie header
     pub fn parse_cookies(&mut self) {
         let jar = &mut self.cookies;

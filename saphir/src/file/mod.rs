@@ -11,13 +11,16 @@ use tokio::fs::File as TokioFile;
 use tokio::macros::support::Pin;
 use tokio::prelude::*;
 
+mod conditional_request;
 mod etag;
+pub mod middleware;
 mod range_utils;
 
 const MAX_BUFFER: usize = 65534;
 
 pub struct File {
     inner: Pin<Box<TokioFile>>,
+    mime: mime::Mime,
     metadata: Metadata,
     buffer: Vec<u8>,
     path: PathBuf,
@@ -25,7 +28,7 @@ pub struct File {
 }
 
 impl File {
-    pub async fn open(path_str: &str) -> tokio::io::Result<File> {
+    pub async fn open(path_str: &str, mime: mime::Mime) -> tokio::io::Result<File> {
         let path = path_str.to_string();
         match TokioFile::open(path_str).await {
             Ok(file) => file.metadata().await.map(|metadata| File {
@@ -33,22 +36,18 @@ impl File {
                 buffer: Vec::with_capacity(MAX_BUFFER),
                 path: PathBuf::from(path),
                 end_of_file: false,
+                mime,
                 metadata,
             }),
 
             Err(e) => Err(e),
         }
     }
-
-    pub fn guess_mime(&self) -> mime::Mime {
-        let path = &self.path;
-        mime_guess::from_path(path).first_or_else(|| if path.is_dir() { mime::TEXT_HTML_UTF_8 } else { mime::TEXT_PLAIN_UTF_8 })
-    }
 }
 
 impl Responder for File {
     fn respond_with_builder(self, builder: Builder, _ctx: &HttpContext) -> Builder {
-        let mime = self.guess_mime();
+        let mime = &self.mime;
         let len = self.metadata.len();
         let last_modified = self.metadata.modified();
 

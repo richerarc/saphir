@@ -139,6 +139,9 @@ pub mod prelude {
     ///
     pub use crate::error::SaphirError;
     ///
+    #[cfg(feature = "file")]
+    pub use crate::file::File;
+    ///
     pub use crate::guard::Guard;
     ///
     pub use crate::handler::Handler;

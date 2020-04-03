@@ -1,4 +1,5 @@
 use crate::file::etag::{EntityTag, SystemTimeExt};
+use crate::file::middleware::PathExt;
 use crate::http_context::HttpContext;
 use crate::responder::Responder;
 use crate::response::Builder;
@@ -20,15 +21,15 @@ const MAX_BUFFER: usize = 65534;
 
 pub struct File {
     inner: Pin<Box<TokioFile>>,
-    mime: mime::Mime,
     metadata: Metadata,
     buffer: Vec<u8>,
     path: PathBuf,
+    mime: Option<mime::Mime>,
     end_of_file: bool,
 }
 
 impl File {
-    pub async fn open(path_str: &str, mime: mime::Mime) -> tokio::io::Result<File> {
+    pub async fn open(path_str: &str) -> tokio::io::Result<File> {
         let path = path_str.to_string();
         match TokioFile::open(path_str).await {
             Ok(file) => file.metadata().await.map(|metadata| File {
@@ -36,34 +37,39 @@ impl File {
                 buffer: Vec::with_capacity(MAX_BUFFER),
                 path: PathBuf::from(path),
                 end_of_file: false,
-                mime,
+                mime: None,
                 metadata,
             }),
 
             Err(e) => Err(e),
         }
     }
+
+    pub fn set_mime(&mut self, mime: mime::Mime) {
+        self.mime = Some(mime);
+    }
 }
 
 impl Responder for File {
     fn respond_with_builder(self, builder: Builder, _ctx: &HttpContext) -> Builder {
-        let mime = &self.mime;
-        let len = self.metadata.len();
-        let last_modified = self.metadata.modified();
+        let mime = if let Some(mime) = &self.mime {
+            mime.as_ref().to_string()
+        } else {
+            self.path
+                .mime()
+                .unwrap_or_else(|| if self.path.is_dir() { mime::TEXT_HTML_UTF_8 } else { mime::TEXT_PLAIN_UTF_8 })
+                .as_ref()
+                .to_string()
+        };
+
+        let len = self.path.size();
 
         let mut b = match builder.file(self) {
             Ok(b) => b,
             Err((b, _e)) => b.status(500).body("Unable to read file"),
         };
 
-        if let Ok(time) = last_modified {
-            b = b.header(
-                http::header::ETAG,
-                EntityTag::new(false, format!("{}-{}", time.timestamp(), len).as_str()).get_tag(),
-            )
-        }
-
-        b.header(http::header::CONTENT_TYPE, mime.to_string()).header(http::header::CONTENT_LENGTH, len)
+        b.header(http::header::CONTENT_TYPE, mime).header(http::header::CONTENT_LENGTH, len)
     }
 }
 

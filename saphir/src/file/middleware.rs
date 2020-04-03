@@ -1,12 +1,12 @@
+use crate::file::conditional_request::{is_fresh, is_precondition_failed};
+use crate::file::etag::{EntityTag, SystemTimeExt};
 use crate::prelude::*;
+use mime::Mime;
+use mime_guess::from_path;
 use percent_encoding::percent_decode;
 use std::path::{Path, PathBuf};
 use std::str::Utf8Error;
 use std::time::SystemTime;
-use crate::file::etag::{SystemTimeExt, EntityTag};
-use crate::file::conditional_request::{is_precondition_failed, is_fresh};
-use mime::Mime;
-use mime_guess::from_path;
 use time::PrimitiveDateTime;
 
 struct FileMiddleware {
@@ -59,24 +59,17 @@ impl FileMiddleware {
         }
 
         if is_fresh(&req, &etag, &last_modified) {
-            res.status(StatusCode::NOT_MODIFIED);
-
             ctx.after(
                 builder
                     .status(304)
-                    .header(header::ETAG, etag.get_tag())
                     .header(header::LAST_MODIFIED, Self::format_systemtime(last_modified))
                     .build()?,
             );
             return Ok(ctx);
         }
 
-        ctx.after(
-            builder
-                .header(header::CACHE_CONTROL, "public")
-                .header(header::CACHE_CONTROL, "max-age=0")
-                .build()?,
-        );
+        builder = builder.header(header::CACHE_CONTROL, "public").header(header::CACHE_CONTROL, "max-age=0");
+
         Ok(ctx)
     }
 

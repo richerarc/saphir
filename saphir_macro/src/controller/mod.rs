@@ -18,7 +18,7 @@ pub fn expand_controller(args: AttributeArgs, input: ItemImpl) -> Result<TokenSt
     let controller_implementation = controller_attr::gen_controller_trait_implementation(&controller_attr, handlers.as_slice());
     let struct_implementaion = gen_struct_implementation(controller_attr.ident.clone(), handlers)?;
 
-    let mod_ident = Ident::new(&format!("SAPHIR_GEN_CONTROLLER_{}", &controller_attr.name), Span::call_site());
+    let mod_ident = Ident::new(&format!("SAPHIR_GEN_CONTROLLER_{}", controller_attr.ident.to_string()), Span::call_site());
     Ok(quote! {
         mod #mod_ident {
             use super::*;

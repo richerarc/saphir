@@ -17,6 +17,11 @@ use crate::{
 #[cfg(feature = "operation")]
 use crate::http_context::operation::OperationId;
 
+pub trait FromRequest<T = Body> {
+    type Err;
+    fn from_request(req: &mut Request<T>) -> Result<Self, Self::Err>;
+}
+
 /// Struct that wraps a hyper request + some magic
 pub struct Request<T = Body<Bytes>> {
     #[doc(hidden)]

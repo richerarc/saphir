@@ -13,6 +13,8 @@ use futures_util::{
 };
 use std::path::Path;
 use tokio::macros::support::Pin;
+use crate::request::FromRequest;
+use crate::body::Body;
 
 mod parser;
 
@@ -235,10 +237,10 @@ pub struct Multipart {
     next_field_fut: Option<NextFieldFuture>,
 }
 
-impl Multipart {
-    /// Initialize a Multipart from a given request
-    /// This will consume the body
-    pub fn from_request(req: &mut Request) -> Result<Multipart, MultipartError> {
+impl FromRequest for Multipart {
+    type Err = MultipartError;
+
+    fn from_request(req: &mut Request<Body<Bytes>>) -> Result<Self, Self::Err> {
         let boundary = req
             .headers()
             .get(http::header::CONTENT_TYPE)
@@ -254,8 +256,11 @@ impl Multipart {
 
         Ok(Self::from_part(boundary, stream))
     }
+}
 
-    /// Initialize the Multipart from raw parts
+impl Multipart {
+    /// Initialize the Multipart from raw parts, for convenience, Multipart implement the FromRequest trait,
+    /// from_request() should be used instead
     pub fn from_part<S>(boundary: String, stream: S) -> Self
     where
         S: Stream<Item = Result<Bytes, MultipartError>> + Send + Sync + Unpin + 'static,

@@ -103,6 +103,8 @@ pub mod server;
 ///
 pub mod utils;
 ///
+pub mod extension;
+///
 pub use cookie;
 ///
 pub use http;

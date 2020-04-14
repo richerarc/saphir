@@ -254,7 +254,7 @@ impl AsyncSeek for CachedFile {
 }
 
 impl AsyncRead for CachedFile {
-    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
+    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
         let mut current_fut = self.file_read_future.take();
 
         let res = if let Some(current) = current_fut.as_mut() {
@@ -275,7 +275,7 @@ impl AsyncRead for CachedFile {
         match res {
             Poll::Ready(res) => Poll::Ready(res),
             Poll::Pending => {
-                self.file_seek_future = current_fut;
+                self.file_read_future = current_fut;
                 Poll::Pending
             }
         }

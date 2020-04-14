@@ -356,8 +356,7 @@ mod form {
 #[cfg(feature = "file")]
 mod file {
     use super::*;
-    use crate::body::Bytes;
-    use crate::file::File;
+    use crate::{body::Bytes, file::File};
     use futures::Stream;
 
     impl Builder {

@@ -1,17 +1,26 @@
-use crate::file::conditional_request::{is_fresh, is_precondition_failed};
-use crate::file::etag::{EntityTag, SystemTimeExt};
-use crate::prelude::*;
+use crate::{
+    file::{
+        conditional_request::{format_systemtime, is_fresh, is_precondition_failed},
+        etag::{EntityTag, SystemTimeExt},
+        range::Range,
+        range_requests::{extract_range, is_range_fresh, is_satisfiable_range},
+        FileCache,
+    },
+    prelude::*,
+};
 use mime::Mime;
 use mime_guess::from_path;
 use percent_encoding::percent_decode;
-use std::path::{Path, PathBuf};
-use std::str::Utf8Error;
-use std::time::SystemTime;
-use time::PrimitiveDateTime;
+use std::{
+    path::{Path, PathBuf},
+    str::{FromStr, Utf8Error},
+    time::SystemTime,
+};
 
 struct FileMiddleware {
     base_path: PathBuf,
     www_path: PathBuf,
+    cache: FileCache,
 }
 
 impl FileMiddleware {
@@ -19,6 +28,7 @@ impl FileMiddleware {
         FileMiddleware {
             base_path: PathBuf::from(base_path.to_string()),
             www_path: PathBuf::from(www_path.to_string()),
+            cache: FileCache::new(),
         }
     }
 
@@ -59,22 +69,43 @@ impl FileMiddleware {
         }
 
         if is_fresh(&req, &etag, &last_modified) {
-            ctx.after(
-                builder
-                    .status(304)
-                    .header(header::LAST_MODIFIED, Self::format_systemtime(last_modified))
-                    .build()?,
-            );
+            ctx.after(builder.status(304).header(header::LAST_MODIFIED, format_systemtime(last_modified)).build()?);
             return Ok(ctx);
         }
 
-        builder = builder.header(header::CACHE_CONTROL, "public").header(header::CACHE_CONTROL, "max-age=0");
+        let mut is_partial_content = false;
+
+        if let Some(range) = req
+            .headers()
+            .get(header::RANGE)
+            .and_then(|header| header.to_str().ok())
+            .and_then(|header| Range::from_str(header).ok())
+        {
+            match (is_range_fresh(&req, &etag, &last_modified), is_satisfiable_range(&range, size as u64)) {
+                (true, Some(content_range)) => {
+                    if let Some(range) = extract_range(&content_range) {
+                        //body = send_file_with_range(&path, range);
+                    }
+                    builder = builder
+                        .header(http::header::CONTENT_RANGE, content_range.to_string())
+                        .status(StatusCode::PARTIAL_CONTENT);
+                    is_partial_content = true;
+                }
+                _ => (),
+            }
+        }
+
+        if !is_partial_content {
+            // body = send_file(&path);
+        }
+
+        builder = builder
+            .header(header::CACHE_CONTROL, "public")
+            .header(header::CACHE_CONTROL, "max-age=0")
+            .header(header::ETAG, etag.get_tag());
+        ctx.after(builder.build()?);
 
         Ok(ctx)
-    }
-
-    fn format_systemtime(time: SystemTime) -> String {
-        PrimitiveDateTime::from(time).format("%a, %d %b %Y %T %Z")
     }
 
     fn file_path_from_path(&self, path: &str) -> Result<PathBuf, Utf8Error> {

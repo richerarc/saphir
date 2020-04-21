@@ -28,7 +28,7 @@ tokio = { version = "0.2", features = ["full"] }
 futures = "0.3"
 futures-util = "0.3"
 tower-service = "0.3"
-cookie = { package = "saphir-cookie", version = "0.13" }
+saphir-cookie = "0.13.0"
 http = "0.2"
 http-body = "0.3"
 parking_lot = "0.10"

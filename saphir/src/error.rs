@@ -1,4 +1,8 @@
-use crate::{http_context::HttpContext, responder::Responder, response::Builder};
+use crate::{
+    http_context::HttpContext,
+    responder::{DynResponder, Responder},
+    response::Builder,
+};
 use http::{
     header::{InvalidHeaderValue, ToStrError},
     Error as HttpCrateError,
@@ -6,7 +10,7 @@ use http::{
 use hyper::error::Error as HyperError;
 use std::{
     error::Error as StdError,
-    fmt::{Display, Error as FmtError, Formatter},
+    fmt::{Debug, Display, Error as FmtError, Formatter},
     io::Error as IoError,
 };
 
@@ -21,7 +25,6 @@ pub enum InternalError {
 }
 
 /// Error type throughout the saphir stack
-#[derive(Debug)]
 pub enum SaphirError {
     ///
     Internal(InternalError),
@@ -36,6 +39,8 @@ pub enum SaphirError {
     ResponseMoved,
     /// Custom error type to map any other error
     Custom(Box<dyn StdError + Send + Sync + 'static>),
+    /// Custom error type to map any other error
+    Responder(Box<dyn DynResponder + Send + Sync + 'static>),
     ///
     Other(String),
     /// Error from (de)serializing json data
@@ -51,9 +56,35 @@ pub enum SaphirError {
     MissingParameter(String, bool),
     ///
     InvalidParameter(String, bool),
-    ///
-    #[cfg(feature = "multipart")]
-    Multipart(crate::multipart::MultipartError),
+}
+
+impl Debug for SaphirError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SaphirError::Internal(d) => std::fmt::Debug::fmt(d, f),
+            SaphirError::Io(d) => std::fmt::Debug::fmt(d, f),
+            SaphirError::BodyAlreadyTaken => f.write_str("BodyAlreadyTaken"),
+            SaphirError::RequestMovedBeforeHandler => f.write_str("RequestMovedBeforeHandler"),
+            SaphirError::ResponseMoved => f.write_str("ResponseMoved"),
+            SaphirError::Custom(d) => std::fmt::Debug::fmt(d, f),
+            SaphirError::Responder(_) => f.write_str("Responder"),
+            SaphirError::Other(d) => std::fmt::Debug::fmt(d, f),
+            #[cfg(feature = "json")]
+            SaphirError::SerdeJson(d) => std::fmt::Debug::fmt(d, f),
+            #[cfg(feature = "form")]
+            SaphirError::SerdeUrlDe(d) => std::fmt::Debug::fmt(d, f),
+            #[cfg(feature = "form")]
+            SaphirError::SerdeUrlSer(d) => std::fmt::Debug::fmt(d, f),
+            SaphirError::MissingParameter(d, _) => std::fmt::Debug::fmt(d, f),
+            SaphirError::InvalidParameter(d, _) => std::fmt::Debug::fmt(d, f),
+        }
+    }
+}
+
+impl SaphirError {
+    pub fn responder<T: Responder + Send + Sync + 'static>(e: T) -> Self {
+        SaphirError::Responder(Box::new(Some(e)))
+    }
 }
 
 #[cfg(feature = "json")]
@@ -104,13 +135,6 @@ impl From<IoError> for SaphirError {
 impl From<ToStrError> for SaphirError {
     fn from(e: ToStrError) -> Self {
         SaphirError::Internal(InternalError::ToStr(e))
-    }
-}
-
-#[cfg(feature = "multipart")]
-impl From<crate::multipart::MultipartError> for SaphirError {
-    fn from(e: crate::multipart::MultipartError) -> Self {
-        SaphirError::Multipart(e)
     }
 }
 
@@ -191,11 +215,6 @@ impl Responder for SaphirError {
 
                 builder.status(400)
             }
-            #[cfg(feature = "multipart")]
-            SaphirError::Multipart(e) => {
-                debug!("{}Unable to parse multipart data: {:?}", op_id, e);
-                builder.status(400)
-            }
             SaphirError::RequestMovedBeforeHandler => {
                 warn!(
                     "{}A request was moved out of its context by a middleware, but the middleware did not stop request processing",
@@ -207,6 +226,7 @@ impl Responder for SaphirError {
                 warn!("{}A response was moved before being sent to the client", op_id);
                 builder.status(500)
             }
+            SaphirError::Responder(mut r) => r.dyn_respond(builder, ctx),
         }
     }
 }

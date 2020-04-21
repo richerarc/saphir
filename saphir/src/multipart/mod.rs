@@ -6,15 +6,20 @@ use mime::Mime;
 use nom::lib::std::fmt::Formatter;
 use parking_lot::Mutex;
 
-use crate::{body::Bytes, multipart::parser::ParseFieldError, request::Request};
+use crate::{
+    body::{Body, Bytes},
+    http_context::HttpContext,
+    multipart::parser::ParseFieldError,
+    request::{FromRequest, Request},
+    responder::Responder,
+    response::Builder,
+};
 use futures_util::{
     future::Future,
     task::{Context, Poll},
 };
 use std::path::Path;
 use tokio::macros::support::Pin;
-use crate::request::FromRequest;
-use crate::body::Body;
 
 mod parser;
 
@@ -33,6 +38,25 @@ pub enum MultipartError {
     Json(serde_json::error::Error),
     #[cfg(feature = "form")]
     Form(serde_urlencoded::de::Error),
+}
+
+impl Responder for MultipartError {
+    fn respond_with_builder(self, builder: Builder, ctx: &HttpContext) -> Builder {
+        let op_id = {
+            #[cfg(not(feature = "operation"))]
+            {
+                String::new()
+            }
+
+            #[cfg(feature = "operation")]
+            {
+                format!("[Operation id: {}] ", ctx.operation_id)
+            }
+        };
+
+        debug!("{}Unable to parse multipart data: {:?}", op_id, &self);
+        builder.status(400)
+    }
 }
 
 impl From<ParseFieldError> for MultipartError {
@@ -239,8 +263,9 @@ pub struct Multipart {
 
 impl FromRequest for Multipart {
     type Err = MultipartError;
+    type Fut = futures::future::Ready<Result<Self, Self::Err>>;
 
-    fn from_request(req: &mut Request<Body<Bytes>>) -> Result<Self, Self::Err> {
+    fn from_request(req: &mut Request<Body<Bytes>>) -> Self::Fut {
         let boundary = req
             .headers()
             .get(http::header::CONTENT_TYPE)
@@ -250,17 +275,18 @@ impl FromRequest for Multipart {
             .as_ref()
             .and_then(|mime| mime.get_param(mime::BOUNDARY))
             .map(|name| name.to_string())
-            .ok_or_else(|| MultipartError::MissingBoundary)?;
+            .ok_or_else(|| MultipartError::MissingBoundary);
 
         let stream = req.body_mut().take().into_raw().map_err(MultipartError::Hyper);
 
-        Ok(Self::from_part(boundary, stream))
+        futures::future::ready(boundary.map(|boundary| Self::from_part(boundary, stream)))
     }
 }
 
 impl Multipart {
-    /// Initialize the Multipart from raw parts, for convenience, Multipart implement the FromRequest trait,
-    /// from_request() should be used instead
+    /// Initialize the Multipart from raw parts, for convenience, Multipart
+    /// implement the FromRequest trait, from_request() should be used
+    /// instead
     pub fn from_part<S>(boundary: String, stream: S) -> Self
     where
         S: Stream<Item = Result<Bytes, MultipartError>> + Send + Sync + Unpin + 'static,

@@ -215,7 +215,7 @@ impl Router {
         match self.resolve(&mut req) {
             Ok(id) => self.dispatch(id, req, ctx).await,
             Err(status) => {
-                ctx.state = State::After(Box::new(status.respond(&ctx)?));
+                ctx.state = State::After(Box::new(status.respond_with_builder(crate::response::Builder::new(), &ctx).build()?));
                 Ok(ctx)
             }
         }
@@ -225,11 +225,13 @@ impl Router {
         // # SAFETY #
         // The router is initialized in static memory when calling run on Server.
         let static_self = unsafe { std::mem::transmute::<&'_ Self, &'static Self>(self) };
+        let b = crate::response::Builder::new();
         let res = if let Some(responder) = static_self.inner.chain.dispatch(resolver_id, req) {
-            responder.await.dyn_respond(&ctx)
+            responder.await.dyn_respond(b, &ctx)
         } else {
-            404.respond(&ctx)
-        };
+            404.respond_with_builder(b, &ctx)
+        }
+        .build();
 
         res.map(|r| {
             ctx.state = State::After(Box::new(r));

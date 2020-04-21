@@ -1,13 +1,28 @@
-use std::ops::{Deref, DerefMut};
-use std::borrow::{Borrow, BorrowMut};
-use crate::responder::Responder;
-use crate::response::Builder;
-use crate::http_context::HttpContext;
-use crate::request::{FromRequest, Request};
+use crate::{
+    http_context::HttpContext,
+    request::{FromRequest, Request},
+    responder::Responder,
+    response::Builder,
+};
+use std::{
+    borrow::{Borrow, BorrowMut},
+    ops::{Deref, DerefMut},
+};
+
+use crate::{body::Body, prelude::Bytes};
+pub use http::Extensions;
 
 pub enum ExtError {
-    /// The extension type was not found, the type name of the missing extension is returned
+    /// The extension type was not found, the type name of the missing extension
+    /// is returned
     MissingExtension(&'static str),
+}
+
+impl Responder for ExtError {
+    fn respond_with_builder(self, builder: Builder, _ctx: &HttpContext) -> Builder {
+        debug!("Missing extension of type: {}", std::any::type_name::<Self>());
+        builder.status(500)
+    }
 }
 
 pub struct Ext<T>(pub T);
@@ -56,16 +71,34 @@ impl<T> BorrowMut<T> for Ext<T> {
     }
 }
 
-impl<T> Responder for Ext<T> {
+impl<T: Send + Sync + 'static> Responder for Ext<T> {
     fn respond_with_builder(self, builder: Builder, _ctx: &HttpContext) -> Builder {
         builder.extension(self.into_inner())
     }
 }
 
-impl<T, U> FromRequest<T> for Ext<U> {
+impl<T> FromRequest for Ext<T>
+where
+    T: Send + Sync + 'static,
+{
     type Err = ExtError;
+    type Fut = futures::future::Ready<Result<Self, Self::Err>>;
 
-    fn from_request(req: &mut Request<T>) -> Result<Self, Self::Err> {
-        req.extensions_mut().remove::<U>().ok_or_else(|| ExtError::MissingExtension(std::any::type_name::<U>()))
+    fn from_request(req: &mut Request) -> Self::Fut {
+        futures::future::ready(
+            req.extensions_mut()
+                .remove::<T>()
+                .ok_or_else(|| ExtError::MissingExtension(std::any::type_name::<T>()))
+                .map(Ext),
+        )
+    }
+}
+
+impl FromRequest for Extensions {
+    type Err = ();
+    type Fut = futures::future::Ready<Result<Self, Self::Err>>;
+
+    fn from_request(req: &mut Request<Body<Bytes>>) -> Self::Fut {
+        futures::future::ready(Ok(std::mem::take(req.extensions_mut())))
     }
 }

@@ -4,7 +4,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use cookie::{Cookie, CookieJar};
+use crate::cookie::{Cookie, CookieJar};
 use http::{header::HeaderName, response::Builder as RawBuilder, HeaderMap, HeaderValue, Response as RawResponse, StatusCode, Version};
 use hyper::body::Body as RawBody;
 
@@ -293,6 +293,16 @@ impl Builder {
         self.cookies.as_mut().expect("Should not happens").add(cookie);
 
         self
+    }
+
+    ///
+    #[inline]
+    pub fn cookies_mut(&mut self) -> &mut CookieJar {
+        if self.cookies.is_none() {
+            self.cookies = Some(CookieJar::new());
+        }
+
+        self.cookies.as_mut().expect("Checked above")
     }
 
     #[inline]

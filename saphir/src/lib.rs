@@ -74,8 +74,12 @@ extern crate log;
 pub mod body;
 ///
 pub mod controller;
+///
+pub mod cookie;
 /// Error definitions
 pub mod error;
+///
+pub mod extension;
 ///
 pub mod guard;
 /// Definition of types which can handle an http request
@@ -102,8 +106,6 @@ pub mod router;
 pub mod server;
 ///
 pub mod utils;
-///
-pub use cookie;
 ///
 pub use http;
 #[doc(hidden)]
@@ -134,7 +136,17 @@ pub mod prelude {
     ///
     pub use crate::controller::EndpointsBuilder;
     ///
+    pub use crate::cookie::Cookie;
+    ///
+    pub use crate::cookie::CookieBuilder;
+    ///
+    pub use crate::cookie::CookieJar;
+    ///
     pub use crate::error::SaphirError;
+    ///
+    pub use crate::extension::Ext;
+    ///
+    pub use crate::extension::Extensions;
     ///
     pub use crate::guard::Guard;
     ///
@@ -154,6 +166,8 @@ pub mod prelude {
     #[cfg(feature = "multipart")]
     pub use crate::multipart::Multipart;
     ///
+    pub use crate::request::FromRequest;
+    ///
     pub use crate::request::Request;
     ///
     pub use crate::responder::Responder;
@@ -166,15 +180,7 @@ pub mod prelude {
     ///
     pub use crate::server::Stack;
     ///
-    pub use cookie::Cookie;
-    ///
-    pub use cookie::CookieBuilder;
-    ///
-    pub use cookie::CookieJar;
-    ///
     pub use http::header;
-    ///
-    pub use http::Extensions;
     ///
     pub use http::Method;
     ///

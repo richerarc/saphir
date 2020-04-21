@@ -1,4 +1,4 @@
-# Saphir
+# ![logo]
 [![doc](https://docs.rs/saphir/badge.svg)](https://docs.rs/saphir/)
 [![crate](https://img.shields.io/crates/v/saphir.svg)](https://crates.io/crates/saphir)
 [![issue](https://img.shields.io/github/issues/richerarc/saphir.svg)](https://github.com/richerarc/saphir/issues)
@@ -40,3 +40,5 @@ async fn main() -> Result<(), SaphirError> {
     server.run().await
 }
 ```
+
+[logo]: ./logo.svg "Saphir Logo"

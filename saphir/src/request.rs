@@ -4,7 +4,6 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use cookie::{Cookie, CookieJar};
 use futures_util::future::Future;
 use http::Request as RawRequest;
 use hyper::body::Bytes;
@@ -16,6 +15,17 @@ use crate::{
 
 #[cfg(feature = "operation")]
 use crate::http_context::operation::OperationId;
+use crate::{
+    prelude::{Cookie, CookieJar},
+    responder::Responder,
+};
+
+pub trait FromRequest: Sized {
+    type Err: Responder;
+    type Fut: Future<Output = Result<Self, Self::Err>>;
+
+    fn from_request(req: &mut Request) -> Self::Fut;
+}
 
 /// Struct that wraps a hyper request + some magic
 pub struct Request<T = Body<Bytes>> {

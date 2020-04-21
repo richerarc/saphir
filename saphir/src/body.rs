@@ -268,6 +268,11 @@ pub mod json {
     pub struct Json<T>(pub T);
 
     impl<T> Json<T> {
+        pub fn into_inner(self) -> T {
+            self.0
+        }
+
+        #[deprecated(since = "2.2.7", note = "Please use the into_inner function instead")]
         pub fn unwrap(self) -> T {
             self.0
         }
@@ -340,6 +345,11 @@ pub mod form {
     pub struct Form<T>(pub T);
 
     impl<T> Form<T> {
+        pub fn into_inner(self) -> T {
+            self.0
+        }
+
+        #[deprecated(since = "2.2.7", note = "Please use the into_inner function instead")]
         pub fn unwrap(self) -> T {
             self.0
         }

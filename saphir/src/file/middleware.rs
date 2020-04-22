@@ -4,7 +4,7 @@ use crate::{
         etag::{EntityTag, SystemTimeExt},
         range::Range,
         range_requests::{extract_range, is_range_fresh, is_satisfiable_range},
-        FileCache,
+        Compression, FileCache,
     },
     prelude::*,
 };
@@ -34,6 +34,7 @@ impl FileMiddleware {
 
     async fn next_inner(&self, mut ctx: HttpContext, _chain: &dyn MiddlewareChain) -> Result<HttpContext, SaphirError> {
         let mut builder = Builder::new();
+        let mut cache = self.cache.clone();
         let req = ctx.state.request_unchecked();
         let path = match self.file_path_from_path(req.uri().path()) {
             Ok(path) => path,
@@ -75,6 +76,14 @@ impl FileMiddleware {
 
         let mut is_partial_content = false;
 
+        let compression = req
+            .headers()
+            .get(header::ACCEPT_ENCODING)
+            .and_then(|header| header.to_str().ok())
+            .map(|str| str.split(',').map(|encoding| Compression::from_str(encoding.trim()).unwrap_or_default()).max())
+            .flatten()
+            .unwrap_or_default();
+
         if let Some(range) = req
             .headers()
             .get(header::RANGE)
@@ -84,7 +93,7 @@ impl FileMiddleware {
             match (is_range_fresh(&req, &etag, &last_modified), is_satisfiable_range(&range, size as u64)) {
                 (true, Some(content_range)) => {
                     if let Some(range) = extract_range(&content_range) {
-                        //body = send_file_with_range(&path, range);
+                        builder = builder.file(cache.open_file_with_range(&path, range).await?).map_err(|error| error.1)?;
                     }
                     builder = builder
                         .header(http::header::CONTENT_RANGE, content_range.to_string())
@@ -96,10 +105,15 @@ impl FileMiddleware {
         }
 
         if !is_partial_content {
-            // body = send_file(&path);
+            builder = builder.file(cache.open_file(&path, compression).await?).map_err(|(_, e)| e)?;
+        }
+
+        if compression != Compression::Raw {
+            builder = builder.header(header::CONTENT_ENCODING, compression.to_string())
         }
 
         builder = builder
+            .header(header::CONTENT_TYPE, mime_type.to_string())
             .header(header::CACHE_CONTROL, "public")
             .header(header::CACHE_CONTROL, "max-age=0")
             .header(header::ETAG, etag.get_tag());

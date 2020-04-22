@@ -356,11 +356,11 @@ mod form {
 #[cfg(feature = "file")]
 mod file {
     use super::*;
-    use crate::{body::Bytes, file::File};
+    use crate::{file::FileStream, prelude::Bytes};
     use futures::Stream;
 
     impl Builder {
-        pub fn file(self, file: File) -> Result<Builder, (Builder, SaphirError)> {
+        pub fn file(self, file: FileStream) -> Result<Builder, (Builder, SaphirError)> {
             Ok(self.body(Box::new(file)
                 as Box<
                     dyn Stream<Item = Result<Bytes, Box<dyn std::error::Error + 'static + Sync + Send>>> + 'static + Sync + Send,

@@ -10,10 +10,17 @@ use tokio::{fs::File as TokioFile, io::AsyncSeek, macros::support::Pin, prelude:
 
 use crate::{error::SaphirError, file::middleware::PathExt, http_context::HttpContext, responder::Responder, response::Builder};
 use flate2::write::{DeflateEncoder, GzEncoder};
-use futures::{io::Cursor, Future};
+use futures::{
+    io::{AsyncRead, AsyncReadExt, Cursor},
+    Future,
+};
 use mime::Mime;
 use nom::lib::std::str::FromStr;
-use std::io::Write;
+use std::{
+    io::Write,
+    sync::atomic::{AtomicU64, Ordering},
+};
+use tokio::io::AsyncRead as TokioAsyncRead;
 
 mod conditional_request;
 mod content_range;
@@ -24,18 +31,16 @@ mod range_requests;
 
 pub const MAX_BUFFER: usize = 65534;
 
-trait SaphirFile: AsyncRead + AsyncSeek + FileInfo + Sync + Send {}
+pub trait SaphirFile: AsyncRead + AsyncSeek + FileInfo + Sync + Send {}
 impl<T: AsyncRead + AsyncSeek + FileInfo + Sync + Send> SaphirFile for T {}
 
 pub trait FileInfo {
     fn get_path(&self) -> &PathBuf;
-    fn get_mime(&self) -> &Option<mime::Mime>;
-    fn set_mime(&mut self, mime: mime::Mime);
+    fn get_mime(&self) -> Option<&mime::Mime>;
 }
 
 pub struct File {
     inner: Pin<Box<TokioFile>>,
-    buffer: Vec<u8>,
     path: PathBuf,
     mime: Option<mime::Mime>,
 }
@@ -45,12 +50,8 @@ impl FileInfo for File {
         &self.path
     }
 
-    fn get_mime(&self) -> &Option<mime::Mime> {
-        &self.mime
-    }
-
-    fn set_mime(&mut self, mime: mime::Mime) {
-        self.mime = Some(mime);
+    fn get_mime(&self) -> Option<&mime::Mime> {
+        self.mime.as_ref()
     }
 }
 
@@ -60,7 +61,6 @@ impl File {
         match TokioFile::open(path_str).await {
             Ok(file) => Ok(File {
                 inner: Box::pin(file),
-                buffer: Vec::with_capacity(MAX_BUFFER),
                 path: PathBuf::from(path),
                 mime: None,
             }),
@@ -71,17 +71,17 @@ impl File {
 }
 
 impl AsyncRead for File {
-    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
-        self.inner.as_mut().poll_read(cx, buf)
+    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
+        dbg!(self.inner.as_mut().poll_read(cx, buf))
     }
 }
 
 impl AsyncSeek for File {
-    fn start_seek(self: Pin<&mut Self>, cx: &mut Context<'_>, position: SeekFrom) -> Poll<io::Result<()>> {
+    fn start_seek(mut self: Pin<&mut Self>, cx: &mut Context<'_>, position: SeekFrom) -> Poll<io::Result<()>> {
         self.inner.as_mut().start_seek(cx, position)
     }
 
-    fn poll_complete(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<u64>> {
+    fn poll_complete(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<u64>> {
         self.inner.as_mut().poll_complete(cx)
     }
 }
@@ -127,12 +127,18 @@ impl ToString for Compression {
 #[derive(Clone)]
 pub struct FileCache {
     inner: Arc<RwLock<HashMap<(String, Compression), Vec<u8>>>>,
+    max_file_size: u64,
+    max_capacity: u64,
+    current_size: Arc<AtomicU64>,
 }
 
 impl FileCache {
-    pub fn new() -> Self {
+    pub fn new(max_file_size: u64, max_capacity: u64) -> Self {
         FileCache {
             inner: Arc::new(RwLock::new(HashMap::new())),
+            max_file_size,
+            max_capacity,
+            current_size: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -154,38 +160,52 @@ impl FileCache {
         }
     }
 
+    pub async fn insert(&mut self, key: (String, Compression), value: Vec<u8>) {
+        self.current_size.fetch_add(value.len() as u64, Ordering::Relaxed);
+        self.inner.write().await.insert(key, value);
+    }
+
+    pub async fn get_size(&self) -> u64 {
+        self.current_size.load(Ordering::Relaxed)
+    }
+
     pub async fn open_file(&mut self, path: &PathBuf, compression: Compression) -> Result<FileStream, SaphirError> {
         let path_str = path.to_str().unwrap_or_default();
         if let Some(cached_file) = self.get((path_str.to_string(), compression)).await {
-            Ok(FileStream::new(Box::pin(cached_file)))
+            Ok(FileStream::new(cached_file))
         } else if let Some(cached_raw_file) = self.get((path_str.to_string(), Compression::Raw)).await {
-            Ok(FileStream::new(Box::pin(FileCacher::new(
-                (path_str.to_string(), compression),
-                Box::pin(FileCompressor::new(compression, Box::pin(cached_raw_file))),
-                self.inner.clone(),
-            ))))
+            let file_size = cached_raw_file.get_path().size();
+            let inner = if file_size + self.get_size().await <= self.max_capacity && file_size <= self.max_file_size {
+                Box::pin(FileCompressor::new(compression, Box::pin(cached_raw_file))) as Pin<Box<dyn SaphirFile>>
+            } else {
+                Box::pin(cached_raw_file) as Pin<Box<dyn SaphirFile>>
+            };
+            Ok(FileStream::new(FileCacher::new((path_str.to_string(), compression), inner, self.clone())))
         } else {
-            Ok(FileStream::new(Box::pin(FileCacher::new(
-                (path_str.to_string(), compression),
-                Box::pin(FileCompressor::new(compression, Box::pin(File::open(path_str).await?))),
-                self.inner.clone(),
-            ))))
+            let file = File::open(path_str).await?;
+            let file_size = file.get_path().size();
+            let inner = if file_size + self.get_size().await <= self.max_capacity && file_size <= self.max_file_size {
+                Box::pin(FileCompressor::new(compression, Box::pin(file))) as Pin<Box<dyn SaphirFile>>
+            } else {
+                Box::pin(file) as Pin<Box<dyn SaphirFile>>
+            };
+            Ok(FileStream::new(FileCacher::new((path_str.to_string(), compression), inner, self.clone())))
         }
     }
 
     pub async fn open_file_with_range(&mut self, path: &PathBuf, range: (u64, u64)) -> Result<FileStream, SaphirError> {
         let path_str = path.to_str().unwrap_or_default();
-        if let Some(mut cached_file) = self.get((path_str.to_string(), Compression::Raw)).await {
-            let mut file_stream = FileStream::new(Box::pin(cached_file));
-            file_stream.set_range(range);
+        if let Some(cached_file) = self.get((path_str.to_string(), Compression::Raw)).await {
+            let mut file_stream = FileStream::new(cached_file);
+            file_stream.set_range(range).await?;
             Ok(file_stream)
         } else {
-            let mut file_stream = FileStream::new(Box::pin(FileCacher::new(
+            let mut file_stream = FileStream::new(FileCacher::new(
                 (path_str.to_string(), Compression::Raw),
                 Box::pin(File::open(path_str).await?),
-                self.inner.clone(),
-            )));
-            file_stream.set_range(range);
+                self.clone(),
+            ));
+            file_stream.set_range(range).await?;
             Ok(file_stream)
         }
     }
@@ -262,7 +282,7 @@ impl CachedFile {
 }
 
 impl AsyncSeek for CachedFile {
-    fn start_seek(mut self: Pin<&mut Self>, cx: &mut Context<'_>, position: SeekFrom) -> Poll<io::Result<()>> {
+    fn start_seek(mut self: Pin<&mut Self>, _cx: &mut Context<'_>, position: SeekFrom) -> Poll<io::Result<()>> {
         self.seek_from = Some(position);
         Poll::Ready(Ok(()))
     }
@@ -306,12 +326,8 @@ impl FileInfo for CachedFile {
         &self.path
     }
 
-    fn get_mime(&self) -> &Option<Mime> {
-        &self.mime
-    }
-
-    fn set_mime(&mut self, mime: mime::Mime) {
-        self.mime = Some(mime);
+    fn get_mime(&self) -> Option<&Mime> {
+        self.mime.as_ref()
     }
 }
 
@@ -351,25 +367,32 @@ pub struct FileCacher {
     key: (String, Compression),
     inner: Pin<Box<dyn SaphirFile>>,
     buff: Vec<u8>,
-    cache: Arc<RwLock<HashMap<(String, Compression), Vec<u8>>>>,
-    end_of_file: bool,
+    cache: FileCache,
 }
 
 impl FileCacher {
-    pub fn new(key: (String, Compression), inner: Pin<Box<dyn SaphirFile>>, cache: Arc<RwLock<HashMap<(String, Compression), Vec<u8>>>>) -> Self {
+    pub fn new(key: (String, Compression), inner: Pin<Box<dyn SaphirFile>>, cache: FileCache) -> Self {
         FileCacher {
             key,
             inner,
             buff: vec![],
             cache,
-            end_of_file: false,
         }
     }
 
-    async fn save_file_to_cache(&mut self) {
+    fn save_file_to_cache(&mut self) {
         let key = std::mem::take(&mut self.key);
         let buff = std::mem::take(&mut self.buff);
-        self.cache.write().await.insert(key, buff);
+        let mut cache = self.cache.clone();
+        tokio::spawn(async move {
+            cache.insert(key, buff).await;
+        });
+    }
+}
+
+impl Drop for FileCacher {
+    fn drop(&mut self) {
+        self.save_file_to_cache();
     }
 }
 
@@ -378,9 +401,7 @@ impl AsyncRead for FileCacher {
         match self.inner.as_mut().poll_read(cx, buf) {
             Poll::Ready(Ok(bytes)) => {
                 if bytes > 0 {
-                    self.buff.copy_from_slice(buf)
-                } else {
-                    tokio::spawn(self.save_file_to_cache());
+                    self.buff.extend_from_slice(dbg!(buf));
                 }
                 Poll::Ready(Ok(bytes))
             }
@@ -395,7 +416,7 @@ impl AsyncSeek for FileCacher {
         self.inner.as_mut().start_seek(cx, position)
     }
 
-    fn poll_complete(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<u64>> {
+    fn poll_complete(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<u64>> {
         self.inner.as_mut().poll_complete(cx)
     }
 }
@@ -405,12 +426,8 @@ impl FileInfo for FileCacher {
         self.inner.get_path()
     }
 
-    fn get_mime(&self) -> &Option<Mime> {
+    fn get_mime(&self) -> Option<&Mime> {
         self.inner.get_mime()
-    }
-
-    fn set_mime(&mut self, mime: Mime) {
-        self.inner.set_mime(mime)
     }
 }
 
@@ -458,7 +475,7 @@ impl std::io::Write for Encoder {
 
 type CompressFileFuture = Pin<Box<dyn Future<Output = io::Result<Vec<u8>>> + Send + Sync>>;
 pub struct FileCompressor {
-    inner: Pin<Box<dyn SaphirFile>>,
+    inner: Option<Pin<Box<dyn SaphirFile>>>,
     encoder: Encoder,
     compression: Compression,
     compress_file_fut: Option<CompressFileFuture>,
@@ -468,7 +485,7 @@ pub struct FileCompressor {
 impl FileCompressor {
     pub fn new(compression: Compression, inner: Pin<Box<dyn SaphirFile>>) -> Self {
         FileCompressor {
-            inner,
+            inner: Some(inner),
             encoder: Encoder::None,
             compression,
             compress_file_fut: None,
@@ -481,7 +498,7 @@ impl FileCompressor {
             encoder = match compression {
                 Compression::Gzip => Encoder::Gzip(GzEncoder::new(Vec::new(), flate2::Compression::default())),
                 Compression::Deflate => Encoder::Deflate(DeflateEncoder::new(Vec::new(), flate2::Compression::default())),
-                Compression::Brotli => Encoder::Brotli(brotli::CompressorWriter::new(Vec::new(), MAX_BUFFER, 11, 22)),
+                Compression::Brotli => Encoder::Brotli(brotli::CompressorWriter::new(Vec::new(), MAX_BUFFER, 6, 22)),
                 Compression::Raw => Encoder::None,
             }
         } else if compression == Compression::Raw {
@@ -493,7 +510,7 @@ impl FileCompressor {
             match inner.read(buffer.as_mut_slice()).await {
                 Ok(size) => {
                     if size > 0 {
-                        encoder.write(&buffer);
+                        encoder.write(&buffer)?;
                     } else {
                         break;
                     }
@@ -506,7 +523,7 @@ impl FileCompressor {
             Encoder::Gzip(e) => e.finish(),
             Encoder::Deflate(e) => e.finish(),
             Encoder::Brotli(mut e) => match e.flush() {
-                Ok(()) => Ok(e.into_inner()),
+                Ok(()) => Ok(dbg!(e.into_inner())),
                 Err(e) => Err(e),
             },
             Encoder::None => Err(io::Error::from(io::ErrorKind::Interrupted)),
@@ -515,8 +532,8 @@ impl FileCompressor {
 }
 
 impl AsyncRead for FileCompressor {
-    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
-        if let Some(mut compressed_file) = &self.compressed_file {
+    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
+        if let Some(compressed_file) = &mut self.compressed_file {
             compressed_file.as_mut().poll_read(cx, buf)
         } else {
             let mut current_fut = self.compress_file_fut.take();
@@ -525,7 +542,7 @@ impl AsyncRead for FileCompressor {
                 current.as_mut().poll(cx)
             } else {
                 let mut current = Box::pin(Self::compress_file(
-                    std::mem::take(&mut self.inner),
+                    self.inner.take().expect("should be ok"),
                     std::mem::take(&mut self.encoder),
                     std::mem::take(&mut self.compression),
                 ));
@@ -538,7 +555,7 @@ impl AsyncRead for FileCompressor {
                 Poll::Ready(res) => match res {
                     Ok(file) => {
                         self.compressed_file = Some(Box::pin(Cursor::new(file)));
-                        self.compressed_file.expect("should be ok").as_mut().poll_read(cx, buf)
+                        self.compressed_file.as_mut().expect("should be ok").as_mut().poll_read(cx, buf)
                     }
 
                     Err(e) => Poll::Ready(Err(e)),
@@ -554,26 +571,30 @@ impl AsyncRead for FileCompressor {
 }
 
 impl AsyncSeek for FileCompressor {
-    fn start_seek(self: Pin<&mut Self>, cx: &mut Context<'_>, position: SeekFrom) -> Poll<io::Result<()>> {
-        self.inner.as_mut().start_seek(cx, position)
+    fn start_seek(mut self: Pin<&mut Self>, cx: &mut Context<'_>, position: SeekFrom) -> Poll<io::Result<()>> {
+        if let Some(inner) = self.inner.as_mut() {
+            inner.as_mut().start_seek(cx, position)
+        } else {
+            Poll::Ready(Err(io::Error::from(io::ErrorKind::BrokenPipe)))
+        }
     }
 
-    fn poll_complete(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<u64>> {
-        self.inner.as_mut().poll_complete(cx)
+    fn poll_complete(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<u64>> {
+        if let Some(inner) = self.inner.as_mut() {
+            inner.as_mut().poll_complete(cx)
+        } else {
+            Poll::Ready(Err(io::Error::from(io::ErrorKind::BrokenPipe)))
+        }
     }
 }
 
 impl FileInfo for FileCompressor {
     fn get_path(&self) -> &PathBuf {
-        self.inner.get_path()
+        self.inner.as_ref().expect("should be ok").get_path()
     }
 
-    fn get_mime(&self) -> &Option<Mime> {
-        self.inner.get_mime()
-    }
-
-    fn set_mime(&mut self, mime: Mime) {
-        self.inner.set_mime(mime);
+    fn get_mime(&self) -> Option<&Mime> {
+        self.inner.as_ref().and_then(|inner| inner.get_mime())
     }
 }
 
@@ -586,9 +607,9 @@ pub struct FileStream {
 }
 
 impl FileStream {
-    pub fn new(inner: Pin<Box<dyn SaphirFile>>) -> Self {
+    pub fn new<T: SaphirFile + 'static>(inner: T) -> Self {
         FileStream {
-            inner,
+            inner: Box::pin(inner),
             buffer: Vec::with_capacity(MAX_BUFFER),
             end_of_file: false,
             range_len: None,
@@ -596,10 +617,11 @@ impl FileStream {
         }
     }
 
-    pub async fn set_range(&mut self, range: (u64, u64)) {
+    pub async fn set_range(&mut self, range: (u64, u64)) -> io::Result<()> {
         let (start, end) = range;
-        self.inner.seek(SeekFrom::Start(start)).await;
+        self.inner.seek(SeekFrom::Start(start)).await?;
         self.range_len = Some(end - start);
+        Ok(())
     }
 }
 
@@ -634,11 +656,11 @@ impl Stream for FileStream {
                 }
             }
         } else {
-            let mut buffer = [0u8; MAX_BUFFER];
+            let mut buffer = Vec::with_capacity(MAX_BUFFER);
             while self.buffer.len() < MAX_BUFFER && !self.end_of_file {
                 match self.inner.as_mut().poll_read(cx, &mut buffer) {
                     Poll::Ready(Ok(s)) => {
-                        self.buffer.extend_from_slice(&buffer[0..s]);
+                        self.buffer.extend_from_slice(dbg!(&buffer[0..s]));
                         self.end_of_file = s == 0;
                     }
 

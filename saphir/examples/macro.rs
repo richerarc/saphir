@@ -1,5 +1,8 @@
 use log::info;
-use saphir::prelude::*;
+use saphir::{
+    file::{middleware::FileMiddlewareBuilder, FileStream},
+    prelude::*,
+};
 use serde_derive::{Deserialize, Serialize};
 
 struct PrintGuard {
@@ -72,9 +75,9 @@ impl UserController {
     }
 
     #[get("/file")]
-    async fn file(&self, _req: Request<Body<Vec<u8>>>) -> (u16, Option<File>) {
+    async fn file(&self, _req: Request<Body<Vec<u8>>>) -> (u16, Option<FileStream>) {
         match File::open("/path/to/file").await {
-            Ok(file) => (200, Some(file)),
+            Ok(file) => (200, Some(FileStream::new(file))),
             Err(_) => (500, None),
         }
     }
@@ -109,9 +112,13 @@ impl ApiKeyMiddleware {
 async fn main() -> Result<(), SaphirError> {
     env_logger::init();
 
+    let file_middleware = FileMiddlewareBuilder::new("op", "./saphir/examples/files_to_serve").build()?;
     let server = Server::builder()
         .configure_listener(|l| l.interface("127.0.0.1:3000").server_name("MacroExample").request_timeout(None))
-        .configure_middlewares(|m| m.apply(ApiKeyMiddleware::new("secure-key"), vec!["/"], None))
+        .configure_middlewares(|m| {
+            m.apply(ApiKeyMiddleware::new("secure-key"), vec!["/"], None)
+                .apply(file_middleware, vec!["/op/"], None)
+        })
         .configure_router(|r| r.controller(UserController {}))
         .build();
 

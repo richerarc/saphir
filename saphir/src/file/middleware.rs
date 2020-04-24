@@ -17,7 +17,10 @@ use std::{
     time::SystemTime,
 };
 
-struct FileMiddleware {
+const CACHE_MAX_FILE_SIZE: u64 = 2_147_483_648;
+const CACHE_MAX_CAPACITY: u64 = 8_589_934_592;
+
+pub struct FileMiddleware {
     base_path: PathBuf,
     www_path: PathBuf,
     cache: FileCache,
@@ -28,7 +31,7 @@ impl FileMiddleware {
         FileMiddleware {
             base_path: PathBuf::from(base_path.to_string()),
             www_path: PathBuf::from(www_path.to_string()),
-            cache: FileCache::new(),
+            cache: FileCache::new(CACHE_MAX_FILE_SIZE, CACHE_MAX_CAPACITY),
         }
     }
 
@@ -160,6 +163,45 @@ impl FileMiddleware {
 impl Middleware for FileMiddleware {
     fn next(&'static self, ctx: HttpContext, chain: &'static dyn MiddlewareChain) -> BoxFuture<'static, Result<HttpContext, SaphirError>> {
         self.next_inner(ctx, chain).boxed()
+    }
+}
+
+pub struct FileMiddlewareBuilder {
+    base_path: PathBuf,
+    www_path: PathBuf,
+    max_file_size: Option<u64>,
+    max_capacity: Option<u64>,
+}
+
+impl FileMiddlewareBuilder {
+    pub fn new(base_path: &str, www_path: &str) -> Self {
+        FileMiddlewareBuilder {
+            base_path: PathBuf::from(base_path),
+            www_path: PathBuf::from(www_path),
+            max_file_size: None,
+            max_capacity: None,
+        }
+    }
+
+    pub fn max_file_size(mut self, size: u64) -> Self {
+        self.max_file_size = Some(size);
+        self
+    }
+
+    pub fn max_capacity(mut self, size: u64) -> Self {
+        self.max_capacity = Some(size);
+        self
+    }
+
+    pub fn build(self) -> Result<FileMiddleware, SaphirError> {
+        Ok(FileMiddleware {
+            base_path: self.base_path,
+            www_path: self.www_path,
+            cache: FileCache::new(
+                self.max_file_size.unwrap_or(CACHE_MAX_FILE_SIZE),
+                self.max_capacity.unwrap_or(CACHE_MAX_CAPACITY),
+            ),
+        })
     }
 }
 

@@ -94,6 +94,9 @@ pub mod middleware;
 /// The async Multipart Form-Data representation
 #[cfg(feature = "multipart")]
 pub mod multipart;
+///
+#[cfg(feature = "redirect")]
+pub mod redirect;
 /// The Http Request type
 pub mod request;
 /// Definition of type which can map to a response
@@ -165,6 +168,9 @@ pub mod prelude {
     ///
     #[cfg(feature = "multipart")]
     pub use crate::multipart::Multipart;
+    ///
+    #[cfg(feature = "redirect")]
+    pub use crate::redirect::Redirect;
     ///
     pub use crate::request::FromRequest;
     ///

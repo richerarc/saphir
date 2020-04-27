@@ -3,11 +3,8 @@ use structopt::StructOpt;
 mod docgen;
 mod openapi;
 
-use self::docgen::{DocGenArgs};
-use std::error::Error;
-use std::fmt::Display;
-use futures::future::BoxFuture;
 use crate::docgen::DocGen;
+use futures::future::BoxFuture;
 
 type CommandResult = std::result::Result<(), String>;
 
@@ -21,7 +18,7 @@ trait Command {
 #[derive(StructOpt, Debug)]
 struct SaphirCli {
     #[structopt(subcommand)]
-    cmd: SaphirCliCommand
+    cmd: SaphirCliCommand,
 }
 
 #[derive(StructOpt, Debug)]
@@ -36,7 +33,7 @@ async fn main() {
         SaphirCliCommand::DocGen(a) => {
             let doc = DocGen::new(a);
             doc.run().await
-        },
+        }
     } {
         eprintln!("{}", e);
     }

@@ -1,21 +1,14 @@
-use structopt::StructOpt;
-use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
-use tokio::fs::{self, DirEntry, File};
-use tokio::prelude::*;
-use std::error::Error;
-use crate::{CommandResult, Command};
-use syn::{Item, ItemMod, Type, TypePath, ItemImpl, Lit, Meta, NestedMeta, ImplItem, Attribute};
+use crate::openapi::{OpenApi, OpenApiParameter, OpenApiPath, OpenApiPathMethod, OpenApiResponse, OpenApiSchema, OpenApiType};
+use crate::{Command, CommandResult};
 use futures::future::{BoxFuture, FutureExt};
-use std::pin::Pin;
-use futures::lock::Mutex;
-use std::sync::Arc;
-use tokio::task;
-use std::path::PathBuf;
-use crate::openapi::{OpenApi, OpenApiPathMethod, OpenApiPath, OpenApiResponse};
-use std::fs::File as SyncFile;
 use serde_derive::Deserialize;
-use syn::export::ToTokens;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
+use std::fs::File as SyncFile;
+use std::path::PathBuf;
+use structopt::StructOpt;
+use syn::{Attribute, ImplItem, Item, ItemImpl, Lit, Meta, NestedMeta, Type};
+use tokio::fs::File;
+use tokio::prelude::*;
 
 /// Generate OpenAPI v3 from a Saphir application.
 ///
@@ -67,7 +60,8 @@ impl Command for DocGen {
             self.read_main_file(main_path).await?;
             self.write_doc_file().await?;
             Ok(())
-        }.boxed()
+        }
+        .boxed()
     }
 }
 
@@ -80,13 +74,13 @@ impl DocGen {
         match path.extension() {
             None => path = path.join(".yaml"),
             Some(ext) => {
-                if (ext.to_str() != Some("yaml")) {
+                if ext.to_str() != Some("yaml") {
                     return Err("output must be a yaml file.".to_string());
                 }
             }
         }
-        let f = SyncFile::create(&path).map_err(|e| format!("Unable to create file `{:?}`", &path))?;
-        serde_yaml::to_writer(f, &self.doc).map_err(|e| format!("Unable to write to `{:?}`", path));
+        let f = SyncFile::create(&path).map_err(|_| format!("Unable to create file `{:?}`", &path))?;
+        serde_yaml::to_writer(f, &self.doc).map_err(|_| format!("Unable to write to `{:?}`", path))?;
         println!("Succesfully created `{:?}`", path);
         Ok(())
     }
@@ -94,7 +88,7 @@ impl DocGen {
     async fn read_cargo_toml(&mut self, path: PathBuf) -> CommandResult {
         #[derive(Deserialize)]
         struct Cargo {
-            pub package: Package
+            pub package: Package,
         }
         #[derive(Deserialize)]
         struct Package {
@@ -113,9 +107,13 @@ impl DocGen {
     }
 
     async fn read_main_file(&mut self, path: PathBuf) -> CommandResult {
-        let mut f = File::open(&path).await.map_err(|_| format!("Unable to read the main project file `{:?}`", &path))?;
+        let mut f = File::open(&path)
+            .await
+            .map_err(|_| format!("Unable to read the main project file `{:?}`", &path))?;
         let mut buffer = String::new();
-        f.read_to_string(&mut buffer).await.map_err(|_| format!("Unable to read the main project file `{:?}`", &path))?;
+        f.read_to_string(&mut buffer)
+            .await
+            .map_err(|_| format!("Unable to read the main project file `{:?}`", &path))?;
         let path = path.to_str().ok_or(format!("Invalid path : `{:?}`", &path))?.to_string();
         self.parse_ast(path, buffer).await
     }
@@ -132,10 +130,13 @@ impl DocGen {
             let path_str = path.to_str().ok_or(format!("Invalid path : `{:?}`", path))?.to_string();
             let mut f = File::open(path).await.map_err(|_| format!("Unable to read module `{}`", mod_name))?;
             let mut buffer = String::new();
-            f.read_to_string(&mut buffer).await.map_err(|_| format!("Unable to read module `{}`", mod_name))?;
+            f.read_to_string(&mut buffer)
+                .await
+                .map_err(|_| format!("Unable to read module `{}`", mod_name))?;
 
             self.parse_ast(path_str, buffer).await
-        }.boxed()
+        }
+        .boxed()
     }
 
     fn parse_ast(&mut self, file: String, buffer: String) -> BoxFuture<CommandResult> {
@@ -147,7 +148,7 @@ impl DocGen {
                     match item {
                         Item::Mod(md) => {
                             let mod_name = md.ident.to_string();
-                            if let Some((brace, items)) = &md.content {
+                            if let Some((_, items)) = &md.content {
                                 self.parse_controllers_ast(items)?;
                             } else {
                                 modules.push(mod_name);
@@ -168,7 +169,8 @@ impl DocGen {
             }
 
             Ok(())
-        }.boxed()
+        }
+        .boxed()
     }
 
     fn get_controller_info(&self, im: &ItemImpl) -> Option<ControllerInfo> {
@@ -192,7 +194,7 @@ impl DocGen {
                                                 let value = match nv.lit {
                                                     Lit::Str(s) => s.value(),
                                                     Lit::Int(i) => i.to_string(),
-                                                    l => continue,
+                                                    _ => continue,
                                                 };
                                                 match p.ident.to_string().as_str() {
                                                     "name" => name = value,
@@ -213,7 +215,7 @@ impl DocGen {
                                 });
                             }
                         }
-                    },
+                    }
                     _ => {}
                 }
             }
@@ -224,12 +226,12 @@ impl DocGen {
     fn parse_controllers_ast(&mut self, items: &Vec<Item>) -> CommandResult {
         for im in items.iter().filter_map(|i| match i {
             Item::Impl(im) => Some(im),
-            _ => None
+            _ => None,
         }) {
             if let Some(controller) = self.get_controller_info(im) {
                 println!("`{}` is a controller", controller.name);
                 println!("Base path: {:?}", controller.base_path());
-                self.parse_handlers_ast(controller, &im.items);
+                self.parse_handlers_ast(controller, &im.items)?;
             }
         }
         Ok(())
@@ -238,27 +240,44 @@ impl DocGen {
     fn parse_handlers_ast(&mut self, controller: ControllerInfo, items: &Vec<ImplItem>) -> CommandResult {
         for m in items.iter().filter_map(|i| match i {
             ImplItem::Method(m) => Some(m),
-            _ => None
+            _ => None,
         }) {
             for attr in &m.attrs {
                 let method = match self.handler_method_from_attr(&attr) {
                     Some(m) => m,
                     None => continue,
                 };
-                println!("Method : {:?}", method);
 
-                let path = match self.handler_path_from_attr(&attr) {
+                let (path, uri_params) = match self.handler_path_from_attr(&attr) {
                     Some(p) => p,
                     None => continue,
                 };
-                println!("Path : {:?}", path);
                 let mut full_path = format!("/{}{}", controller.base_path(), path);
                 if full_path.ends_with('/') {
                     full_path = (&full_path[0..(full_path.len() - 1)]).to_string();
                 }
-                self.add_path(full_path, method, OpenApiPath {
-                    ..Default::default()
-                })?;
+
+                let mut parameters = Vec::new();
+                for param in uri_params {
+                    parameters.push(OpenApiParameter {
+                        name: param,
+                        required: true,
+                        schema: OpenApiSchema {
+                            openapi_type: OpenApiType::String,
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    })
+                }
+
+                self.add_path(
+                    full_path,
+                    method,
+                    OpenApiPath {
+                        parameters,
+                        ..Default::default()
+                    },
+                )?;
             }
         }
         Ok(())
@@ -266,15 +285,18 @@ impl DocGen {
 
     fn add_path(&mut self, path: String, method: OpenApiPathMethod, mut data: OpenApiPath) -> CommandResult {
         if !self.doc.paths.contains_key(path.as_str()) {
-            self.doc.paths.insert(path.clone(), HashMap::new());
+            self.doc.paths.insert(path.clone(), BTreeMap::new());
         }
-        let mut path_map = self.doc.paths.get_mut(path.as_str()).expect("Should work because of previous statement");
+        let path_map = self.doc.paths.get_mut(path.as_str()).expect("Should work because of previous statement");
 
         if data.responses.is_empty() {
-            data.responses.insert(200, OpenApiResponse {
-                description: "successful operation".to_string(),
-                content: Default::default()
-            });
+            data.responses.insert(
+                200,
+                OpenApiResponse {
+                    description: "successful operation".to_string(),
+                    content: Default::default(),
+                },
+            );
         }
         path_map.insert(method, data);
         Ok(())
@@ -282,13 +304,32 @@ impl DocGen {
 
     fn handler_method_from_attr(&self, attr: &Attribute) -> Option<OpenApiPathMethod> {
         let ident = attr.path.get_ident()?;
-        Some(OpenApiPathMethod::from_str(ident.to_string().as_str()))
+        OpenApiPathMethod::from_str(ident.to_string().as_str())
     }
 
-    fn handler_path_from_attr(&self, attr: &Attribute) -> Option<String> {
+    fn handler_path_from_attr(&self, attr: &Attribute) -> Option<(String, Vec<String>)> {
         if let Ok(Meta::List(meta)) = attr.parse_meta() {
             if let Some(NestedMeta::Lit(Lit::Str(l))) = meta.nested.first() {
-                return Some(l.value())
+                let mut chars: Vec<char> = l.value().chars().collect();
+                let mut params: Vec<String> = Vec::new();
+
+                let mut i = 0;
+                while i < chars.len() {
+                    if chars[i] == '<' || chars[i] == '{' {
+                        chars[i] = '{';
+                        for j in i..chars.len() {
+                            if chars[j] == '>' || chars[j] == '}' {
+                                chars[j] = '}';
+                                params.push((&chars[(i + 1)..j]).iter().collect());
+                                i = j;
+                                break;
+                            }
+                        }
+                    }
+                    i += 1;
+                }
+
+                return Some((chars.into_iter().collect(), params));
             }
         }
         None

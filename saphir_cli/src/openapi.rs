@@ -1,6 +1,5 @@
-use std::collections::HashMap;
-use serde_derive::{Serialize, Deserialize};
-use http::StatusCode;
+use serde_derive::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -8,9 +7,13 @@ pub enum OpenApiParameterLocation {
     Path,
     Query,
 }
-impl Default for OpenApiParameterLocation { fn default() -> Self { OpenApiParameterLocation::Path } }
+impl Default for OpenApiParameterLocation {
+    fn default() -> Self {
+        OpenApiParameterLocation::Path
+    }
+}
 
-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Hash)]
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Hash, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub enum OpenApiPathMethod {
     Get,
@@ -19,19 +22,22 @@ pub enum OpenApiPathMethod {
     Patch,
     Delete,
     Any,
-    Custom(String),
 }
-impl Default for OpenApiPathMethod { fn default() -> Self { OpenApiPathMethod::Any } }
+impl Default for OpenApiPathMethod {
+    fn default() -> Self {
+        OpenApiPathMethod::Any
+    }
+}
 impl OpenApiPathMethod {
-    pub fn from_str(s: &str) -> Self {
+    pub fn from_str(s: &str) -> Option<Self> {
         match s {
-            "get" => OpenApiPathMethod::Get,
-            "post" => OpenApiPathMethod::Post,
-            "put" => OpenApiPathMethod::Put,
-            "patch" => OpenApiPathMethod::Patch,
-            "delete" => OpenApiPathMethod::Delete,
-            "any" => OpenApiPathMethod::Any,
-            s => OpenApiPathMethod::Custom(s.to_owned()),
+            "get" => Some(OpenApiPathMethod::Get),
+            "post" => Some(OpenApiPathMethod::Post),
+            "put" => Some(OpenApiPathMethod::Put),
+            "patch" => Some(OpenApiPathMethod::Patch),
+            "delete" => Some(OpenApiPathMethod::Delete),
+            "any" => Some(OpenApiPathMethod::Any),
+            _ => None,
         }
     }
 }
@@ -43,8 +49,11 @@ pub enum OpenApiType {
     Integer,
     Object,
 }
-impl Default for OpenApiType { fn default() -> Self { OpenApiType::Object } }
-
+impl Default for OpenApiType {
+    fn default() -> Self {
+        OpenApiType::Object
+    }
+}
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct OpenApi {
@@ -56,7 +65,7 @@ pub struct OpenApi {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) tags: Vec<OpenApiTag>,
     // Key: api path / method / definition
-    pub(crate) paths: HashMap<String, HashMap<OpenApiPathMethod, OpenApiPath>>,
+    pub(crate) paths: BTreeMap<String, BTreeMap<OpenApiPathMethod, OpenApiPath>>,
 }
 
 #[derive(Default, Serialize, Deserialize)]

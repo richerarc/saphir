@@ -1,0 +1,25 @@
+[package]
+name = "saphir_cli"
+version = "0.1.0"
+authors = ["Samuel Bergeron-Drouin <kazelone@gmail.com>"]
+edition = "2018"
+description = "Macro generation for http server framework"
+documentation = "https://docs.rs/saphir"
+homepage = "https://github.com/richerarc/saphir"
+repository = "https://github.com/richerarc/saphir"
+readme = "../README.md"
+keywords = ["hyper", "http", "server", "web", "async"]
+license = "MIT"
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+#tokio = { version = "0.2.18", features = ["rt-threaded", "fs", "stream", "parking_lot"] }
+tokio = { version = "0.2.18", features = ["rt-threaded", "rt-util", "fs", "stream", "parking_lot"] }
+syn = { version = "1.0.16", features = ["full", "extra-traits"] }
+structopt = { version = "0.3" }
+futures = "0.3.4"
+serde = "1.0"
+serde_derive = "1.0"
+serde_yaml = "0.8.11"
+toml = "0.5.6"
+http = "0.2.1"

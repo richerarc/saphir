@@ -2,4 +2,5 @@
 members = [
     "saphir",
     "saphir_macro",
+    "saphir_cli",
 ]

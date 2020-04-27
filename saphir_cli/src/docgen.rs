@@ -53,7 +53,6 @@ impl Command for DocGen {
 
     fn run<'a>(mut self) -> BoxFuture<'a, CommandResult> {
         async move {
-            println!("Gen doc for scope: `{}` for project at path: `{:?}`", self.args.scope, self.args.project_path);
             let cargo_path = self.args.project_path.clone().join("Cargo.toml");
             let main_path = self.args.project_path.clone().join("src/main.rs");
             self.read_cargo_toml(cargo_path).await?;
@@ -81,7 +80,7 @@ impl DocGen {
         }
         let f = SyncFile::create(&path).map_err(|_| format!("Unable to create file `{:?}`", &path))?;
         serde_yaml::to_writer(f, &self.doc).map_err(|_| format!("Unable to write to `{:?}`", path))?;
-        println!("Succesfully created `{:?}`", path);
+        println!("Succesfully created {:?}", path);
         Ok(())
     }
 
@@ -229,8 +228,6 @@ impl DocGen {
             _ => None,
         }) {
             if let Some(controller) = self.get_controller_info(im) {
-                println!("`{}` is a controller", controller.name);
-                println!("Base path: {:?}", controller.base_path());
                 self.parse_handlers_ast(controller, &im.items)?;
             }
         }

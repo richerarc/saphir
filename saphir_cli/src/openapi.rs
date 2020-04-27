@@ -10,7 +10,7 @@ pub enum OpenApiParameterLocation {
 }
 impl Default for OpenApiParameterLocation { fn default() -> Self { OpenApiParameterLocation::Path } }
 
-#[derive(Serialize, Deserialize, Eq, PartialEq, Hash)]
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Hash)]
 #[serde(rename_all = "camelCase")]
 pub enum OpenApiPathMethod {
     Get,
@@ -18,8 +18,23 @@ pub enum OpenApiPathMethod {
     Put,
     Patch,
     Delete,
+    Any,
+    Custom(String),
 }
-impl Default for OpenApiPathMethod { fn default() -> Self { OpenApiPathMethod::Get } }
+impl Default for OpenApiPathMethod { fn default() -> Self { OpenApiPathMethod::Any } }
+impl OpenApiPathMethod {
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "get" => OpenApiPathMethod::Get,
+            "post" => OpenApiPathMethod::Post,
+            "put" => OpenApiPathMethod::Put,
+            "patch" => OpenApiPathMethod::Patch,
+            "delete" => OpenApiPathMethod::Delete,
+            "any" => OpenApiPathMethod::Any,
+            s => OpenApiPathMethod::Custom(s.to_owned()),
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -36,7 +51,9 @@ pub struct OpenApi {
     #[serde(rename = "openapi")]
     pub(crate) openapi_version: String,
     pub(crate) info: OpenApiInfo,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) servers: Vec<OpenApiServer>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) tags: Vec<OpenApiTag>,
     // Key: api path / method / definition
     pub(crate) paths: HashMap<String, HashMap<OpenApiPathMethod, OpenApiPath>>,
@@ -73,7 +90,6 @@ pub struct OpenApiPath {
     pub(crate) request_body: Option<OpenApiRequestBody>,
     #[serde(rename = "x-codegen-request-body-name", skip_serializing_if = "Option::is_none")]
     pub(crate) x_codegen_request_body_name: Option<String>,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub(crate) responses: HashMap<u16, OpenApiResponse>,
 }
 

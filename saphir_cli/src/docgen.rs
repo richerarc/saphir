@@ -4,17 +4,18 @@ use tokio::fs::{self, DirEntry, File};
 use tokio::prelude::*;
 use std::error::Error;
 use crate::{CommandResult, Command};
-use syn::{Item, ItemMod, Type, TypePath};
-// use futures::{stream, Stream, StreamExt}; // 0.3.1
+use syn::{Item, ItemMod, Type, TypePath, ItemImpl, Lit, Meta, NestedMeta, ImplItem, Attribute};
 use futures::future::{BoxFuture, FutureExt};
 use std::pin::Pin;
 use futures::lock::Mutex;
 use std::sync::Arc;
 use tokio::task;
 use std::path::PathBuf;
-use crate::openapi::OpenApi;
+use crate::openapi::{OpenApi, OpenApiPathMethod, OpenApiPath, OpenApiResponse};
 use std::fs::File as SyncFile;
 use serde_derive::Deserialize;
+use syn::export::ToTokens;
+use std::collections::HashMap;
 
 /// Generate OpenAPI v3 from a Saphir application.
 ///
@@ -111,7 +112,7 @@ impl DocGen {
         Ok(())
     }
 
-    async fn read_main_file(&self, path: PathBuf) -> CommandResult {
+    async fn read_main_file(&mut self, path: PathBuf) -> CommandResult {
         let mut f = File::open(&path).await.map_err(|_| format!("Unable to read the main project file `{:?}`", &path))?;
         let mut buffer = String::new();
         f.read_to_string(&mut buffer).await.map_err(|_| format!("Unable to read the main project file `{:?}`", &path))?;
@@ -119,7 +120,7 @@ impl DocGen {
         self.parse_ast(path, buffer).await
     }
 
-    fn read_mod_file(&self, dir: String, mod_name: String) -> BoxFuture<CommandResult> {
+    fn read_mod_file(&mut self, dir: String, mod_name: String) -> BoxFuture<CommandResult> {
         async move {
             let dir = std::path::Path::new(dir.as_str());
             let mut path = dir.join(mod_name.as_str());
@@ -137,42 +138,25 @@ impl DocGen {
         }.boxed()
     }
 
-    fn parse_ast(&self, file: String, buffer: String) -> BoxFuture<CommandResult> {
+    fn parse_ast(&mut self, file: String, buffer: String) -> BoxFuture<CommandResult> {
         async move {
             let mut modules: Vec<String> = Vec::new();
             {
                 let ast = syn::parse_file(buffer.as_str()).map_err(|_| format!("Unable to parse the module file `{:?}`", file))?;
-                for item in ast.items {
+                for item in &ast.items {
                     match item {
                         Item::Mod(md) => {
                             let mod_name = md.ident.to_string();
-                            if let Some((brace, items)) = md.content {
-                                println!("`{}` is a module block", &mod_name);
+                            if let Some((brace, items)) = &md.content {
+                                self.parse_controllers_ast(items)?;
                             } else {
                                 modules.push(mod_name);
-                            }
-                        }
-                        Item::Impl(im) => {
-                            for attr in im.attrs {
-                                if let Some(first_seg) = attr.path.segments.first() {
-                                    let t = im.self_ty.as_ref();
-                                    match t {
-                                        Type::Path(p) => {
-                                            if let Some(struct_first_seg) = p.path.segments.first() {
-                                                if first_seg.ident.eq("controller") {
-                                                    let controller_name = struct_first_seg.ident.to_string();
-                                                    println!("`{}` is a controller", controller_name);
-                                                }
-                                            }
-                                        },
-                                        _ => {}
-                                    }
-                                }
                             }
                         }
                         _ => {}
                     }
                 }
+                self.parse_controllers_ast(&ast.items)?;
             }
 
             let file = std::path::Path::new(file.as_str());
@@ -187,10 +171,147 @@ impl DocGen {
         }.boxed()
     }
 
-    // async fn process_ast_items<'a>(&'a self, items: Vec<Item>) -> CommandResult {
-    //     // async move {
-    //         println!("Items : {:#?}", items);
-    //         Ok(())
-    //     // }.boxed()
-    // }
+    fn get_controller_info(&self, im: &ItemImpl) -> Option<ControllerInfo> {
+        for attr in &im.attrs {
+            if let Some(first_seg) = attr.path.segments.first() {
+                let t = im.self_ty.as_ref();
+                match t {
+                    Type::Path(p) => {
+                        if let Some(struct_first_seg) = p.path.segments.first() {
+                            if first_seg.ident.eq("controller") {
+                                let controller_name = struct_first_seg.ident.to_string();
+                                let name = controller_name.to_ascii_lowercase();
+                                let name = &name[0..name.rfind("controller").unwrap_or_else(|| name.len())];
+                                let mut name = name.to_string();
+                                let mut prefix = None;
+                                let mut version = None;
+                                if let Ok(Meta::List(meta)) = attr.parse_meta() {
+                                    for nested in meta.nested {
+                                        if let NestedMeta::Meta(Meta::NameValue(nv)) = nested {
+                                            if let Some(p) = nv.path.segments.first() {
+                                                let value = match nv.lit {
+                                                    Lit::Str(s) => s.value(),
+                                                    Lit::Int(i) => i.to_string(),
+                                                    l => continue,
+                                                };
+                                                match p.ident.to_string().as_str() {
+                                                    "name" => name = value,
+                                                    "prefix" => prefix = Some(value),
+                                                    "version" => version = Some(value),
+                                                    _ => {}
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                return Some(ControllerInfo {
+                                    controller_name,
+                                    name,
+                                    prefix,
+                                    version,
+                                });
+                            }
+                        }
+                    },
+                    _ => {}
+                }
+            }
+        }
+        None
+    }
+
+    fn parse_controllers_ast(&mut self, items: &Vec<Item>) -> CommandResult {
+        for im in items.iter().filter_map(|i| match i {
+            Item::Impl(im) => Some(im),
+            _ => None
+        }) {
+            if let Some(controller) = self.get_controller_info(im) {
+                println!("`{}` is a controller", controller.name);
+                println!("Base path: {:?}", controller.base_path());
+                self.parse_handlers_ast(controller, &im.items);
+            }
+        }
+        Ok(())
+    }
+
+    fn parse_handlers_ast(&mut self, controller: ControllerInfo, items: &Vec<ImplItem>) -> CommandResult {
+        for m in items.iter().filter_map(|i| match i {
+            ImplItem::Method(m) => Some(m),
+            _ => None
+        }) {
+            for attr in &m.attrs {
+                let method = match self.handler_method_from_attr(&attr) {
+                    Some(m) => m,
+                    None => continue,
+                };
+                println!("Method : {:?}", method);
+
+                let path = match self.handler_path_from_attr(&attr) {
+                    Some(p) => p,
+                    None => continue,
+                };
+                println!("Path : {:?}", path);
+                let mut full_path = format!("/{}{}", controller.base_path(), path);
+                if full_path.ends_with('/') {
+                    full_path = (&full_path[0..(full_path.len() - 1)]).to_string();
+                }
+                self.add_path(full_path, method, OpenApiPath {
+                    ..Default::default()
+                })?;
+            }
+        }
+        Ok(())
+    }
+
+    fn add_path(&mut self, path: String, method: OpenApiPathMethod, mut data: OpenApiPath) -> CommandResult {
+        if !self.doc.paths.contains_key(path.as_str()) {
+            self.doc.paths.insert(path.clone(), HashMap::new());
+        }
+        let mut path_map = self.doc.paths.get_mut(path.as_str()).expect("Should work because of previous statement");
+
+        if data.responses.is_empty() {
+            data.responses.insert(200, OpenApiResponse {
+                description: "successful operation".to_string(),
+                content: Default::default()
+            });
+        }
+        path_map.insert(method, data);
+        Ok(())
+    }
+
+    fn handler_method_from_attr(&self, attr: &Attribute) -> Option<OpenApiPathMethod> {
+        let ident = attr.path.get_ident()?;
+        Some(OpenApiPathMethod::from_str(ident.to_string().as_str()))
+    }
+
+    fn handler_path_from_attr(&self, attr: &Attribute) -> Option<String> {
+        if let Ok(Meta::List(meta)) = attr.parse_meta() {
+            if let Some(NestedMeta::Lit(Lit::Str(l))) = meta.nested.first() {
+                return Some(l.value())
+            }
+        }
+        None
+    }
+}
+
+#[derive(Debug, Default)]
+struct ControllerInfo {
+    controller_name: String,
+    name: String,
+    version: Option<String>,
+    prefix: Option<String>,
+}
+
+impl ControllerInfo {
+    pub fn base_path(&self) -> String {
+        let mut path = self.name.clone();
+        if let Some(ver) = &self.version {
+            path = format!("v{}/{}", ver, path);
+        }
+        if let Some(prefix) = &self.prefix {
+            path = format!("{}/{}", prefix, path);
+        }
+        path
+    }
 }

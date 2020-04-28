@@ -71,7 +71,7 @@ impl DocGen {
             path = path.join("openapi.yaml");
         }
         match path.extension() {
-            None => path = path.join(".yaml"),
+            None => path = path.with_extension("yaml"),
             Some(ext) => {
                 if ext.to_str() != Some("yaml") {
                     return Err("output must be a yaml file.".to_string());
@@ -252,6 +252,10 @@ impl DocGen {
                 let mut full_path = format!("/{}{}", controller.base_path(), path);
                 if full_path.ends_with('/') {
                     full_path = (&full_path[0..(full_path.len() - 1)]).to_string();
+                }
+
+                if !full_path.starts_with(self.args.scope.as_str()) {
+                    continue;
                 }
 
                 let mut parameters = Vec::new();

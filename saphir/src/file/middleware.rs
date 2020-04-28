@@ -1,10 +1,11 @@
 use crate::{
     file::{
+        cache::FileCache,
         conditional_request::{format_systemtime, is_fresh, is_precondition_failed},
         etag::{EntityTag, SystemTimeExt},
         range::Range,
         range_requests::{extract_range, is_range_fresh, is_satisfiable_range},
-        Compression, FileCache,
+        Compression,
     },
     prelude::*,
 };
@@ -58,7 +59,7 @@ impl FileMiddleware {
             return Ok(ctx);
         }
 
-        let (mtime, size) = (path.mtime(), path.size());
+        let (mtime, mut size) = (path.mtime(), path.size());
         let last_modified = mtime.into();
         let etag = EntityTag::new(false, format!("{}-{}", mtime.timestamp(), size).as_str());
 
@@ -68,9 +69,6 @@ impl FileMiddleware {
         }
 
         let mime_type = Self::guess_path_mime(&path);
-        if mime_type.subtype() == mime::HTML {
-            builder = builder.header(header::X_FRAME_OPTIONS, "DENY")
-        }
 
         if is_fresh(&req, &etag, &last_modified) {
             ctx.after(builder.status(304).header(header::LAST_MODIFIED, format_systemtime(last_modified)).build()?);
@@ -96,7 +94,9 @@ impl FileMiddleware {
             match (is_range_fresh(&req, &etag, &last_modified), is_satisfiable_range(&range, size as u64)) {
                 (true, Some(content_range)) => {
                     if let Some(range) = extract_range(&content_range) {
-                        builder = builder.file(cache.open_file_with_range(&path, range).await?).map_err(|error| error.1)?;
+                        let file = cache.open_file_with_range(&path, range).await?;
+                        size = file.get_size();
+                        builder = builder.file(file).map_err(|error| error.1)?;
                     }
                     builder = builder
                         .header(http::header::CONTENT_RANGE, content_range.to_string())
@@ -108,7 +108,9 @@ impl FileMiddleware {
         }
 
         if !is_partial_content {
-            builder = builder.file(cache.open_file(&path, compression).await?).map_err(|(_, e)| e)?;
+            let file = cache.open_file(&path, compression).await?;
+            size = file.get_size();
+            builder = builder.file(file).map_err(|(_, e)| e)?;
         }
 
         if compression != Compression::Raw {
@@ -116,7 +118,9 @@ impl FileMiddleware {
         }
 
         builder = builder
+            .header(http::header::ACCEPT_RANGES, "bytes")
             .header(header::CONTENT_TYPE, mime_type.to_string())
+            .header(header::CONTENT_LENGTH, size)
             .header(header::CACHE_CONTROL, "public")
             .header(header::CACHE_CONTROL, "max-age=0")
             .header(header::ETAG, etag.get_tag());
@@ -213,11 +217,6 @@ pub trait PathExt {
 }
 
 impl PathExt for Path {
-    /// Guess MIME type from a path.
-    fn mime(&self) -> Option<Mime> {
-        from_path(&self).first()
-    }
-
     /// Check if path is hidden.
     fn is_hidden(&self) -> bool {
         self.file_name().and_then(|s| s.to_str()).map(|s| s.starts_with('.')).unwrap_or(false)
@@ -231,5 +230,10 @@ impl PathExt for Path {
     /// Get file size from a path.
     fn size(&self) -> u64 {
         self.metadata().map(|meta| meta.len()).unwrap_or_default()
+    }
+
+    /// Guess MIME type from a path.
+    fn mime(&self) -> Option<Mime> {
+        from_path(&self).first()
     }
 }

@@ -1,7 +1,7 @@
 use serde_derive::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 
-#[derive(Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum OpenApiParameterLocation {
     Path,
@@ -13,7 +13,7 @@ impl Default for OpenApiParameterLocation {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Hash, Ord, PartialOrd)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Hash, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub enum OpenApiPathMethod {
     Get,
@@ -42,11 +42,14 @@ impl OpenApiPathMethod {
     }
 }
 
-#[derive(Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum OpenApiType {
-    String,
+    String, // this includes dates and files
+    Number,
     Integer,
+    Boolean,
+    Array,
     Object,
 }
 impl Default for OpenApiType {
@@ -54,8 +57,20 @@ impl Default for OpenApiType {
         OpenApiType::Object
     }
 }
+impl OpenApiType {
+    pub fn from_rust_type_str(s: &str) -> OpenApiType {
+        match s {
+            "u8" | "u16" | "u32" | "u64" | "u128" | "usize" |
+            "i8" | "i16" | "i32" | "i64" | "i128" | "isize" => OpenApiType::Integer,
+            "f32" | "f64" => OpenApiType::Number,
+            "bool" | "Bool" | "Boolean" => OpenApiType::Boolean,
+            "Vec" => OpenApiType::Array,
+            _ => OpenApiType::String
+        }
+    }
+}
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct OpenApi {
     #[serde(rename = "openapi")]
     pub(crate) openapi_version: String,
@@ -68,30 +83,32 @@ pub struct OpenApi {
     pub(crate) paths: BTreeMap<String, BTreeMap<OpenApiPathMethod, OpenApiPath>>,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct OpenApiInfo {
     pub(crate) title: String,
     pub(crate) version: String,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct OpenApiServer {
     pub(crate) url: String,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct OpenApiTag {
     pub(crate) name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) description: Option<String>,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenApiPath {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) tags: Vec<OpenApiTag>,
     pub(crate) summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) description: Option<String>,
     pub(crate) operation_id: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) parameters: Vec<OpenApiParameter>,
@@ -102,7 +119,7 @@ pub struct OpenApiPath {
     pub(crate) responses: HashMap<u16, OpenApiResponse>,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct OpenApiParameter {
     pub(crate) name: String,
     #[serde(rename = "in")]
@@ -113,18 +130,18 @@ pub struct OpenApiParameter {
     pub(crate) schema: OpenApiSchema,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct OpenApiRequestBody {
     pub(crate) description: String,
     pub(crate) content: HashMap<String, OpenApiContent>,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct OpenApiContent {
     pub(crate) schema: OpenApiSchema,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct OpenApiSchema {
     #[serde(rename = "type")]
     pub(crate) openapi_type: OpenApiType,
@@ -132,7 +149,7 @@ pub struct OpenApiSchema {
     pub(crate) properties: HashMap<String, OpenApiType>,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct OpenApiResponse {
     pub(crate) description: String,
     pub(crate) content: HashMap<String, OpenApiContent>,

@@ -1,12 +1,12 @@
-use crate::openapi::{OpenApi, OpenApiParameter, OpenApiPath, OpenApiPathMethod, OpenApiResponse, OpenApiSchema, OpenApiType};
+use crate::openapi::{OpenApi, OpenApiParameter, OpenApiPath, OpenApiPathMethod, OpenApiResponse, OpenApiSchema, OpenApiType, OpenApiParameterLocation};
 use crate::{Command, CommandResult};
 use futures::future::{BoxFuture, FutureExt};
 use serde_derive::Deserialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs::File as SyncFile;
 use std::path::PathBuf;
 use structopt::StructOpt;
-use syn::{Attribute, ImplItem, Item, ItemImpl, Lit, Meta, NestedMeta, Type};
+use syn::{Attribute, ImplItem, Item, ItemImpl, Lit, Meta, NestedMeta, Type, Signature, FnArg, Pat, PathArguments, GenericArgument, ImplItemMethod};
 use tokio::fs::File;
 use tokio::prelude::*;
 
@@ -40,6 +40,7 @@ pub(crate) struct DocGenArgs {
 pub(crate) struct DocGen {
     pub args: <DocGen as Command>::Args,
     pub doc: OpenApi,
+    pub operation_ids: HashSet<String>,
 }
 
 impl Command for DocGen {
@@ -48,7 +49,8 @@ impl Command for DocGen {
     fn new(args: Self::Args) -> Self {
         let mut doc = OpenApi::default();
         doc.openapi_version = "3.0.1".to_string();
-        Self { args, doc }
+        let operation_ids = HashSet::new();
+        Self { args, doc, operation_ids }
     }
 
     fn run<'a>(mut self) -> BoxFuture<'a, CommandResult> {
@@ -239,43 +241,109 @@ impl DocGen {
             ImplItem::Method(m) => Some(m),
             _ => None,
         }) {
-            for attr in &m.attrs {
-                let method = match self.handler_method_from_attr(&attr) {
-                    Some(m) => m,
-                    None => continue,
+            let mut consume_cookies: bool = self.handler_has_cookies(&m);
+            let routes = self.route_info_from_method(&controller, &m);
+            if routes.is_empty() {
+                continue;
+            }
+            let mut body_type = None;
+
+            let mut parameters = Vec::new();
+            for param in m.sig.inputs.iter().filter_map(|i| match i {
+                FnArg::Typed(p) => Some(p),
+                _ => None,
+            }) {
+                let param_name = match param.pat.as_ref() {
+                    Pat::Ident(i) => {
+                        i.ident.to_string()
+                    }
+                    _ => continue,
                 };
 
-                let (path, uri_params) = match self.handler_path_from_attr(&attr) {
-                    Some(p) => p,
-                    None => continue,
+                // println!("Param name : {}", param_name);
+                // println!("Param type : {:?}", param.ty.as_ref());
+                let (param_type, optional) = match param.ty.as_ref() {
+                    Type::Path(p) => {
+                        if let Some(s1) = p.path.segments.first() {
+                            let mut param_type = s1.ident.to_string();
+                            // println!("Param type name : {}", &param_type);
+                            if param_type.as_str() == "CookieJar" {
+                                consume_cookies = true;
+                                continue;
+                            }
+                            if param_type.as_str() == "Request" {
+                                // println!("Body type : {:?}", &s1.arguments);
+                                if let PathArguments::AngleBracketed(ab) = &s1.arguments {
+                                    if let Some(GenericArgument::Type(Type::Path(body_path))) = ab.args.first() {
+                                        if let Some(seg) = body_path.path.segments.first() {
+                                            body_type = Some(seg);
+                                        }
+                                    }
+                                }
+                                continue;
+                            }
+                            if param_type.as_str() == "Json" || param_type.as_str() == "Form" {
+                                body_type = Some(&s1);
+                                continue;
+                            }
+                            let optional = param_type.as_str() == "Option";
+                            if optional {
+                                param_type = "String".to_string();
+                                if let PathArguments::AngleBracketed(ab) = &s1.arguments {
+                                    if let Some(GenericArgument::Type(Type::Path(p))) = ab.args.first() {
+                                        if let Some(i) = p.path.get_ident() {
+                                            param_type = i.to_string();
+                                        }
+                                    }
+                                }
+                            }
+
+                            let api_type = OpenApiType::from_rust_type_str(param_type.as_str());
+                            (api_type, optional)
+                        } else {
+                            (OpenApiType::String, false)
+                        }
+                    }
+                    _ => (OpenApiType::String, false)
                 };
-                let mut full_path = format!("/{}{}", controller.base_path(), path);
-                if full_path.ends_with('/') {
-                    full_path = (&full_path[0..(full_path.len() - 1)]).to_string();
-                }
+                // println!();
 
-                if !full_path.starts_with(self.args.scope.as_str()) {
-                    continue;
-                }
-
-                let mut parameters = Vec::new();
-                for param in uri_params {
-                    parameters.push(OpenApiParameter {
-                        name: param,
-                        required: true,
-                        schema: OpenApiSchema {
-                            openapi_type: OpenApiType::String,
-                            ..Default::default()
-                        },
+                let location = if routes[0].uri_params.contains(&param_name) {
+                    OpenApiParameterLocation::Path
+                } else {
+                    OpenApiParameterLocation::Query
+                };
+                parameters.push(OpenApiParameter {
+                    name: param_name,
+                    required: !optional,
+                    location,
+                    schema: OpenApiSchema {
+                        openapi_type: param_type,
                         ..Default::default()
-                    })
-                }
+                    },
+                    ..Default::default()
+                })
+            }
 
+            let description = if consume_cookies {
+                Some("NOTE: This request consume cookies.".to_string())
+            } else {
+                None
+            };
+
+            if let Some(body) = body_type {
+                // TODO: handle request body
+            }
+
+            for route in routes {
+                let operation_id = self.handler_operation_id_from_sig(&m.sig);
                 self.add_path(
-                    full_path,
-                    method,
+                    route.uri,
+                    route.method,
                     OpenApiPath {
-                        parameters,
+                        parameters: parameters.clone(),
+                        description: description.clone(),
+                        operation_id,
                         ..Default::default()
                     },
                 )?;
@@ -301,6 +369,46 @@ impl DocGen {
         }
         path_map.insert(method, data);
         Ok(())
+    }
+
+    fn route_info_from_method(&self, controller: &ControllerInfo, m: &ImplItemMethod) -> Vec<RouteInfo> {
+        let mut routes = Vec::new();
+        for attr in &m.attrs {
+            let method = match self.handler_method_from_attr(&attr) {
+                Some(m) => m,
+                None => continue,
+            };
+
+            let (path, uri_params) = match self.handler_path_from_attr(&attr) {
+                Some(p) => p,
+                None => continue,
+            };
+            let mut full_path = format!("/{}{}", controller.base_path(), path);
+            if full_path.ends_with('/') {
+                full_path = (&full_path[0..(full_path.len() - 1)]).to_string();
+            }
+            if !full_path.starts_with(self.args.scope.as_str()) {
+                continue;
+            }
+            routes.push(RouteInfo {
+                method,
+                uri: full_path,
+                uri_params
+            })
+        }
+        routes
+    }
+
+    fn handler_operation_id_from_sig(&mut self, sig: &Signature) -> String {
+        let method_name = sig.ident.to_string();
+        let mut operation_id = method_name.clone();
+        let mut i = 1;
+        while self.operation_ids.contains(operation_id.as_str()) {
+            operation_id = format!("{}_{}", &method_name, &i);
+            i += 1;
+        }
+        self.operation_ids.insert(operation_id.clone());
+        operation_id
     }
 
     fn handler_method_from_attr(&self, attr: &Attribute) -> Option<OpenApiPathMethod> {
@@ -335,6 +443,17 @@ impl DocGen {
         }
         None
     }
+
+    fn handler_has_cookies(&self, m: &ImplItemMethod) -> bool {
+        for attr in &m.attrs {
+            if let Some(i) = attr.path.get_ident() {
+                if i.to_string().as_str() == "cookies" {
+                    return true;
+                }
+            }
+        }
+        false
+    }
 }
 
 #[derive(Debug, Default)]
@@ -356,4 +475,11 @@ impl ControllerInfo {
         }
         path
     }
+}
+
+#[derive(Debug, Default)]
+struct RouteInfo {
+    method: OpenApiPathMethod,
+    uri: String,
+    uri_params: Vec<String>,
 }

@@ -67,6 +67,10 @@ pub enum OpenApiType {
     Boolean,
     Array {
         items: Box<OpenApiSchema>,
+        #[serde(rename = "min_items", skip_serializing_if = "Option::is_none")]
+        min_items: Option<u32>,
+        #[serde(rename = "max_items", skip_serializing_if = "Option::is_none")]
+        max_items: Option<u32>,
     },
     Object {
         properties: HashMap<String, Box<OpenApiType>>,

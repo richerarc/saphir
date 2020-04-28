@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs::File as SyncFile;
 use std::path::PathBuf;
 use structopt::StructOpt;
-use syn::{Attribute, ImplItem, Item, ItemImpl, Lit, Meta, NestedMeta, Type, Signature, FnArg, Pat, PathArguments, GenericArgument, ImplItemMethod, AngleBracketedGenericArguments};
+use syn::{Attribute, ImplItem, Item, ItemImpl, Lit, Meta, NestedMeta, Type, Signature, FnArg, Pat, PathArguments, GenericArgument, ImplItemMethod, Expr};
 use tokio::fs::File;
 use tokio::prelude::*;
 use std::time::Instant;
@@ -258,6 +258,9 @@ impl DocGen {
             }
 
             for route in routes {
+                if let Some(body_info) = &parameters_info.body_info {
+                    println!("Body info for route `{}` : {:?}", route.uri, body_info);
+                }
                 let operation_id = self.handler_operation_id_from_sig(&m.sig);
                 self.handlers.push(HandlerInfo {
                     controller: controller.clone(),
@@ -356,10 +359,58 @@ impl DocGen {
                 "Json" | "Form" => {
                     if let PathArguments::AngleBracketed(ag) = &body.arguments {
                         if let Some(GenericArgument::Type(t)) = ag.args.first() {
-                            // println!("Request body type : {:?}", t);
                             match t {
+                                Type::Path(p) => {
+                                    let name = p.path.get_ident().map(|i| i.to_string());
+                                    if let Some(name) = name {
+                                        body_info = Some(BodyParamInfo {
+                                            openapi_type,
+                                            type_name: name,
+                                            ..Default::default()
+                                        });
+                                    } else if let Some(s) = p.path.segments.first().filter(|s| s.ident.to_string().as_str() == "Vec") {
+                                        if let PathArguments::AngleBracketed(ag) = &s.arguments {
+                                            if let Some(GenericArgument::Type(t)) = ag.args.first() {
+                                                match t {
+                                                    Type::Path(p) => {
+                                                        if let Some(name) = p.path.get_ident().map(|i| i.to_string()) {
+                                                            body_info = Some(BodyParamInfo {
+                                                                openapi_type,
+                                                                type_name: name,
+                                                                is_array: true,
+                                                                ..Default::default()
+                                                            });
+                                                        }
+                                                    }
+                                                    _ => {}
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                                 Type::Array(a) => {
-                                    println!("Array : {:?}", a);
+                                    let len: Option<u32> = match &a.len {
+                                        Expr::Lit(l) => match &l.lit {
+                                            Lit::Int(i) => i.base10_parse().ok(),
+                                            _ => None,
+                                        },
+                                        _ => None
+                                    };
+                                    let name = match a.elem.as_ref() {
+                                        Type::Path(p) => {
+                                            p.path.get_ident().map(|i| i.to_string())
+                                        }
+                                        _ => None
+                                    };
+                                    if let Some(name) = name {
+                                        body_info = Some(BodyParamInfo {
+                                            openapi_type,
+                                            type_name: name,
+                                            is_array: true,
+                                            min_array_len: len.clone(),
+                                            max_array_len: len,
+                                        });
+                                    }
                                 }
                                 _ => {}
                             }
@@ -367,7 +418,7 @@ impl DocGen {
                     }
                 }
                 _ => {}
-            }
+            };
         }
 
         RouteParametersInfo {
@@ -552,8 +603,10 @@ pub(crate) struct HandlerInfo {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct BodyParamInfo {
     openapi_type: OpenApiMimeTypes,
-    schema: String,
+    type_name: String,
     is_array: bool,
+    min_array_len: Option<u32>,
+    max_array_len: Option<u32>,
 }
 
 #[derive(Clone, Debug, Default)]

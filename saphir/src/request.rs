@@ -51,7 +51,7 @@ impl<T> Request<T> {
             cookies: Default::default(),
             peer_addr,
             #[cfg(feature = "operation")]
-            operation_id: OperationId::with_bytes([0u8; 16]),
+            operation_id: OperationId::default(),
         }
     }
 

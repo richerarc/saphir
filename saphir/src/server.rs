@@ -40,8 +40,6 @@ static mut STACK: MaybeUninit<Stack> = MaybeUninit::uninit();
 #[doc(hidden)]
 static mut SERVER_NAME: MaybeUninit<HeaderValue> = MaybeUninit::uninit();
 #[doc(hidden)]
-static mut SERVER_ID: u32 = 0;
-#[doc(hidden)]
 static INIT_STACK: Once = Once::new();
 
 /// Using Feature `https`
@@ -63,7 +61,6 @@ pub struct ListenerBuilder {
     server_name: Option<String>,
     request_timeout_ms: Option<u64>,
     request_body_max: Option<usize>,
-    server_id: Option<u32>,
     #[cfg(feature = "https")]
     cert_config: Option<SslConfig>,
     #[cfg(feature = "https")]
@@ -110,12 +107,6 @@ impl ListenerBuilder {
     }
 
     #[inline]
-    pub fn server_id(mut self, id: u32) -> Self {
-        self.server_id = Some(id);
-        self
-    }
-
-    #[inline]
     pub fn request_body_max_bytes<I: Into<Option<usize>>>(mut self, size: I) -> Self {
         self.request_body_max = size.into();
         self
@@ -152,31 +143,16 @@ impl ListenerBuilder {
             server_name,
             request_timeout_ms,
             request_body_max,
-            server_id,
             cert_config,
             key_config,
         } = self;
 
         let iface = iface.unwrap_or_else(|| DEFAULT_LISTENER_IFACE.to_string());
-        let server_id = server_id.unwrap_or_else(|| {
-            #[cfg(not(feature = "operation"))]
-            {
-                0
-            }
-
-            #[cfg(feature = "operation")]
-            {
-                use rand::Rng;
-                let mut rng = rand::thread_rng();
-                rng.gen::<u32>()
-            }
-        });
 
         ListenerConfig {
             iface,
             request_timeout_ms,
             server_name: server_name.unwrap_or_else(|| DEFAULT_SERVER_NAME.to_string()),
-            server_id,
             request_body_max,
             cert_config,
             key_config,
@@ -192,29 +168,14 @@ impl ListenerBuilder {
             server_name,
             request_timeout_ms,
             request_body_max,
-            server_id,
         } = self;
 
         let iface = iface.unwrap_or_else(|| DEFAULT_LISTENER_IFACE.to_string());
-        let server_id = server_id.unwrap_or_else(|| {
-            #[cfg(not(feature = "operation"))]
-            {
-                0
-            }
-
-            #[cfg(feature = "operation")]
-            {
-                use rand::Rng;
-                let mut rng = rand::thread_rng();
-                rng.gen::<u32>()
-            }
-        });
 
         ListenerConfig {
             iface,
             request_timeout_ms,
             server_name: server_name.unwrap_or_else(|| DEFAULT_SERVER_NAME.to_string()),
-            server_id,
             request_body_max,
         }
     }
@@ -226,7 +187,6 @@ pub struct ListenerConfig {
     request_timeout_ms: Option<u64>,
     request_body_max: Option<usize>,
     server_name: String,
-    server_id: u32,
     cert_config: Option<SslConfig>,
     key_config: Option<SslConfig>,
 }
@@ -237,7 +197,6 @@ pub struct ListenerConfig {
     request_timeout_ms: Option<u64>,
     request_body_max: Option<usize>,
     server_name: String,
-    server_id: u32,
 }
 
 #[cfg(feature = "https")]
@@ -334,7 +293,6 @@ impl Server {
     pub async fn run(self) -> Result<(), SaphirError> {
         let Server { listener_config, stack } = self;
         let server_value = HeaderValue::from_str(&listener_config.server_name)?;
-        let server_id = listener_config.server_id;
         let request_body_max = listener_config.request_body_max;
 
         if INIT_STACK.state() != OnceState::New {
@@ -348,7 +306,6 @@ impl Server {
             unsafe {
                 STACK.as_mut_ptr().write(stack);
                 SERVER_NAME.as_mut_ptr().write(server_value);
-                SERVER_ID = server_id;
                 crate::body::REQUEST_BODY_BYTES_LIMIT = request_body_max;
             }
         });
@@ -460,19 +417,7 @@ impl Stack {
     }
 
     async fn invoke(&self, req: Request<Body>) -> Result<Response<Body>, SaphirError> {
-        let ctx = {
-            #[cfg(feature = "operation")]
-            {
-                // # SAFETY #
-                // SERVER_ID has been initialized at server startup.
-                HttpContext::new(unsafe { SERVER_ID }, req, self.router.clone())
-            }
-
-            #[cfg(not(feature = "operation"))]
-            {
-                HttpContext::new(req, self.router.clone())
-            }
-        };
+        let ctx = HttpContext::new(req, self.router.clone());
         self.middlewares
             .next(ctx)
             .await

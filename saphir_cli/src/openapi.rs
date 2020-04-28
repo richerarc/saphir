@@ -1,7 +1,7 @@
 use serde_derive::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum OpenApiParameterLocation {
     Path,
@@ -10,6 +10,21 @@ pub enum OpenApiParameterLocation {
 impl Default for OpenApiParameterLocation {
     fn default() -> Self {
         OpenApiParameterLocation::Path
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+pub enum OpenApiMimeTypes {
+    #[serde(rename = "application/json")]
+    Json,
+    #[serde(rename = "application/x-www-form-urlencoded")]
+    Form,
+    #[serde(rename = "*/*")]
+    Any,
+}
+impl Default for OpenApiMimeTypes {
+    fn default() -> Self {
+        OpenApiMimeTypes::Any
     }
 }
 
@@ -44,17 +59,22 @@ impl OpenApiPathMethod {
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
+#[serde(tag = "type")]
 pub enum OpenApiType {
     String, // this includes dates and files
     Number,
     Integer,
     Boolean,
-    Array,
-    Object,
+    Array {
+        items: Box<OpenApiSchema>,
+    },
+    Object {
+        properties: HashMap<String, Box<OpenApiType>>,
+    }
 }
 impl Default for OpenApiType {
     fn default() -> Self {
-        OpenApiType::Object
+        OpenApiType::String
     }
 }
 impl OpenApiType {
@@ -64,7 +84,6 @@ impl OpenApiType {
             "i8" | "i16" | "i32" | "i64" | "i128" | "isize" => OpenApiType::Integer,
             "f32" | "f64" => OpenApiType::Number,
             "bool" | "Bool" | "Boolean" => OpenApiType::Boolean,
-            "Vec" => OpenApiType::Array,
             _ => OpenApiType::String
         }
     }
@@ -119,7 +138,7 @@ pub struct OpenApiPath {
     pub(crate) responses: HashMap<u16, OpenApiResponse>,
 }
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct OpenApiParameter {
     pub(crate) name: String,
     #[serde(rename = "in")]
@@ -136,20 +155,27 @@ pub struct OpenApiRequestBody {
     pub(crate) content: HashMap<String, OpenApiContent>,
 }
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct OpenApiContent {
     pub(crate) schema: OpenApiSchema,
 }
 
-#[derive(Clone, Default, Serialize, Deserialize)]
-pub struct OpenApiSchema {
-    #[serde(rename = "type")]
-    pub(crate) openapi_type: OpenApiType,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
-    pub(crate) properties: HashMap<String, OpenApiType>,
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(untagged)]
+pub enum OpenApiSchema {
+    Ref {
+        #[serde(rename = "$ref")]
+        type_ref: String,
+    },
+    Inline(OpenApiType),
+}
+impl Default for OpenApiSchema {
+    fn default() -> Self {
+        OpenApiSchema::Inline(OpenApiType::default())
+    }
 }
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct OpenApiResponse {
     pub(crate) description: String,
     pub(crate) content: HashMap<String, OpenApiContent>,

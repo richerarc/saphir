@@ -1,4 +1,4 @@
-use crate::openapi::{OpenApi, OpenApiParameter, OpenApiPath, OpenApiPathMethod, OpenApiResponse, OpenApiSchema, OpenApiType, OpenApiParameterLocation};
+use crate::openapi::{OpenApi, OpenApiParameter, OpenApiPath, OpenApiPathMethod, OpenApiResponse, OpenApiSchema, OpenApiType, OpenApiParameterLocation, OpenApiMimeTypes};
 use crate::{Command, CommandResult};
 use futures::future::{BoxFuture, FutureExt};
 use serde_derive::Deserialize;
@@ -6,9 +6,10 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs::File as SyncFile;
 use std::path::PathBuf;
 use structopt::StructOpt;
-use syn::{Attribute, ImplItem, Item, ItemImpl, Lit, Meta, NestedMeta, Type, Signature, FnArg, Pat, PathArguments, GenericArgument, ImplItemMethod};
+use syn::{Attribute, ImplItem, Item, ItemImpl, Lit, Meta, NestedMeta, Type, Signature, FnArg, Pat, PathArguments, GenericArgument, ImplItemMethod, AngleBracketedGenericArguments};
 use tokio::fs::File;
 use tokio::prelude::*;
+use std::time::Instant;
 
 /// Generate OpenAPI v3 from a Saphir application.
 ///
@@ -41,6 +42,7 @@ pub(crate) struct DocGen {
     pub args: <DocGen as Command>::Args,
     pub doc: OpenApi,
     pub operation_ids: HashSet<String>,
+    pub handlers: Vec<HandlerInfo>,
 }
 
 impl Command for DocGen {
@@ -50,16 +52,21 @@ impl Command for DocGen {
         let mut doc = OpenApi::default();
         doc.openapi_version = "3.0.1".to_string();
         let operation_ids = HashSet::new();
-        Self { args, doc, operation_ids }
+        let handlers = Vec::new();
+        Self { args, doc, operation_ids, handlers }
     }
 
     fn run<'a>(mut self) -> BoxFuture<'a, CommandResult> {
         async move {
+            let now = Instant::now();
             let cargo_path = self.args.project_path.clone().join("Cargo.toml");
             let main_path = self.args.project_path.clone().join("src/main.rs");
             self.read_cargo_toml(cargo_path).await?;
             self.read_main_file(main_path).await?;
-            self.write_doc_file().await?;
+            let handlers = std::mem::take(&mut self.handlers);
+            self.add_all_paths(handlers)?;
+            let file = self.write_doc_file().await?;
+            println!("Succesfully created `{}` in {}ms", file, now.elapsed().as_millis());
             Ok(())
         }
         .boxed()
@@ -67,7 +74,7 @@ impl Command for DocGen {
 }
 
 impl DocGen {
-    async fn write_doc_file(&self) -> CommandResult {
+    async fn write_doc_file(&self) -> Result<String, String> {
         let mut path = self.args.output_file.clone();
         if path.is_dir() {
             path = path.join("openapi.yaml");
@@ -82,8 +89,7 @@ impl DocGen {
         }
         let f = SyncFile::create(&path).map_err(|_| format!("Unable to create file `{:?}`", &path))?;
         serde_yaml::to_writer(f, &self.doc).map_err(|_| format!("Unable to write to `{:?}`", path))?;
-        println!("Succesfully created {:?}", path);
-        Ok(())
+        Ok(path.to_str().unwrap_or_default().to_string())
     }
 
     async fn read_cargo_toml(&mut self, path: PathBuf) -> CommandResult {
@@ -242,117 +248,166 @@ impl DocGen {
             _ => None,
         }) {
             let mut consume_cookies: bool = self.handler_has_cookies(&m);
-            let routes = self.route_info_from_method(&controller, &m);
+            let routes = self.route_info_from_method_macro(&controller, &m);
             if routes.is_empty() {
                 continue;
             }
-            let mut body_type = None;
-
-            let mut parameters = Vec::new();
-            for param in m.sig.inputs.iter().filter_map(|i| match i {
-                FnArg::Typed(p) => Some(p),
-                _ => None,
-            }) {
-                let param_name = match param.pat.as_ref() {
-                    Pat::Ident(i) => {
-                        i.ident.to_string()
-                    }
-                    _ => continue,
-                };
-
-                // println!("Param name : {}", param_name);
-                // println!("Param type : {:?}", param.ty.as_ref());
-                let (param_type, optional) = match param.ty.as_ref() {
-                    Type::Path(p) => {
-                        if let Some(s1) = p.path.segments.first() {
-                            let mut param_type = s1.ident.to_string();
-                            // println!("Param type name : {}", &param_type);
-                            if param_type.as_str() == "CookieJar" {
-                                consume_cookies = true;
-                                continue;
-                            }
-                            if param_type.as_str() == "Request" {
-                                // println!("Body type : {:?}", &s1.arguments);
-                                if let PathArguments::AngleBracketed(ab) = &s1.arguments {
-                                    if let Some(GenericArgument::Type(Type::Path(body_path))) = ab.args.first() {
-                                        if let Some(seg) = body_path.path.segments.first() {
-                                            body_type = Some(seg);
-                                        }
-                                    }
-                                }
-                                continue;
-                            }
-                            if param_type.as_str() == "Json" || param_type.as_str() == "Form" {
-                                body_type = Some(&s1);
-                                continue;
-                            }
-                            let optional = param_type.as_str() == "Option";
-                            if optional {
-                                param_type = "String".to_string();
-                                if let PathArguments::AngleBracketed(ab) = &s1.arguments {
-                                    if let Some(GenericArgument::Type(Type::Path(p))) = ab.args.first() {
-                                        if let Some(i) = p.path.get_ident() {
-                                            param_type = i.to_string();
-                                        }
-                                    }
-                                }
-                            }
-
-                            let api_type = OpenApiType::from_rust_type_str(param_type.as_str());
-                            (api_type, optional)
-                        } else {
-                            (OpenApiType::String, false)
-                        }
-                    }
-                    _ => (OpenApiType::String, false)
-                };
-                // println!();
-
-                let location = if routes[0].uri_params.contains(&param_name) {
-                    OpenApiParameterLocation::Path
-                } else {
-                    OpenApiParameterLocation::Query
-                };
-                parameters.push(OpenApiParameter {
-                    name: param_name,
-                    required: !optional,
-                    location,
-                    schema: OpenApiSchema {
-                        openapi_type: param_type,
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                })
-            }
-
-            let description = if consume_cookies {
-                Some("NOTE: This request consume cookies.".to_string())
-            } else {
-                None
-            };
-
-            if let Some(body) = body_type {
-                // TODO: handle request body
+            let parameters_info = self.parse_handler_parameters(&m, &routes[0].uri_params);
+            if parameters_info.has_cookies_param {
+                consume_cookies = true;
             }
 
             for route in routes {
                 let operation_id = self.handler_operation_id_from_sig(&m.sig);
-                self.add_path(
-                    route.uri,
-                    route.method,
-                    OpenApiPath {
-                        parameters: parameters.clone(),
-                        description: description.clone(),
-                        operation_id,
-                        ..Default::default()
-                    },
-                )?;
+                self.handlers.push(HandlerInfo {
+                    controller: controller.clone(),
+                    route,
+                    parameters: parameters_info.parameters.clone(),
+                    operation_id,
+                    use_cookies: consume_cookies,
+                    body_info: parameters_info.body_info.clone()
+                });
             }
         }
         Ok(())
     }
 
-    fn add_path(&mut self, path: String, method: OpenApiPathMethod, mut data: OpenApiPath) -> CommandResult {
+    fn parse_handler_parameters(&self, m: &ImplItemMethod, uri_params: &Vec<String>) -> RouteParametersInfo {
+        let mut parameters = Vec::new();
+        let mut has_cookies_param = false;
+        let mut body_type = None;
+        for param in m.sig.inputs.iter().filter_map(|i| match i {
+            FnArg::Typed(p) => Some(p),
+            _ => None,
+        }) {
+            let param_name = match param.pat.as_ref() {
+                Pat::Ident(i) => {
+                    i.ident.to_string()
+                }
+                _ => continue,
+            };
+
+            let (param_type, optional) = match param.ty.as_ref() {
+                Type::Path(p) => {
+                    if let Some(s1) = p.path.segments.first() {
+                        let mut param_type = s1.ident.to_string();
+                        if param_type.as_str() == "CookieJar" {
+                            has_cookies_param = true;
+                            continue;
+                        }
+                        if param_type.as_str() == "Request" {
+                            if let PathArguments::AngleBracketed(ab) = &s1.arguments {
+                                if let Some(GenericArgument::Type(Type::Path(body_path))) = ab.args.first() {
+                                    if let Some(seg) = body_path.path.segments.first() {
+                                        body_type = Some(seg);
+                                    }
+                                }
+                            }
+                            continue;
+                        }
+                        if param_type.as_str() == "Json" || param_type.as_str() == "Form" {
+                            body_type = Some(&s1);
+                            continue;
+                        }
+                        let optional = param_type.as_str() == "Option";
+                        if optional {
+                            param_type = "String".to_string();
+                            if let PathArguments::AngleBracketed(ab) = &s1.arguments {
+                                if let Some(GenericArgument::Type(Type::Path(p))) = ab.args.first() {
+                                    if let Some(i) = p.path.get_ident() {
+                                        param_type = i.to_string();
+                                    }
+                                }
+                            }
+                        }
+
+                        let api_type = OpenApiType::from_rust_type_str(param_type.as_str());
+                        (api_type, optional)
+                    } else {
+                        (OpenApiType::String, false)
+                    }
+                }
+                _ => (OpenApiType::String, false)
+            };
+
+            let location = if uri_params.contains(&param_name) {
+                OpenApiParameterLocation::Path
+            } else {
+                OpenApiParameterLocation::Query
+            };
+            parameters.push(OpenApiParameter {
+                name: param_name,
+                required: !optional,
+                location,
+                schema: OpenApiSchema::Inline(param_type),
+                ..Default::default()
+            })
+        }
+
+        let mut body_info: Option<BodyParamInfo> = None;
+        if let Some(body) = body_type {
+            let body_type = body.ident.to_string();
+            let openapi_type = match body_type.as_str() {
+                "Json" => OpenApiMimeTypes::Json,
+                "Form" => OpenApiMimeTypes::Form,
+                _ => OpenApiMimeTypes::Any,
+            };
+            match body_type.as_str() {
+                "Json" | "Form" => {
+                    if let PathArguments::AngleBracketed(ag) = &body.arguments {
+                        if let Some(GenericArgument::Type(t)) = ag.args.first() {
+                            // println!("Request body type : {:?}", t);
+                            match t {
+                                Type::Array(a) => {
+                                    println!("Array : {:?}", a);
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        RouteParametersInfo {
+            parameters,
+            has_cookies_param,
+            body_info
+        }
+    }
+
+    fn add_all_paths(&mut self, handlers: Vec<HandlerInfo>) -> CommandResult {
+        let (_, errors): (Vec<_>, Vec<_>) = handlers.into_iter()
+            .map(|handler| self.add_path(handler))
+            .partition(Result::is_ok);
+        let errors: Vec<_> = errors.into_iter().map(Result::unwrap_err).collect();
+        if errors.len() > 0 {
+            let mut error_message = format!("Some errors ({}) occured while processing the routes : ", errors.len());
+            for error in errors {
+                error_message = format!("{}\n- {}", error_message, error);
+            }
+            Err(error_message)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn add_path(&mut self, info: HandlerInfo) -> CommandResult {
+        let path = info.route.uri;
+        let method = info.route.method;
+        let description = if info.use_cookies {
+            Some("NOTE: This request consume cookies.".to_string())
+        } else {
+            None
+        };
+        let mut data = OpenApiPath {
+            parameters: info.parameters,
+            description,
+            operation_id: info.operation_id,
+            ..Default::default()
+        };
+
         if !self.doc.paths.contains_key(path.as_str()) {
             self.doc.paths.insert(path.clone(), BTreeMap::new());
         }
@@ -371,7 +426,7 @@ impl DocGen {
         Ok(())
     }
 
-    fn route_info_from_method(&self, controller: &ControllerInfo, m: &ImplItemMethod) -> Vec<RouteInfo> {
+    fn route_info_from_method_macro(&self, controller: &ControllerInfo, m: &ImplItemMethod) -> Vec<RouteInfo> {
         let mut routes = Vec::new();
         for attr in &m.attrs {
             let method = match self.handler_method_from_attr(&attr) {
@@ -456,7 +511,7 @@ impl DocGen {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 struct ControllerInfo {
     controller_name: String,
     name: String,
@@ -477,9 +532,33 @@ impl ControllerInfo {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 struct RouteInfo {
     method: OpenApiPathMethod,
     uri: String,
     uri_params: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct HandlerInfo {
+    controller: ControllerInfo,
+    route: RouteInfo,
+    parameters: Vec<OpenApiParameter>,
+    operation_id: String,
+    use_cookies: bool,
+    body_info: Option<BodyParamInfo>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct BodyParamInfo {
+    openapi_type: OpenApiMimeTypes,
+    schema: String,
+    is_array: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct RouteParametersInfo {
+    parameters: Vec<OpenApiParameter>,
+    has_cookies_param: bool,
+    body_info: Option<BodyParamInfo>,
 }

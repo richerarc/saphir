@@ -87,8 +87,8 @@ impl FromStr for ContentRange {
                 };
 
                 ContentRange::Bytes {
-                    range: range,
-                    instance_length: instance_length,
+                    range,
+                    instance_length,
                 }
             }
             Some((unit, resp)) => ContentRange::Unregistered {

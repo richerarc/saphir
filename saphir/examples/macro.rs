@@ -77,7 +77,7 @@ impl UserController {
     #[get("/file")]
     async fn file(&self, _req: Request<Body<Vec<u8>>>) -> (u16, Option<FileStream>) {
         match File::open("/path/to/file").await {
-            Ok(file) => (200, Some(file.into())),
+            Ok(file) => (200, Some(FileStream::new(file))),
             Err(_) => (500, None),
         }
     }

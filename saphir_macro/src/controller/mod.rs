@@ -18,7 +18,7 @@ pub fn expand_controller(args: AttributeArgs, input: ItemImpl) -> Result<TokenSt
     let controller_implementation = controller_attr::gen_controller_trait_implementation(&controller_attr, handlers.as_slice());
     let struct_implementaion = gen_struct_implementation(controller_attr.ident.clone(), handlers)?;
 
-    let mod_ident = Ident::new(&format!("SAPHIR_GEN_CONTROLLER_{}", &controller_attr.name), Span::call_site());
+    let mod_ident = Ident::new(&format!("SAPHIR_GEN_CONTROLLER_{}", controller_attr.ident.to_string()), Span::call_site());
     Ok(quote! {
         mod #mod_ident {
             use super::*;
@@ -95,7 +95,7 @@ fn gen_wrapper_handler(handler_tokens: &mut TokenStream, handler: HandlerRepr) -
 
 fn init_multipart(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
     if opts.init_multipart {
-        (quote! {let multipart = Multipart::from_request(&mut req)?;
+        (quote! {let multipart = Multipart::from_request(&mut req).await.map_err(|e| SaphirError::responder(e))?;
 
         })
         .to_tokens(stream);
@@ -237,6 +237,8 @@ impl ArgsRepr {
             ArgsReprType::Json => self_flatten.gen_json_param(stream, optional),
             ArgsReprType::Form => self_flatten.gen_form_param(stream, optional),
             ArgsReprType::Cookie => self_flatten.gen_cookie_param(stream),
+            ArgsReprType::Ext => self_flatten.gen_ext_param(stream, optional),
+            ArgsReprType::Extensions => self_flatten.gen_extensions_param(stream),
             ArgsReprType::Params { is_query_param, .. } => {
                 if *is_query_param {
                     self_flatten.gen_query_param(stream, optional);
@@ -328,6 +330,32 @@ impl ArgsRepr {
         (quote! {
 
             let #id = req.take_cookies();
+        })
+        .to_tokens(stream);
+    }
+
+    fn gen_ext_param(&self, stream: &mut TokenStream, optional: bool) {
+        let id = Ident::new(self.name.as_str(), Span::call_site());
+        let typ = self.typ.as_ref().expect("Ext should always have a type parameter");
+
+        let err_handling = if optional {
+            quote! {ok()}
+        } else {
+            quote! {map_err(|e| SaphirError::responder(e))?}
+        };
+
+        (quote! {
+
+             let #id = Ext::<#typ>::from_req(&mut req).await.#err_handling;
+        })
+        .to_tokens(stream);
+    }
+
+    fn gen_extensions_param(&self, stream: &mut TokenStream) {
+        let id = Ident::new(self.name.as_str(), Span::call_site());
+        (quote! {
+
+            let #id = Extensions::from_req(&mut req).await?;
         })
         .to_tokens(stream);
     }

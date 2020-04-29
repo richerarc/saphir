@@ -1,6 +1,6 @@
 [package]
 name = "saphir"
-version = "2.3.0"
+version = "2.6.0"
 edition = "2018"
 authors = ["Richer Archambault <richer.arc@gmail.com>"]
 description = "Fully async-await http server framework"
@@ -13,14 +13,16 @@ license = "MIT"
 
 [features]
 default = ["macro"]
-full = ["macro", "json", "form", "https", "multipart", "operation", "file"]
+full = ["macro", "json", "form", "https", "multipart", "operation", "post-redirect", "file"]
+post-redirect = ["redirect", "json"]
+redirect = ["mime", "form", "url"]
 https = ["base64", "rustls", "tokio-rustls"]
 json = ["serde", "serde_json"]
 form = ["serde", "serde_urlencoded"]
 macro = ["saphir_macro"]
 multipart = ["mime", "nom"]
-operation = ["hex", "rand", "serde"]
 file = ["mime", "mime_guess", "percent-encoding", "chrono", "flate2", "brotli"]
+operation = ["serde", "uuid"]
 
 [dependencies]
 log = "0.4"
@@ -29,22 +31,22 @@ tokio = { version = "0.2.13", features = ["full"] }
 futures = "0.3"
 futures-util = "0.3"
 tower-service = "0.3"
-cookie = { package = "saphir-cookie", version = "0.13" }
+saphir-cookie = "0.13.1"
 http = "0.2"
 http-body = "0.3"
 parking_lot = "0.10"
 regex = "1.3"
+uuid = { version = "0.8", features = ["serde", "v4"], optional = true }
+url = { version = "2.1.1", optional = true }
 rustls = { version = "0.17", optional = true }
 tokio-rustls = { version = "0.13", optional = true }
 base64 = { version = "0.12", optional = true }
 serde = { version = "1.0", optional = true }
 serde_json = { version = "1.0", optional = true }
 serde_urlencoded = { version = "0.6", optional = true }
-saphir_macro = { path = "../saphir_macro", version = "2.0.1", optional = true}
+saphir_macro = { path = "../saphir_macro", version = "2.0.3", optional = true }
 mime = { version = "0.3", optional = true }
 nom = { version = "5", optional = true }
-hex = { version = "0.4", optional = true }
-rand = { version = "0.7.3", optional = true }
 mime_guess = { version = "2.0.3", optional = true }
 percent-encoding = { version = "2.1.0", optional = true }
 chrono = { version = "0.4.11", optional = true }

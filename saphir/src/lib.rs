@@ -74,11 +74,15 @@ extern crate log;
 pub mod body;
 ///
 pub mod controller;
+///
+pub mod cookie;
 /// Error definitions
 pub mod error;
 ///
 #[cfg(feature = "file")]
 pub mod file;
+///
+pub mod extension;
 ///
 pub mod guard;
 /// Definition of types which can handle an http request
@@ -93,6 +97,9 @@ pub mod middleware;
 /// The async Multipart Form-Data representation
 #[cfg(feature = "multipart")]
 pub mod multipart;
+///
+#[cfg(feature = "redirect")]
+pub mod redirect;
 /// The Http Request type
 pub mod request;
 /// Definition of type which can map to a response
@@ -105,8 +112,6 @@ pub mod router;
 pub mod server;
 ///
 pub mod utils;
-///
-pub use cookie;
 ///
 pub use http;
 #[doc(hidden)]
@@ -137,10 +142,20 @@ pub mod prelude {
     ///
     pub use crate::controller::EndpointsBuilder;
     ///
+    pub use crate::cookie::Cookie;
+    ///
+    pub use crate::cookie::CookieBuilder;
+    ///
+    pub use crate::cookie::CookieJar;
+    ///
     pub use crate::error::SaphirError;
     ///
     #[cfg(feature = "file")]
     pub use crate::file::File;
+    ///
+    pub use crate::extension::Ext;
+    ///
+    pub use crate::extension::Extensions;
     ///
     pub use crate::guard::Guard;
     ///
@@ -160,6 +175,11 @@ pub mod prelude {
     #[cfg(feature = "multipart")]
     pub use crate::multipart::Multipart;
     ///
+    #[cfg(feature = "redirect")]
+    pub use crate::redirect::Redirect;
+    ///
+    pub use crate::request::FromRequest;
+    ///
     pub use crate::request::Request;
     ///
     pub use crate::responder::Responder;
@@ -172,15 +192,7 @@ pub mod prelude {
     ///
     pub use crate::server::Stack;
     ///
-    pub use cookie::Cookie;
-    ///
-    pub use cookie::CookieBuilder;
-    ///
-    pub use cookie::CookieJar;
-    ///
     pub use http::header;
-    ///
-    pub use http::Extensions;
     ///
     pub use http::Method;
     ///

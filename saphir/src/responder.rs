@@ -1,10 +1,5 @@
 #![allow(clippy::let_and_return)]
-use crate::{
-    body::Body,
-    error::SaphirError,
-    http_context::HttpContext,
-    response::{Builder, Response},
-};
+use crate::{http_context::HttpContext, response::Builder};
 use http::StatusCode;
 
 macro_rules! impl_status_responder {
@@ -72,13 +67,29 @@ pub trait Responder {
     /// }
     /// ```
     fn respond_with_builder(self, builder: Builder, ctx: &HttpContext) -> Builder;
+}
 
-    ///
-    fn respond(self, ctx: &HttpContext) -> Result<Response<Body>, SaphirError>
-    where
-        Self: Sized,
-    {
-        self.respond_with_builder(Builder::new(), ctx).build()
+impl<T> Responder for Vec<T>
+where
+    T: Responder,
+{
+    fn respond_with_builder(self, mut builder: Builder, ctx: &HttpContext) -> Builder {
+        for responder in self {
+            builder = responder.respond_with_builder(builder, ctx);
+        }
+        builder
+    }
+}
+
+impl<T> Responder for &'static [T]
+where
+    T: Responder + Clone,
+{
+    fn respond_with_builder(self, mut builder: Builder, ctx: &HttpContext) -> Builder {
+        for responder in self {
+            builder = responder.clone().respond_with_builder(builder, ctx);
+        }
+        builder
     }
 }
 
@@ -171,14 +182,14 @@ impl_tuple_responder!(0->A, 1->B, 2->C, 3->D, 4->E, 5->F);
 /// Trait used by the server, not meant for manual implementation
 pub trait DynResponder {
     #[doc(hidden)]
-    fn dyn_respond(&mut self, ctx: &HttpContext) -> Result<Response<Body>, SaphirError>;
+    fn dyn_respond(&mut self, builder: Builder, ctx: &HttpContext) -> Builder;
 }
 
 impl<T> DynResponder for Option<T>
 where
     T: Responder,
 {
-    fn dyn_respond(&mut self, ctx: &HttpContext) -> Result<Response<Body>, SaphirError> {
-        self.take().ok_or(500).respond(ctx)
+    fn dyn_respond(&mut self, builder: Builder, ctx: &HttpContext) -> Builder {
+        self.take().ok_or(500).respond_with_builder(builder, ctx)
     }
 }

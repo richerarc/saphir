@@ -4,7 +4,6 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use cookie::{Cookie, CookieJar};
 use futures_util::future::Future;
 use http::Request as RawRequest;
 use hyper::body::Bytes;
@@ -16,6 +15,17 @@ use crate::{
 
 #[cfg(feature = "operation")]
 use crate::http_context::operation::OperationId;
+use crate::{
+    prelude::{Cookie, CookieJar},
+    responder::Responder,
+};
+
+pub trait FromRequest: Sized {
+    type Err: Responder;
+    type Fut: Future<Output = Result<Self, Self::Err>>;
+
+    fn from_request(req: &mut Request) -> Self::Fut;
+}
 
 /// Struct that wraps a hyper request + some magic
 pub struct Request<T = Body<Bytes>> {
@@ -41,7 +51,7 @@ impl<T> Request<T> {
             cookies: Default::default(),
             peer_addr,
             #[cfg(feature = "operation")]
-            operation_id: OperationId::with_bytes([0u8; 16]),
+            operation_id: OperationId::default(),
         }
     }
 
@@ -206,6 +216,22 @@ impl<T> Request<T> {
             #[cfg(feature = "operation")]
             operation_id,
         }
+    }
+
+    /// Return body, dropping the request
+    ///
+    /// ```rust
+    /// # use saphir::prelude::*;
+    /// # use hyper::Request as RawRequest;
+    /// # async {
+    /// # let mut req = Request::new(RawRequest::builder().method("GET").uri("https://www.rust-lang.org/").body(Body::empty()).unwrap(), None);
+    /// // req is Request<Body<Bytes>>
+    /// let body = req.into_body();
+    /// # };
+    /// ```
+    #[inline]
+    pub fn into_body(self) -> T {
+        self.inner.into_body()
     }
 
     /// Parse cookies from the Cookie header

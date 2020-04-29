@@ -33,6 +33,8 @@ pub enum ArgsReprType {
     Multipart,
     Params { is_query_param: bool, is_string: bool },
     Cookie,
+    Ext,
+    Extensions,
     Option(Box<ArgsReprType>),
 }
 
@@ -45,6 +47,8 @@ impl ArgsReprType {
             "Json" => Ok(ArgsReprType::Json),
             "Form" => Ok(ArgsReprType::Form),
             "Multipart" => Ok(ArgsReprType::Multipart),
+            "Ext" => Ok(ArgsReprType::Ext),
+            "Extensions" => Ok(ArgsReprType::Extensions),
             "Option" => {
                 if let PathArguments::AngleBracketed(a) = &p.arguments {
                     let a = a.args.first().ok_or_else(|| Error::new_spanned(a, "Option types need an type argument"))?;

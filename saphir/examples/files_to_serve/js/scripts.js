@@ -1,3 +1,3 @@
-document.onload = function log() {
+function log() {
     console.log("This is an example");
-};
+}

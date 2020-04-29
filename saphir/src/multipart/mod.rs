@@ -146,7 +146,7 @@ impl Field {
     /// Returns the optional `filename` param of the `Content-Disposition`
     /// header
     pub fn filename(&self) -> Option<&str> {
-        self.filename.as_ref().map(|s| &**s)
+        self.filename.as_deref()
     }
 
     /// Returns the optional `Content-Type` Mime and is defaulted to

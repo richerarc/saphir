@@ -31,7 +31,7 @@ pub fn is_range_fresh(req: &Request, etag: &EntityTag, last_modified: &SystemTim
             return etag.strong_eq(EntityTag::parse(if_range));
         }
 
-        if let Ok(date) = DateTime::parse_from_rfc2822(if_range).map(|date| DateTime::<Utc>::from(date)) {
+        if let Ok(date) = DateTime::parse_from_rfc2822(if_range).map(DateTime::<Utc>::from) {
             return last_modified.timestamp() == SystemTime::from(date).timestamp();
         }
     }
@@ -59,11 +59,9 @@ pub fn is_satisfiable_range(range: &Range, instance_length: u64) -> Option<Conte
     }
     .and_then(|specs| if specs.len() == 1 { Some(specs[0].to_owned()) } else { None })
     .and_then(|spec| spec.to_satisfiable_range(instance_length))
-    .and_then(|range| {
-        Some(ContentRange::Bytes {
-            range: Some(range),
-            instance_length: Some(instance_length),
-        })
+    .map(|range| ContentRange::Bytes {
+        range: Some(range),
+        instance_length: Some(instance_length),
     })
 }
 

@@ -62,7 +62,7 @@ impl FromStr for ContentRange {
     fn from_str(s: &str) -> Result<Self, SaphirError> {
         let res = match split_in_two(s, ' ') {
             Some(("bytes", resp)) => {
-                let (range, instance_length) = split_in_two(resp, '/').ok_or(SaphirError::Other("Could not parse Content-Range".to_owned()))?;
+                let (range, instance_length) = split_in_two(resp, '/').ok_or_else(|| SaphirError::Other("Could not parse Content-Range".to_owned()))?;
 
                 let instance_length = if instance_length == "*" {
                     None
@@ -77,7 +77,7 @@ impl FromStr for ContentRange {
                 let range = if range == "*" {
                     None
                 } else {
-                    let (first_byte, last_byte) = split_in_two(range, '-').ok_or(SaphirError::Other("Could not parse bytes in range".to_owned()))?;
+                    let (first_byte, last_byte) = split_in_two(range, '-').ok_or_else(|| SaphirError::Other("Could not parse bytes in range".to_owned()))?;
                     let first_byte = first_byte.parse().map_err(|_| SaphirError::Other("Could not parse byte in range".to_owned()))?;
                     let last_byte = last_byte.parse().map_err(|_| SaphirError::Other("Could not parse byte in range".to_owned()))?;
                     if last_byte < first_byte {

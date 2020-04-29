@@ -72,48 +72,35 @@ impl ByteRangeSpec {
             return None;
         }
         match self {
-            &ByteRangeSpec::FromTo(from, to) => {
-                if from < full_length && from <= to {
-                    Some((from, ::std::cmp::min(to, full_length - 1)))
+            ByteRangeSpec::FromTo(from, to) => {
+                if *from < full_length && *from <= *to {
+                    Some((*from, ::std::cmp::min(*to, full_length - 1)))
                 } else {
                     None
                 }
             }
-            &ByteRangeSpec::AllFrom(from) => {
-                if from < full_length {
-                    Some((from, full_length - 1))
+            ByteRangeSpec::AllFrom(from) => {
+                if *from < full_length {
+                    Some((*from, full_length - 1))
                 } else {
                     None
                 }
             }
-            &ByteRangeSpec::Last(last) => {
-                if last > 0 {
+            ByteRangeSpec::Last(last) => {
+                if *last > 0 {
                     // From the RFC: If the selected representation is shorter
                     // than the specified suffix-length,
                     // the entire representation is used.
-                    if last > full_length {
+                    if *last > full_length {
                         Some((0, full_length - 1))
                     } else {
-                        Some((full_length - last, full_length - 1))
+                        Some((full_length - *last, full_length - 1))
                     }
                 } else {
                     None
                 }
             }
         }
-    }
-}
-
-impl Range {
-    /// Get the most common byte range header ("bytes=from-to")
-    pub fn bytes(from: u64, to: u64) -> Range {
-        Range::Bytes(vec![ByteRangeSpec::FromTo(from, to)])
-    }
-
-    /// Get byte range header with multiple subranges
-    /// ("bytes=from1-to1,from2-to2,fromX-toX")
-    pub fn bytes_multi(ranges: Vec<(u64, u64)>) -> Range {
-        Range::Bytes(ranges.iter().map(|r| ByteRangeSpec::FromTo(r.0, r.1)).collect())
     }
 }
 
@@ -176,11 +163,11 @@ impl FromStr for ByteRangeSpec {
         match (parts.next(), parts.next()) {
             (Some(""), Some(end)) => end
                 .parse()
-                .or(Err(SaphirError::Other("Could not parse bytes".to_owned())))
+                .or_else(|_| Err(SaphirError::Other("Could not parse bytes".to_owned())))
                 .map(ByteRangeSpec::Last),
             (Some(start), Some("")) => start
                 .parse()
-                .or(Err(SaphirError::Other("Could not parse bytes".to_owned())))
+                .or_else(|_| Err(SaphirError::Other("Could not parse bytes".to_owned())))
                 .map(ByteRangeSpec::AllFrom),
             (Some(start), Some(end)) => match (start.parse(), end.parse()) {
                 (Ok(start), Ok(end)) if start <= end => Ok(ByteRangeSpec::FromTo(start, end)),

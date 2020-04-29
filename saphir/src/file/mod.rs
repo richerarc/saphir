@@ -251,7 +251,7 @@ pub async fn compress_file(mut file: Pin<Box<dyn SaphirFile>>, mut encoder: Enco
         match file.read(buffer.as_mut_slice()).await {
             Ok(size) => {
                 if size > 0 {
-                    encoder.write(&buffer[0..size])?;
+                    encoder.write_all(&buffer[..size])?;
                 } else {
                     break;
                 }

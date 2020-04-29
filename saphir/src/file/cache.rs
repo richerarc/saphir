@@ -21,9 +21,10 @@ use std::{
 };
 use tokio::sync::RwLock;
 
+type InnerCache = Arc<RwLock<HashMap<(String, Compression), Vec<u8>>>>;
 #[derive(Clone)]
 pub struct FileCache {
-    inner: Arc<RwLock<HashMap<(String, Compression), Vec<u8>>>>,
+    inner: InnerCache,
     max_file_size: u64,
     max_capacity: u64,
     current_size: Arc<AtomicU64>,
@@ -48,7 +49,6 @@ impl FileCache {
                 path,
                 mime: None,
                 position: 0,
-                file_seek_future: None,
                 get_file_future: None,
                 size: file.len() as u64,
             })
@@ -122,61 +122,20 @@ impl FileCache {
     }
 }
 
-type FileSeekFuture = Pin<Box<dyn Future<Output = io::Result<usize>> + Send + Sync>>;
 type ReadFileFuture = Pin<Box<dyn Future<Output = io::Result<Vec<u8>>> + Send + Sync>>;
 
 pub struct CachedFile {
     key: (String, Compression),
-    inner: Arc<RwLock<HashMap<(String, Compression), Vec<u8>>>>,
+    inner: InnerCache,
     path: PathBuf,
     mime: Option<mime::Mime>,
     position: usize,
-    file_seek_future: Option<FileSeekFuture>,
     get_file_future: Option<ReadFileFuture>,
     size: u64,
 }
 
 impl CachedFile {
-    async fn async_seek_owned(
-        map: Arc<RwLock<HashMap<(String, Compression), Vec<u8>>>>,
-        seek_from: SeekFrom,
-        key: (String, Compression),
-        position: usize,
-    ) -> io::Result<usize> {
-        let file_size = map.read().await.get(&key).ok_or(io::Error::from(io::ErrorKind::BrokenPipe))?.len();
-        match seek_from {
-            SeekFrom::Start(i) => {
-                if (i as usize) < file_size {
-                    Ok(i as usize)
-                } else {
-                    Err(io::Error::from(io::ErrorKind::InvalidInput))
-                }
-            }
-
-            SeekFrom::Current(i) => {
-                if (i + position as i64) >= 0 {
-                    Ok((i + position as i64) as usize)
-                } else {
-                    Err(io::Error::from(io::ErrorKind::InvalidInput))
-                }
-            }
-
-            SeekFrom::End(i) => {
-                if file_size as i64 + i >= 0 {
-                    Ok((file_size as i64 + i) as usize)
-                } else {
-                    Err(io::Error::from(io::ErrorKind::InvalidInput))
-                }
-            }
-        }
-    }
-
-    async fn read_async(
-        key: (String, Compression),
-        inner: Arc<RwLock<HashMap<(String, Compression), Vec<u8>>>>,
-        position: usize,
-        len: usize,
-    ) -> io::Result<Vec<u8>> {
+    async fn read_async(key: (String, Compression), inner: InnerCache, position: usize, len: usize) -> io::Result<Vec<u8>> {
         match inner.read().await.get(&key) {
             Some(bytes) => {
                 let mut vec = vec![0; len];
@@ -194,35 +153,33 @@ impl CachedFile {
 }
 
 impl AsyncSeek for CachedFile {
-    fn poll_seek(mut self: Pin<&mut Self>, cx: &mut Context<'_>, position: SeekFrom) -> Poll<io::Result<u64>> {
-        let mut current_fut = self.file_seek_future.take();
-
-        let res = if let Some(current) = current_fut.as_mut() {
-            current.as_mut().poll(cx)
-        } else {
-            let mut current = Box::pin(Self::async_seek_owned(
-                self.inner.clone(),
-                position,
-                std::mem::take(&mut self.key),
-                std::mem::take(&mut self.position),
-            ));
-            let res = current.as_mut().poll(cx);
-            current_fut = Some(current);
-            res
-        };
-
-        match res {
-            Poll::Ready(res) => match res {
-                Ok(res) => {
-                    self.position = res;
-                    Poll::Ready(Ok(res as u64))
+    fn poll_seek(mut self: Pin<&mut Self>, _cx: &mut Context<'_>, position: SeekFrom) -> Poll<io::Result<u64>> {
+        match position {
+            SeekFrom::Start(i) => {
+                if i < self.size {
+                    self.position = i as usize;
+                    Poll::Ready(Ok(i))
+                } else {
+                    Poll::Ready(Err(io::Error::from(io::ErrorKind::InvalidInput)))
                 }
+            }
 
-                Err(e) => Poll::Ready(Err(e)),
-            },
-            Poll::Pending => {
-                self.file_seek_future = current_fut;
-                Poll::Pending
+            SeekFrom::Current(i) => {
+                if (i + self.position as i64) >= 0 {
+                    self.position += i as usize;
+                    Poll::Ready(Ok(self.position as u64))
+                } else {
+                    Poll::Ready(Err(io::Error::from(io::ErrorKind::InvalidInput)))
+                }
+            }
+
+            SeekFrom::End(i) => {
+                if self.size as i64 + i >= 0 {
+                    self.position = (self.size as i64 + i) as usize;
+                    Poll::Ready(Ok(self.position as u64))
+                } else {
+                    Poll::Ready(Err(io::Error::from(io::ErrorKind::InvalidInput)))
+                }
             }
         }
     }

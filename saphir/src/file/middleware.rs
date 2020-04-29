@@ -59,9 +59,8 @@ impl FileMiddleware {
             return Ok(ctx);
         }
 
-        let (mtime, mut size) = (path.mtime(), path.size());
-        let last_modified = mtime.into();
-        let etag = EntityTag::new(false, format!("{}-{}", mtime.timestamp(), size).as_str());
+        let (last_modified, mut size) = (path.mtime(), path.size());
+        let etag = EntityTag::new(false, format!("{}-{}", last_modified.timestamp(), size).as_str());
 
         if is_precondition_failed(req, &etag, &last_modified) {
             ctx.after(builder.status(412).build()?);
@@ -91,19 +90,16 @@ impl FileMiddleware {
             .and_then(|header| header.to_str().ok())
             .and_then(|header| Range::from_str(header).ok())
         {
-            match (is_range_fresh(&req, &etag, &last_modified), is_satisfiable_range(&range, size as u64)) {
-                (true, Some(content_range)) => {
-                    if let Some(range) = extract_range(&content_range) {
-                        let file = cache.open_file_with_range(&path, range).await?;
-                        size = file.get_size();
-                        builder = builder.file(file).map_err(|error| error.1)?;
-                    }
-                    builder = builder
-                        .header(http::header::CONTENT_RANGE, content_range.to_string())
-                        .status(StatusCode::PARTIAL_CONTENT);
-                    is_partial_content = true;
+            if let (true, Some(content_range)) = (is_range_fresh(&req, &etag, &last_modified), is_satisfiable_range(&range, size as u64)) {
+                if let Some(range) = extract_range(&content_range) {
+                    let file = cache.open_file_with_range(&path, range).await?;
+                    size = file.get_size();
+                    builder = builder.file(file).map_err(|error| error.1)?;
                 }
-                _ => (),
+                builder = builder
+                    .header(http::header::CONTENT_RANGE, content_range.to_string())
+                    .status(StatusCode::PARTIAL_CONTENT);
+                is_partial_content = true;
             }
         }
 

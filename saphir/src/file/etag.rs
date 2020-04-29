@@ -19,9 +19,9 @@ impl EntityTag {
         let parsed_tag = {
             if tag.starts_with("W/") {
                 is_weak = true;
-                tag.trim_start_matches("W/\"").trim_end_matches("\"")
+                tag.trim_start_matches("W/\"").trim_end_matches('\"')
             } else {
-                tag.trim_start_matches("\"").trim_end_matches("\"")
+                tag.trim_start_matches('\"').trim_end_matches('\"')
             }
         };
 

@@ -193,7 +193,7 @@ impl ToString for Compression {
 }
 
 pub enum Encoder {
-    Brotli(brotli::CompressorWriter<Vec<u8>>),
+    Brotli(Box<brotli::CompressorWriter<Vec<u8>>>),
     Gzip(GzEncoder<Vec<u8>>),
     Deflate(DeflateEncoder<Vec<u8>>),
     None,
@@ -239,7 +239,7 @@ pub async fn compress_file(mut file: Pin<Box<dyn SaphirFile>>, mut encoder: Enco
         encoder = match compression {
             Compression::Gzip => Encoder::Gzip(GzEncoder::new(Vec::new(), flate2::Compression::default())),
             Compression::Deflate => Encoder::Deflate(DeflateEncoder::new(Vec::new(), flate2::Compression::default())),
-            Compression::Brotli => Encoder::Brotli(brotli::CompressorWriter::new(Vec::new(), MAX_BUFFER, 6, 22)),
+            Compression::Brotli => Encoder::Brotli(Box::new(brotli::CompressorWriter::new(Vec::new(), MAX_BUFFER, 6, 22))),
             Compression::Raw => Encoder::None,
         }
     } else if compression == Compression::Raw {

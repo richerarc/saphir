@@ -6,15 +6,25 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs::File as SyncFile;
 use std::path::PathBuf;
 use structopt::StructOpt;
-use syn::{Attribute, ImplItem, Item, ItemImpl, Lit, Meta, NestedMeta, Type, Signature, FnArg, Pat, PathArguments, GenericArgument, ImplItemMethod, Expr};
+use syn::{Attribute, ImplItem, Item, ItemImpl, Lit, Meta, NestedMeta, Type, Signature, FnArg, Pat, PathArguments, GenericArgument, ImplItemMethod, Expr, File as AstFile};
 use tokio::fs::File;
 use tokio::prelude::*;
 use std::time::Instant;
 
+macro_rules! print_project_path_error {
+    ($file:expr, $project_path:expr) => {{
+        let project_path = $project_path.to_str().map(|s| s.to_owned()).unwrap_or_else(|| format!("{:?}", $project_path));
+        format!("Unable to find `{}` in project root `{}`.
+Make sure that you are either running this command from your project's root,
+or that the argument --project-path (-p) point to the project's root.
+You can see help with the --help flag.", $file, project_path)
+    }}
+}
+
 /// Generate OpenAPI v3 from a Saphir application.
 ///
 /// See: https://github.com/OAI/OpenAPI-Specification/blob/master/versions/3.0.2.md
-#[derive(StructOpt, Debug)]
+#[derive(StructOpt, Debug, Default)]
 pub(crate) struct DocGenArgs {
     /// (Optional) Limit doc generation to the URIs under this scope.
     ///
@@ -38,11 +48,13 @@ pub(crate) struct DocGenArgs {
     output_file: PathBuf,
 }
 
+#[derive(Default)]
 pub(crate) struct DocGen {
     pub args: <DocGen as Command>::Args,
     pub doc: OpenApi,
     pub operation_ids: HashSet<String>,
     pub handlers: Vec<HandlerInfo>,
+    // pub loaded_files_ast: BTreeMap<String, AstFile>,
 }
 
 impl Command for DocGen {
@@ -51,18 +63,18 @@ impl Command for DocGen {
     fn new(args: Self::Args) -> Self {
         let mut doc = OpenApi::default();
         doc.openapi_version = "3.0.1".to_string();
-        let operation_ids = HashSet::new();
-        let handlers = Vec::new();
-        Self { args, doc, operation_ids, handlers }
+        Self {
+            args,
+            doc,
+            ..Default::default()
+        }
     }
 
     fn run<'a>(mut self) -> BoxFuture<'a, CommandResult> {
         async move {
             let now = Instant::now();
-            let cargo_path = self.args.project_path.clone().join("Cargo.toml");
-            let main_path = self.args.project_path.clone().join("src/main.rs");
-            self.read_cargo_toml(cargo_path).await?;
-            self.read_main_file(main_path).await?;
+            self.read_cargo_toml().await?;
+            self.read_main_file().await?;
             let handlers = std::mem::take(&mut self.handlers);
             self.add_all_paths(handlers)?;
             let file = self.write_doc_file().await?;
@@ -92,7 +104,7 @@ impl DocGen {
         Ok(path.to_str().unwrap_or_default().to_string())
     }
 
-    async fn read_cargo_toml(&mut self, path: PathBuf) -> CommandResult {
+    async fn read_cargo_toml(&mut self) -> CommandResult {
         #[derive(Deserialize)]
         struct Cargo {
             pub package: Package,
@@ -102,10 +114,11 @@ impl DocGen {
             pub name: String,
             pub version: String,
         }
-        let mut f = File::open(&path).await.map_err(|_| format!("Unable to read Cargo.toml"))?;
+        let cargo_path = self.args.project_path.clone().join("Cargo.toml");
+        let mut f = File::open(&cargo_path).await.map_err(|_| print_project_path_error!("Cargo.toml", self.args.project_path))?;
         let mut buffer = String::new();
-        f.read_to_string(&mut buffer).await.map_err(|_| format!("Unable to read Cargo.toml"))?;
-        let cargo: Cargo = toml::from_str(buffer.as_str()).map_err(|_| format!("Unable to read Cargo.toml"))?;
+        f.read_to_string(&mut buffer).await.map_err(|_| print_project_path_error!("Cargo.toml", self.args.project_path))?;
+        let cargo: Cargo = toml::from_str(buffer.as_str()).map_err(|_| print_project_path_error!("Cargo.toml", self.args.project_path))?;
 
         self.doc.info.title = cargo.package.name;
         self.doc.info.version = cargo.package.version;
@@ -113,19 +126,21 @@ impl DocGen {
         Ok(())
     }
 
-    async fn read_main_file(&mut self, path: PathBuf) -> CommandResult {
-        let mut f = File::open(&path)
+    async fn read_main_file(&mut self) -> CommandResult {
+        let main_path = self.args.project_path.clone().join("src/main.rs");
+
+        let mut f = File::open(&main_path)
             .await
-            .map_err(|_| format!("Unable to read the main project file `{:?}`", &path))?;
+            .map_err(|_| print_project_path_error!("src/main.rs", self.args.project_path))?;
         let mut buffer = String::new();
         f.read_to_string(&mut buffer)
             .await
-            .map_err(|_| format!("Unable to read the main project file `{:?}`", &path))?;
-        let path = path.to_str().ok_or(format!("Invalid path : `{:?}`", &path))?.to_string();
-        self.parse_ast(path, buffer).await
+            .map_err(|_| print_project_path_error!("src/main.rs", self.args.project_path))?;
+        let path = main_path.to_str().ok_or(format!("Invalid path : `{:?}`", &main_path))?.to_string();
+        self.parse_ast(path, "crate".to_string(), buffer).await
     }
 
-    fn read_mod_file(&mut self, dir: String, mod_name: String) -> BoxFuture<CommandResult> {
+    fn read_mod_file(&mut self, dir: String, module_path: String, mod_name: String) -> BoxFuture<CommandResult> {
         async move {
             let dir = std::path::Path::new(dir.as_str());
             let mut path = dir.join(mod_name.as_str());
@@ -141,16 +156,18 @@ impl DocGen {
                 .await
                 .map_err(|_| format!("Unable to read module `{}`", mod_name))?;
 
-            self.parse_ast(path_str, buffer).await
+            self.parse_ast(path_str, format!("{}::{}", module_path, mod_name), buffer).await
         }
         .boxed()
     }
 
-    fn parse_ast(&mut self, file: String, buffer: String) -> BoxFuture<CommandResult> {
+    fn parse_ast(&mut self, file: String, module_path: String, buffer: String) -> BoxFuture<CommandResult> {
         async move {
             let mut modules: Vec<String> = Vec::new();
             {
+                print!("Parsing `{}`...", module_path);
                 let ast = syn::parse_file(buffer.as_str()).map_err(|_| format!("Unable to parse the module file `{:?}`", file))?;
+                println!("done");
                 for item in &ast.items {
                     match item {
                         Item::Mod(md) => {
@@ -172,7 +189,7 @@ impl DocGen {
             let dir = dir.to_str().unwrap();
 
             for module in modules {
-                self.read_mod_file(dir.to_string(), module).await?;
+                self.read_mod_file(dir.to_string(), module_path.clone(), module).await?;
             }
 
             Ok(())

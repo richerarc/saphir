@@ -66,10 +66,8 @@ pub fn is_precondition_failed(req: &Request, etag: &EntityTag, last_modified: &S
     if let Some(if_match) = req.headers().get(http::header::IF_MATCH) {
         if check_if_match(etag, if_match.to_str().unwrap_or_default()) {
             // 3. Evaluate If-None-Match
-            if req.headers().get(http::header::IF_NONE_MATCH).is_some() {
-                if !is_method_get_head(req.method()) {
-                    return true;
-                }
+            if req.headers().get(http::header::IF_NONE_MATCH).is_some() && !is_method_get_head(req.method()) {
+                return true;
             }
         } else {
             return true;
@@ -86,10 +84,8 @@ pub fn is_precondition_failed(req: &Request, etag: &EntityTag, last_modified: &S
     {
         if check_if_unmodified_since(last_modified, &if_unmodified_since) {
             // 3. Evaluate If-None-Match
-            if req.headers().get(http::header::IF_NONE_MATCH).is_some() {
-                if !is_method_get_head(req.method()) {
-                    return true;
-                }
+            if req.headers().get(http::header::IF_NONE_MATCH).is_some() && !is_method_get_head(req.method()) {
+                return true;
             }
         } else {
             return true;
@@ -97,10 +93,8 @@ pub fn is_precondition_failed(req: &Request, etag: &EntityTag, last_modified: &S
     }
 
     // 3. Evaluate If-None-Match
-    if req.headers().get(http::header::IF_NONE_MATCH).is_some() {
-        if !is_method_get_head(req.method()) {
-            return true;
-        }
+    if req.headers().get(http::header::IF_NONE_MATCH).is_some() && !is_method_get_head(req.method()) {
+        return true;
     }
 
     false

@@ -190,6 +190,17 @@ mod t_range {
 #[cfg(test)]
 mod t_satisfiable {
     use super::*;
+    use crate::file::range::ByteRangeSpec;
+
+    pub fn bytes(from: u64, to: u64) -> Range {
+        Range::Bytes(vec![ByteRangeSpec::FromTo(from, to)])
+    }
+
+    /// Get byte range header with multiple subranges
+    /// ("bytes=from1-to1,from2-to2,fromX-toX")
+    pub fn bytes_multi(ranges: Vec<(u64, u64)>) -> Range {
+        Range::Bytes(ranges.iter().map(|r| ByteRangeSpec::FromTo(r.0, r.1)).collect())
+    }
 
     #[test]
     fn zero_byte_range() {
@@ -199,19 +210,19 @@ mod t_satisfiable {
 
     #[test]
     fn one_satisfiable_byte_range() {
-        let range = &Range::bytes(0, 10);
+        let range = &bytes(0, 10);
         assert!(is_satisfiable_range(range, 10).is_some());
     }
 
     #[test]
     fn one_unsatisfiable_byte_range() {
-        let range = &Range::bytes(20, 10);
+        let range = &bytes(20, 10);
         assert!(is_satisfiable_range(range, 10).is_none());
     }
 
     #[test]
     fn multiple_byte_ranges() {
-        let range = &Range::bytes_multi(vec![(0, 5), (5, 6)]);
+        let range = &bytes_multi(vec![(0, 5), (5, 6)]);
         assert!(is_satisfiable_range(range, 10).is_none());
     }
 }

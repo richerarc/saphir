@@ -193,11 +193,15 @@ mod tests {
     use super::{ByteRangeSpec, Range};
     use std::str::FromStr;
 
+    pub fn bytes(from: u64, to: u64) -> Range {
+        Range::Bytes(vec![ByteRangeSpec::FromTo(from, to)])
+    }
+
     #[test]
     fn test_parse_bytes_range_valid() {
         let r = Range::from_str("bytes=1-100").unwrap();
         let r2 = Range::from_str("bytes=1-100,-").unwrap();
-        let r3 = Range::bytes(1, 100);
+        let r3 = bytes(1, 100);
         assert_eq!(r, r2);
         assert_eq!(r2, r3);
 

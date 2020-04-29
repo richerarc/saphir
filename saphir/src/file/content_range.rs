@@ -86,10 +86,7 @@ impl FromStr for ContentRange {
                     Some((first_byte, last_byte))
                 };
 
-                ContentRange::Bytes {
-                    range,
-                    instance_length,
-                }
+                ContentRange::Bytes { range, instance_length }
             }
             Some((unit, resp)) => ContentRange::Unregistered {
                 unit: unit.to_owned(),

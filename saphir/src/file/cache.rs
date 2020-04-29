@@ -1,10 +1,10 @@
 use crate::{
     error::SaphirError,
-    file::{compress_file, middleware::PathExt, Compression, Encoder, File, FileCursor, FileInfo, FileStream, SaphirFile},
+    file::{compress_file, middleware::PathExt, Compression, Encoder, File, FileCursor, FileInfo, FileStream, SaphirFile, MAX_BUFFER},
 };
 use futures::{
-    io::{AsyncRead, AsyncSeek},
-    Future,
+    io::{AsyncRead, AsyncSeek, Cursor},
+    AsyncReadExt, AsyncSeekExt, Future,
 };
 use mime::Mime;
 use std::{
@@ -40,7 +40,7 @@ impl FileCache {
     }
 
     pub async fn get(&self, key: (String, Compression)) -> Option<CachedFile> {
-        if self.inner.read().await.contains_key(&key) {
+        if let Some(file) = self.inner.read().await.get(&key) {
             let path = PathBuf::from(&key.0);
             Some(CachedFile {
                 key,
@@ -50,6 +50,7 @@ impl FileCache {
                 position: 0,
                 file_seek_future: None,
                 get_file_future: None,
+                size: file.len() as u64,
             })
         } else {
             None
@@ -132,6 +133,7 @@ pub struct CachedFile {
     position: usize,
     file_seek_future: Option<FileSeekFuture>,
     get_file_future: Option<ReadFileFuture>,
+    size: u64,
 }
 
 impl CachedFile {
@@ -175,17 +177,14 @@ impl CachedFile {
         position: usize,
         len: usize,
     ) -> io::Result<Vec<u8>> {
-        dbg!(&key);
         match inner.read().await.get(&key) {
             Some(bytes) => {
-                let len = if len > bytes.len() { bytes.len() } else { len };
-                dbg!(len);
-                if len + position <= bytes.len() {
-                    Ok(bytes[position..len].to_vec())
-                } else if position > bytes.len() {
-                    Ok(Vec::new())
-                } else {
-                    Ok(bytes[position..].to_vec())
+                let mut vec = vec![0; len];
+                let mut cursor = Cursor::new(bytes);
+                cursor.seek(SeekFrom::Start(position as u64)).await?;
+                match cursor.read(vec.as_mut_slice()).await {
+                    Ok(size) => Ok(vec[..size].to_vec()),
+                    Err(e) => Err(e),
                 }
             }
 
@@ -239,7 +238,7 @@ impl FileInfo for CachedFile {
     }
 
     fn get_size(&self) -> u64 {
-        self.path.size()
+        self.size
     }
 }
 
@@ -259,7 +258,6 @@ impl AsyncRead for CachedFile {
         match res {
             Poll::Ready(res) => Poll::Ready(res.and_then(|bytes| {
                 let len = bytes.len();
-                dbg!(len);
                 if len > 0 {
                     self.position += len;
                     let mut b = bytes.as_slice();
@@ -289,7 +287,7 @@ impl FileCacher {
         FileCacher {
             key,
             inner,
-            buff: vec![],
+            buff: Vec::with_capacity(MAX_BUFFER),
             cache,
         }
     }

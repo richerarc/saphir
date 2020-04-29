@@ -283,7 +283,7 @@ impl FileStream {
     pub fn new<T: SaphirFile + 'static>(inner: T) -> Self {
         FileStream {
             inner: Box::pin(inner),
-            buffer: Vec::with_capacity(0),
+            buffer: Vec::with_capacity(MAX_BUFFER),
             end_of_file: false,
             range_len: None,
             amount_read: 0,
@@ -337,8 +337,8 @@ impl Stream for FileStream {
             while self.buffer.len() < MAX_BUFFER && !self.end_of_file {
                 match self.inner.as_mut().poll_read(cx, &mut buffer) {
                     Poll::Ready(Ok(s)) => {
-                        if dbg!(s) > 0 {
-                            self.buffer.extend_from_slice(dbg!(&buffer[0..s]));
+                        if s > 0 {
+                            self.buffer.extend_from_slice(&buffer[0..s]);
                         }
                         self.end_of_file = s == 0;
                     }

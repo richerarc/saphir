@@ -109,6 +109,37 @@ impl AsyncSeek for File {
     }
 }
 
+impl Responder for File {
+    fn respond_with_builder(self, builder: Builder, _ctx: &HttpContext) -> Builder {
+        let mime = if let Some(mime) = &self.get_mime() {
+            mime.as_ref().to_string()
+        } else {
+            self.get_path()
+                .mime()
+                .unwrap_or_else(|| {
+                    if self.get_path().is_dir() {
+                        mime::TEXT_HTML_UTF_8
+                    } else {
+                        mime::TEXT_PLAIN_UTF_8
+                    }
+                })
+                .as_ref()
+                .to_string()
+        };
+
+        let len = self.get_size();
+
+        let b = match builder.file(self.into()) {
+            Ok(b) => b,
+            Err((b, _e)) => b.status(500).body("Unable to read file"),
+        };
+
+        b.header(http::header::ACCEPT_RANGES, "bytes")
+            .header(http::header::CONTENT_TYPE, mime)
+            .header(http::header::CONTENT_LENGTH, len)
+    }
+}
+
 pub struct FileCursor {
     inner: Pin<Box<Cursor<Vec<u8>>>>,
     mime: Option<Mime>,
@@ -351,6 +382,12 @@ impl Stream for FileStream {
         }
 
         Poll::Ready(Some(Ok(Bytes::from(std::mem::take(&mut self.buffer)))))
+    }
+}
+
+impl From<File> for FileStream {
+    fn from(other: File) -> Self {
+        FileStream::new(other)
     }
 }
 

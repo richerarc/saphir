@@ -1,8 +1,5 @@
 use log::info;
-use saphir::{
-    file::{middleware::FileMiddlewareBuilder, FileStream},
-    prelude::*,
-};
+use saphir::{file::middleware::FileMiddlewareBuilder, prelude::*};
 use serde_derive::{Deserialize, Serialize};
 
 struct PrintGuard {
@@ -75,9 +72,9 @@ impl UserController {
     }
 
     #[get("/file")]
-    async fn file(&self, _req: Request<Body<Vec<u8>>>) -> (u16, Option<FileStream>) {
+    async fn file(&self, _req: Request<Body<Vec<u8>>>) -> (u16, Option<File>) {
         match File::open("/path/to/file").await {
-            Ok(file) => (200, Some(FileStream::new(file))),
+            Ok(file) => (200, Some(file)),
             Err(_) => (500, None),
         }
     }

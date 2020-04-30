@@ -13,35 +13,35 @@ use std::{
     io::SeekFrom,
     path::PathBuf,
     pin::Pin,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
+    sync::Arc,
     task::{Context, Poll},
 };
 use tokio::sync::RwLock;
 
-type InnerCache = Arc<RwLock<HashMap<(String, Compression), Vec<u8>>>>;
+#[derive(Default)]
+struct CacheInner {
+    pub cache: HashMap<(String, Compression), Vec<u8>>,
+    pub size: u64,
+}
+
 #[derive(Clone)]
 pub struct FileCache {
-    inner: InnerCache,
+    inner: Arc<RwLock<CacheInner>>,
     max_file_size: u64,
     max_capacity: u64,
-    current_size: Arc<AtomicU64>,
 }
 
 impl FileCache {
     pub fn new(max_file_size: u64, max_capacity: u64) -> Self {
         FileCache {
-            inner: Arc::new(RwLock::new(HashMap::new())),
+            inner: Arc::new(RwLock::new(Default::default())),
             max_file_size,
             max_capacity,
-            current_size: Arc::new(AtomicU64::new(0)),
         }
     }
 
     pub async fn get(&self, key: (String, Compression)) -> Option<CachedFile> {
-        if let Some(file) = self.inner.read().await.get(&key) {
+        if let Some(file) = self.inner.read().await.cache.get(&key) {
             let path = PathBuf::from(&key.0);
             Some(CachedFile {
                 key,
@@ -58,12 +58,13 @@ impl FileCache {
     }
 
     pub async fn insert(&mut self, key: (String, Compression), value: Vec<u8>) {
-        self.current_size.fetch_add(value.len() as u64, Ordering::Relaxed);
-        self.inner.write().await.insert(key, value);
+        let mut inner = self.inner.write().await;
+        inner.size += value.len() as u64;
+        inner.cache.insert(key, value);
     }
 
     pub async fn get_size(&self) -> u64 {
-        self.current_size.load(Ordering::Relaxed)
+        self.inner.read().await.size
     }
 
     pub async fn open_file(&mut self, path: &PathBuf, compression: Compression) -> Result<FileStream, SaphirError> {
@@ -126,7 +127,7 @@ type ReadFileFuture = Pin<Box<dyn Future<Output = io::Result<Vec<u8>>> + Send + 
 
 pub struct CachedFile {
     key: (String, Compression),
-    inner: InnerCache,
+    inner: Arc<RwLock<CacheInner>>,
     path: PathBuf,
     mime: Option<mime::Mime>,
     position: usize,
@@ -135,8 +136,8 @@ pub struct CachedFile {
 }
 
 impl CachedFile {
-    async fn read_async(key: (String, Compression), inner: InnerCache, position: usize, len: usize) -> io::Result<Vec<u8>> {
-        match inner.read().await.get(&key) {
+    async fn read_async(key: (String, Compression), inner: Arc<RwLock<CacheInner>>, position: usize, len: usize) -> io::Result<Vec<u8>> {
+        match inner.read().await.cache.get(&key) {
             Some(bytes) => {
                 let mut vec = vec![0; len];
                 let mut cursor = Cursor::new(bytes);

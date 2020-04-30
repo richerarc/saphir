@@ -18,8 +18,8 @@ use std::{
     time::SystemTime,
 };
 
-const CACHE_MAX_FILE_SIZE: u64 = 2_147_483_648;
-const CACHE_MAX_CAPACITY: u64 = 8_589_934_592;
+const DEFAULT_CACHE_MAX_FILE_SIZE: u64 = 2_097_152;
+const DEFAULT_CACHE_MAX_CAPACITY: u64 = 536_870_912;
 
 pub struct FileMiddleware {
     base_path: PathBuf,
@@ -32,7 +32,7 @@ impl FileMiddleware {
         FileMiddleware {
             base_path: PathBuf::from(base_path.to_string()),
             www_path: PathBuf::from(www_path.to_string()),
-            cache: FileCache::new(CACHE_MAX_FILE_SIZE, CACHE_MAX_CAPACITY),
+            cache: FileCache::new(DEFAULT_CACHE_MAX_FILE_SIZE, DEFAULT_CACHE_MAX_CAPACITY),
         }
     }
 
@@ -94,7 +94,7 @@ impl FileMiddleware {
                 if let Some(range) = extract_range(&content_range) {
                     let file = cache.open_file_with_range(&path, range).await?;
                     size = file.get_size();
-                    builder = builder.file(file).map_err(|error| error.1)?;
+                    builder = builder.file(file);
                 }
                 builder = builder
                     .header(http::header::CONTENT_RANGE, content_range.to_string())
@@ -106,7 +106,7 @@ impl FileMiddleware {
         if !is_partial_content {
             let file = cache.open_file(&path, compression).await?;
             size = file.get_size();
-            builder = builder.file(file).map_err(|(_, e)| e)?;
+            builder = builder.file(file);
         }
 
         if compression != Compression::Raw {
@@ -198,8 +198,8 @@ impl FileMiddlewareBuilder {
             base_path: self.base_path,
             www_path: self.www_path,
             cache: FileCache::new(
-                self.max_file_size.unwrap_or(CACHE_MAX_FILE_SIZE),
-                self.max_capacity.unwrap_or(CACHE_MAX_CAPACITY),
+                self.max_file_size.unwrap_or(DEFAULT_CACHE_MAX_FILE_SIZE),
+                self.max_capacity.unwrap_or(DEFAULT_CACHE_MAX_CAPACITY),
             ),
         })
     }

@@ -370,11 +370,11 @@ mod file {
     use futures::Stream;
 
     impl Builder {
-        pub fn file(self, file: FileStream) -> Result<Builder, (Builder, SaphirError)> {
-            Ok(self.body(Box::new(file)
+        pub fn file<F: Into<FileStream>>(self, file: F) -> Builder {
+            self.body(Box::new(file.into())
                 as Box<
                     dyn Stream<Item = Result<Bytes, Box<dyn std::error::Error + 'static + Sync + Send>>> + 'static + Sync + Send,
-                >))
+                >)
         }
     }
 }

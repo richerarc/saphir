@@ -128,13 +128,9 @@ impl Responder for File {
         };
 
         let len = self.get_size();
-
-        let b = match builder.file(self.into()) {
-            Ok(b) => b,
-            Err((b, _e)) => b.status(500).body("Unable to read file"),
-        };
-
-        b.header(http::header::ACCEPT_RANGES, "bytes")
+        builder
+            .file(self)
+            .header(http::header::ACCEPT_RANGES, "bytes")
             .header(http::header::CONTENT_TYPE, mime)
             .header(http::header::CONTENT_LENGTH, len)
     }
@@ -412,12 +408,9 @@ impl Responder for FileStream {
 
         let len = self.inner.get_size();
 
-        let b = match builder.file(self) {
-            Ok(b) => b,
-            Err((b, _e)) => b.status(500).body("Unable to read file"),
-        };
-
-        b.header(http::header::ACCEPT_RANGES, "bytes")
+        builder
+            .file(self)
+            .header(http::header::ACCEPT_RANGES, "bytes")
             .header(http::header::CONTENT_TYPE, mime)
             .header(http::header::CONTENT_LENGTH, len)
     }

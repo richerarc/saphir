@@ -1,24 +1,33 @@
-use crate::openapi::{OpenApi, OpenApiParameter, OpenApiPath, OpenApiPathMethod, OpenApiResponse, OpenApiSchema, OpenApiType, OpenApiParameterLocation, OpenApiMimeTypes, OpenApiRequestBody, OpenApiContent};
+use crate::openapi::{
+    OpenApi, OpenApiContent, OpenApiMimeTypes, OpenApiParameter, OpenApiParameterLocation, OpenApiPath, OpenApiPathMethod, OpenApiRequestBody, OpenApiResponse,
+    OpenApiSchema, OpenApiType,
+};
 use crate::{Command, CommandResult};
-use serde_derive::Deserialize;
-use std::collections::{BTreeMap, HashSet, HashMap};
-use std::fs::File;
-use std::path::PathBuf;
-use structopt::StructOpt;
-use syn::{Attribute, ImplItem, Item, ItemImpl, Lit, Meta, NestedMeta, Type, Signature, FnArg, Pat, PathArguments, GenericArgument, ImplItemMethod, Expr, File as AstFile, UseTree, ItemStruct, ItemEnum, Fields};
-use std::time::Instant;
-use std::io::Read;
-use serde::export::TryFrom;
 use convert_case::{Case, Casing};
+use serde::export::TryFrom;
+use serde_derive::Deserialize;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::fs::File;
+use std::io::Read;
+use std::path::PathBuf;
+use std::time::Instant;
+use structopt::StructOpt;
+use syn::{
+    Attribute, Expr, Fields, File as AstFile, FnArg, GenericArgument, ImplItem, ImplItemMethod, Item, ItemEnum, ItemImpl, ItemStruct, Lit, Meta, NestedMeta,
+    Pat, PathArguments, Signature, Type, UseTree,
+};
 
 macro_rules! print_project_path_error {
     ($file:expr, $project_path:expr) => {{
         let project_path = $project_path.to_str().map(|s| s.to_owned()).unwrap_or_else(|| format!("{:?}", $project_path));
-        format!("Unable to find `{}` in project root `{}`.
+        format!(
+            "Unable to find `{}` in project root `{}`.
 Make sure that you are either running this command from your project's root,
 or that the argument --project-path (-p) point to the project's root.
-You can see help with the --help flag.", $file, project_path)
-    }}
+You can see help with the --help flag.",
+            $file, project_path
+        )
+    }};
 }
 
 /// Generate OpenAPI v3 from a Saphir application.
@@ -114,7 +123,8 @@ impl DocGen {
         let cargo_path = self.args.project_path.clone().join("Cargo.toml");
         let mut f = File::open(&cargo_path).map_err(|_| print_project_path_error!("Cargo.toml", self.args.project_path))?;
         let mut buffer = String::new();
-        f.read_to_string(&mut buffer).map_err(|_| print_project_path_error!("Cargo.toml", self.args.project_path))?;
+        f.read_to_string(&mut buffer)
+            .map_err(|_| print_project_path_error!("Cargo.toml", self.args.project_path))?;
         let cargo: Cargo = toml::from_str(buffer.as_str()).map_err(|_| print_project_path_error!("Cargo.toml", self.args.project_path))?;
 
         self.doc.info.title = cargo.package.name;
@@ -126,8 +136,7 @@ impl DocGen {
     fn read_main_file(&mut self) -> CommandResult {
         let main_path = self.args.project_path.clone().join("src/main.rs");
 
-        let mut f = File::open(&main_path)
-            .map_err(|_| print_project_path_error!("src/main.rs", self.args.project_path))?;
+        let mut f = File::open(&main_path).map_err(|_| print_project_path_error!("src/main.rs", self.args.project_path))?;
         let mut buffer = String::new();
         f.read_to_string(&mut buffer)
             .map_err(|_| print_project_path_error!("src/main.rs", self.args.project_path))?;
@@ -146,8 +155,7 @@ impl DocGen {
         let path_str = path.to_str().ok_or(format!("Invalid path : `{:?}`", path))?.to_string();
         let mut f = File::open(path).map_err(|_| format!("Unable to read module `{}`", mod_name))?;
         let mut buffer = String::new();
-        f.read_to_string(&mut buffer)
-            .map_err(|_| format!("Unable to read module `{}`", mod_name))?;
+        f.read_to_string(&mut buffer).map_err(|_| format!("Unable to read module `{}`", mod_name))?;
 
         self.parse_ast(path_str, format!("{}::{}", module_path, mod_name), buffer)
     }
@@ -271,7 +279,7 @@ impl DocGen {
                     parameters: parameters_info.parameters.clone(),
                     operation_id,
                     use_cookies: consume_cookies,
-                    body_info: parameters_info.body_info.clone()
+                    body_info: parameters_info.body_info.clone(),
                 });
             }
         }
@@ -287,9 +295,7 @@ impl DocGen {
             _ => None,
         }) {
             let param_name = match param.pat.as_ref() {
-                Pat::Ident(i) => {
-                    i.ident.to_string()
-                }
+                Pat::Ident(i) => i.ident.to_string(),
                 _ => continue,
             };
 
@@ -333,7 +339,7 @@ impl DocGen {
                         (OpenApiType::string(), false)
                     }
                 }
-                _ => (OpenApiType::string(), false)
+                _ => (OpenApiType::string(), false),
             };
 
             let location = if uri_params.contains(&param_name) {
@@ -363,10 +369,7 @@ impl DocGen {
                     if let PathArguments::AngleBracketed(ag) = &body.arguments {
                         if let Some(GenericArgument::Type(t)) = ag.args.first() {
                             if let Some(type_info) = self.parse_ast_type(module_path, t) {
-                                body_info = Some(BodyParamInfo {
-                                    openapi_type,
-                                    type_info,
-                                });
+                                body_info = Some(BodyParamInfo { openapi_type, type_info });
                             }
                         }
                     }
@@ -378,7 +381,7 @@ impl DocGen {
         RouteParametersInfo {
             parameters,
             has_cookies_param,
-            body_info
+            body_info,
         }
     }
 
@@ -387,10 +390,7 @@ impl DocGen {
             Type::Path(p) => {
                 let name = p.path.get_ident().map(|i| i.to_string());
                 if let Some(name) = name {
-                    return Some(TypeInfo {
-                        name,
-                        ..Default::default()
-                    });
+                    return Some(TypeInfo { name, ..Default::default() });
                 } else {
                     if let Some(s) = p.path.segments.first() {
                         match s.ident.to_string().as_str() {
@@ -443,13 +443,11 @@ impl DocGen {
                         Lit::Int(i) => i.base10_parse().ok(),
                         _ => None,
                     },
-                    _ => None
+                    _ => None,
                 };
                 let name = match a.elem.as_ref() {
-                    Type::Path(p) => {
-                        p.path.get_ident().map(|i| i.to_string())
-                    }
-                    _ => None
+                    Type::Path(p) => p.path.get_ident().map(|i| i.to_string()),
+                    _ => None,
                 };
                 if let Some(name) = name {
                     return Some(TypeInfo {
@@ -467,9 +465,7 @@ impl DocGen {
     }
 
     fn add_all_paths(&mut self, handlers: Vec<HandlerInfo>) -> CommandResult {
-        let (_, errors): (Vec<_>, Vec<_>) = handlers.into_iter()
-            .map(|handler| self.add_path(handler))
-            .partition(Result::is_ok);
+        let (_, errors): (Vec<_>, Vec<_>) = handlers.into_iter().map(|handler| self.add_path(handler)).partition(Result::is_ok);
         let errors: Vec<_> = errors.into_iter().map(Result::unwrap_err).collect();
         if errors.len() > 0 {
             let mut error_message = format!("Some errors ({}) occured while processing the routes : ", errors.len());
@@ -516,7 +512,13 @@ impl DocGen {
     //     None
     // }
 
-    fn resolve_use_tree(&self, use_tree: &UseTree, self_module_path: String, current_type_path: Option<String>, type_name: &String) -> Option<(String, String)> {
+    fn resolve_use_tree(
+        &self,
+        use_tree: &UseTree,
+        self_module_path: String,
+        current_type_path: Option<String>,
+        type_name: &String,
+    ) -> Option<(String, String)> {
         match use_tree {
             UseTree::Name(n) => {
                 let name = n.ident.to_string();
@@ -555,7 +557,7 @@ impl DocGen {
                     return None;
                 };
                 return self.resolve_use_tree(&u.tree, self_module_path, Some(path), type_name);
-            },
+            }
             UseTree::Glob(_) => {}
         }
         None
@@ -608,13 +610,16 @@ impl DocGen {
     fn get_open_api_body_param(&self, body_info: &BodyParamInfo) -> Option<OpenApiRequestBody> {
         if let Some(t) = self.get_open_api_type_from_type_info(&body_info.type_info) {
             let mut content: HashMap<OpenApiMimeTypes, OpenApiContent> = HashMap::new();
-            content.insert(body_info.openapi_type.clone(), OpenApiContent {
-                schema: OpenApiSchema::Inline(t)
-            });
+            content.insert(
+                body_info.openapi_type.clone(),
+                OpenApiContent {
+                    schema: OpenApiSchema::Inline(t),
+                },
+            );
             return Some(OpenApiRequestBody {
                 description: body_info.type_info.name.clone(),
-                content
-            })
+                content,
+            });
         }
         None
     }
@@ -649,8 +654,7 @@ impl DocGen {
     }
 
     fn get_serde_field(&self, mut field_name: String, field_attributes: &Vec<Attribute>, container_attributes: &Vec<Attribute>) -> Option<String> {
-        if self.find_macro_attribute_flag(field_attributes, "serde", "skip") ||
-            self.find_macro_attribute_flag(field_attributes, "serde", "skip_serializing") {
+        if self.find_macro_attribute_flag(field_attributes, "serde", "skip") || self.find_macro_attribute_flag(field_attributes, "serde", "skip_serializing") {
             return None;
         }
         if let Some(Lit::Str(rename)) = self.find_macro_attribute_named_value(field_attributes, "serde", "rename") {
@@ -664,9 +668,10 @@ impl DocGen {
     }
 
     fn find_macro_attribute_flag(&self, attrs: &Vec<Attribute>, macro_name: &str, value_name: &str) -> bool {
-        for attr in attrs.iter().filter(|a|
-            a.path.get_ident().filter(|i| i.to_string().as_str() == macro_name).is_some()
-        ) {
+        for attr in attrs
+            .iter()
+            .filter(|a| a.path.get_ident().filter(|i| i.to_string().as_str() == macro_name).is_some())
+        {
             if let Some(meta) = attr.parse_meta().ok() {
                 if self.find_macro_attribute_flag_from_meta(&meta, value_name) {
                     return true;
@@ -702,9 +707,10 @@ impl DocGen {
     }
 
     fn find_macro_attribute_named_value(&self, attrs: &Vec<Attribute>, macro_name: &str, value_name: &str) -> Option<Lit> {
-        for attr in attrs.iter().filter(|a|
-            a.path.get_ident().filter(|i| i.to_string().as_str() == macro_name).is_some()
-        ) {
+        for attr in attrs
+            .iter()
+            .filter(|a| a.path.get_ident().filter(|i| i.to_string().as_str() == macro_name).is_some())
+        {
             if let Some(meta) = attr.parse_meta().ok() {
                 if let Some(s) = self.find_macro_attribute_value_from_meta(&meta, value_name) {
                     return Some(s);
@@ -743,20 +749,25 @@ impl DocGen {
         let mut properties = HashMap::new();
         let mut required = Vec::new();
         for field in &s.fields {
-            if let Some(field_name) = field.ident.as_ref().map(|i|
-                self.get_serde_field(i.to_string(), &field.attrs, &s.attrs)
-            ).flatten() {
+            if let Some(field_name) = field
+                .ident
+                .as_ref()
+                .map(|i| self.get_serde_field(i.to_string(), &field.attrs, &s.attrs))
+                .flatten()
+            {
                 if let Some(use_path) = &type_info.use_path {
                     if let Some(mut field_type_info) = self.parse_ast_type(use_path.clone(), &field.ty) {
                         if let Some((type_use_path, type_use_name)) = self.resolve_use(use_path.clone(), field_type_info.name.clone()) {
                             field_type_info.use_path = Some(type_use_path);
                             field_type_info.use_name = Some(type_use_name);
                         }
-                        let field_type = self.get_open_api_type_from_type_info(&field_type_info)
+                        let field_type = self
+                            .get_open_api_type_from_type_info(&field_type_info)
                             .unwrap_or_else(|| OpenApiType::from_rust_type_str(field_type_info.name.as_str()));
-                        if !field_type_info.is_optional &&
-                            !self.find_macro_attribute_flag(&field.attrs, "serde", "default") &&
-                            self.find_macro_attribute_named_value(&field.attrs, "serde", "default").is_none() {
+                        if !field_type_info.is_optional
+                            && !self.find_macro_attribute_flag(&field.attrs, "serde", "default")
+                            && self.find_macro_attribute_named_value(&field.attrs, "serde", "default").is_none()
+                        {
                             required.push(field_name.clone());
                         }
                         properties.insert(field_name, Box::new(field_type));
@@ -781,7 +792,7 @@ impl DocGen {
                     values.push(name);
                 }
             }
-            return Some(OpenApiType::enums(values))
+            return Some(OpenApiType::enums(values));
         }
 
         // TODO: properly support tuple and struct enum variants.
@@ -811,7 +822,7 @@ impl DocGen {
             routes.push(RouteInfo {
                 method,
                 uri: full_path,
-                uri_params
+                uri_params,
             })
         }
         routes

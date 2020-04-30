@@ -176,7 +176,7 @@ impl HttpContext {
         #[cfg(feature = "operation")]
         {
             use std::str::FromStr;
-            let mut request= request;
+            let mut request = request;
             let operation_id = request
                 .headers()
                 .get(OPERATION_ID_HEADER)

@@ -48,11 +48,30 @@ impl FileMiddleware {
             }
         };
 
-        if !self.path_exists(&path) {
-            info!("Path doesn't exist: {}", path.display());
-            ctx.after(builder.status(404).build()?);
-            return Ok(ctx);
-        }
+        let path = match (self.path_exists(&path), path.extension().is_none()) {
+            (false, false) => {
+                info!("Path doesn't exist: {}", path.display());
+                ctx.after(builder.status(404).build()?);
+                return Ok(ctx);
+            }
+            (false, true) => {
+                let index_path = match self.file_path_from_path("/index.html") {
+                    Ok(path) => path,
+                    Err(_) => {
+                        ctx.after(builder.status(400).build()?);
+                        return Ok(ctx);
+                    }
+                };
+                if !self.path_exists(&index_path) {
+                    info!("Path doesn't exist: {}", path.display());
+                    ctx.after(builder.status(404).build()?);
+                    return Ok(ctx);
+                } else {
+                    index_path
+                }
+            }
+            (true, _) => path,
+        };
 
         if !self.path_is_under_base_path(&path) {
             ctx.after(builder.status(401).build()?);

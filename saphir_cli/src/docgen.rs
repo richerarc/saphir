@@ -1,7 +1,4 @@
-use crate::openapi::{
-    OpenApi, OpenApiContent, OpenApiMimeTypes, OpenApiParameter, OpenApiParameterLocation, OpenApiPath, OpenApiPathMethod, OpenApiRequestBody, OpenApiResponse,
-    OpenApiSchema, OpenApiType,
-};
+use crate::openapi::{OpenApi, OpenApiContent, OpenApiMimeTypes, OpenApiParameter, OpenApiParameterLocation, OpenApiPath, OpenApiPathMethod, OpenApiRequestBody, OpenApiResponse, OpenApiSchema, OpenApiType, OpenApiObjectType};
 use crate::{Command, CommandResult};
 use convert_case::{Case, Casing};
 use serde::export::TryFrom;
@@ -401,15 +398,6 @@ impl DocGen {
                                             info.is_array = true;
                                             return Some(info);
                                         }
-                                        // match t {
-                                        //     Type::Path(p) => {
-                                        //         if let Some(mut info) = self.parse_ast_type(module_path, t) {
-                                        //             info.is_array = true;
-                                        //             return Some(info);
-                                        //         }
-                                        //     }
-                                        //     _ => {}
-                                        // }
                                     }
                                 }
                             }
@@ -420,15 +408,6 @@ impl DocGen {
                                             info.is_optional = true;
                                             return Some(info);
                                         }
-                                        // match t {
-                                        //     Type::Path(p) => {
-                                        //         if let Some(mut info) = self.parse_ast_type(module_path, t) {
-                                        //             info.is_optional = true;
-                                        //             return Some(info);
-                                        //         }
-                                        //     }
-                                        //     _ => {}
-                                        // }
                                     }
                                 }
                             }
@@ -583,7 +562,12 @@ impl DocGen {
             if let Some((use_path, use_name)) = self.resolve_use(module_path, body_info.type_info.name.clone()) {
                 body_info.type_info.use_path = Some(use_path);
                 body_info.type_info.use_name = Some(use_name);
-                data.request_body = self.get_open_api_body_param(&body_info);
+                if method == OpenApiPathMethod::Get {
+                    let parameters = self.get_open_api_parameters_from_body_info(&body_info);
+                    data.parameters.extend(parameters);
+                } else {
+                    data.request_body = self.get_open_api_body_param(&body_info);
+                }
             }
         }
 
@@ -618,10 +602,29 @@ impl DocGen {
             );
             return Some(OpenApiRequestBody {
                 description: body_info.type_info.name.clone(),
+                required: !body_info.type_info.is_optional,
                 content,
             });
         }
         None
+    }
+
+    fn get_open_api_parameters_from_body_info(&self, body_info: &BodyParamInfo) -> Vec<OpenApiParameter> {
+        let mut parameters = Vec::new();
+        if let Some(t) = self.get_open_api_type_from_type_info(&body_info.type_info) {
+            if let OpenApiType::Object { object: OpenApiObjectType::Object { properties, required } } = t {
+                for (name, openapi_type) in &properties {
+                    parameters.push(OpenApiParameter {
+                        name: name.clone(),
+                        location: OpenApiParameterLocation::Query,
+                        required: required.contains(name),
+                        schema: OpenApiSchema::Inline(openapi_type.as_ref().clone()),
+                        ..Default::default()
+                    });
+                }
+            }
+        }
+        parameters
     }
 
     // TODO: Support HashMap

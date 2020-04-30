@@ -205,6 +205,7 @@ pub struct OpenApiParameter {
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct OpenApiRequestBody {
     pub(crate) description: String,
+    pub(crate) required: bool,
     pub(crate) content: HashMap<OpenApiMimeTypes, OpenApiContent>,
 }
 

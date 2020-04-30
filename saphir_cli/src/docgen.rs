@@ -636,16 +636,20 @@ impl DocGen {
                     Item::Struct(s) => {
                         let name = s.ident.to_string();
                         if name == *use_name {
-                            if let Some(s) = self.get_open_api_type_from_struct(type_info, &s) {
-                                return Some(s);
+                            if self.find_macro_attribute_flag(&s.attrs, "derive", "Deserialize") {
+                                if let Some(s) = self.get_open_api_type_from_struct(type_info, &s) {
+                                    return Some(s);
+                                }
                             }
                         }
                     }
                     Item::Enum(e) => {
                         let name = e.ident.to_string();
                         if name == *use_name {
-                            if let Some(s) = self.get_open_api_type_from_enum(type_info, &e) {
-                                return Some(s);
+                            if self.find_macro_attribute_flag(&e.attrs, "derive", "Deserialize") {
+                                if let Some(s) = self.get_open_api_type_from_enum(type_info, &e) {
+                                    return Some(s);
+                                }
                             }
                         }
                     }

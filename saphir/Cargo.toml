@@ -1,6 +1,6 @@
 [package]
 name = "saphir"
-version = "2.5.1"
+version = "2.6.0"
 edition = "2018"
 authors = ["Richer Archambault <richer.arc@gmail.com>"]
 description = "Fully async-await http server framework"
@@ -13,7 +13,7 @@ license = "MIT"
 
 [features]
 default = ["macro"]
-full = ["macro", "json", "form", "https", "multipart", "operation", "post-redirect"]
+full = ["macro", "json", "form", "https", "multipart", "operation", "post-redirect", "file"]
 post-redirect = ["redirect", "json"]
 redirect = ["mime", "form", "url"]
 https = ["base64", "rustls", "tokio-rustls"]
@@ -21,12 +21,13 @@ json = ["serde", "serde_json"]
 form = ["serde", "serde_urlencoded"]
 macro = ["saphir_macro"]
 multipart = ["mime", "nom"]
+file = ["mime", "mime_guess", "percent-encoding", "chrono", "flate2", "brotli"]
 operation = ["serde", "uuid"]
 
 [dependencies]
 log = "0.4"
 hyper = { version = "0.13", features = ["stream"] }
-tokio = { version = "0.2", features = ["full"] }
+tokio = { version = "0.2.13", features = ["full"] }
 futures = "0.3"
 futures-util = "0.3"
 tower-service = "0.3"
@@ -46,6 +47,11 @@ serde_urlencoded = { version = "0.6", optional = true }
 saphir_macro = { path = "../saphir_macro", version = "2.0.3", optional = true }
 mime = { version = "0.3", optional = true }
 nom = { version = "5", optional = true }
+mime_guess = { version = "2.0.3", optional = true }
+percent-encoding = { version = "2.1.0", optional = true }
+chrono = { version = "0.4.11", optional = true }
+flate2 = { version = "1.0.13", optional = true }
+brotli = { version = "3.3.0", optional = true }
 
 [dev-dependencies]
 tokio-timer = "0.2.13"

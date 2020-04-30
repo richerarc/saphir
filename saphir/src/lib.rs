@@ -81,6 +81,9 @@ pub mod error;
 ///
 pub mod extension;
 ///
+#[cfg(feature = "file")]
+pub mod file;
+///
 pub mod guard;
 /// Definition of types which can handle an http request
 pub mod handler;
@@ -150,6 +153,9 @@ pub mod prelude {
     pub use crate::extension::Ext;
     ///
     pub use crate::extension::Extensions;
+    ///
+    #[cfg(feature = "file")]
+    pub use crate::file::File;
     ///
     pub use crate::guard::Guard;
     ///

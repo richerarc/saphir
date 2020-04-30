@@ -1,5 +1,4 @@
 use crate::{request::Request, response::Response, router::Router};
-use std::str::FromStr;
 
 #[cfg(feature = "operation")]
 pub static OPERATION_ID_HEADER: &str = "Operation-Id";
@@ -166,7 +165,7 @@ pub struct HttpContext {
 }
 
 impl HttpContext {
-    pub(crate) fn new(mut request: Request, router: Router) -> Self {
+    pub(crate) fn new(request: Request, router: Router) -> Self {
         #[cfg(not(feature = "operation"))]
         {
             let state = State::Before(Box::new(request));
@@ -176,6 +175,8 @@ impl HttpContext {
 
         #[cfg(feature = "operation")]
         {
+            use std::str::FromStr;
+            let mut request= request;
             let operation_id = request
                 .headers()
                 .get(OPERATION_ID_HEADER)

@@ -13,7 +13,7 @@ impl Default for OpenApiParameterLocation {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub enum OpenApiMimeTypes {
     #[serde(rename = "application/json")]
     Json,
@@ -57,38 +57,76 @@ impl OpenApiPathMethod {
     }
 }
 
+fn serde_true() -> bool { true }
+
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(untagged)]
+pub enum OpenApiObjectType {
+    Object {
+        properties: HashMap<String, Box<OpenApiType>>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        required: Vec<String>,
+    },
+    Dictionary {
+        #[serde(skip_serializing_if = "HashMap::is_empty")]
+        properties: HashMap<String, Box<OpenApiType>>,
+        #[serde(rename = "additionalProperties")]
+        additional_properties: HashMap<String, Box<OpenApiType>>,
+    },
+    AnonymousObject {
+        #[serde(rename = "additionalProperties", default = "serde_true")]
+        additional_properties: bool,
+    }
+}
+impl Default for OpenApiObjectType {
+    fn default() -> Self {
+        OpenApiObjectType::AnonymousObject { additional_properties: true }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[serde(tag = "type")]
 pub enum OpenApiType {
-    String, // this includes dates and files
+    // this includes dates and files
+    String {
+        #[serde(rename = "enum", skip_serializing_if = "Vec::is_empty")]
+        enum_values: Vec<String>,
+    },
     Number,
     Integer,
     Boolean,
     Array {
         items: Box<OpenApiSchema>,
-        #[serde(rename = "min_items", skip_serializing_if = "Option::is_none")]
+        #[serde(rename = "minItems", skip_serializing_if = "Option::is_none")]
         min_items: Option<u32>,
-        #[serde(rename = "max_items", skip_serializing_if = "Option::is_none")]
+        #[serde(rename = "maxItems", skip_serializing_if = "Option::is_none")]
         max_items: Option<u32>,
     },
     Object {
-        properties: HashMap<String, Box<OpenApiType>>,
+        #[serde(flatten)]
+        object: OpenApiObjectType
     }
 }
 impl Default for OpenApiType {
-    fn default() -> Self {
-        OpenApiType::String
-    }
+    fn default() -> Self { Self::string() }
 }
 impl OpenApiType {
+    pub fn string() -> Self { OpenApiType::String { enum_values: Vec::default() } }
+    pub fn enums(values: Vec<String>) -> Self { OpenApiType::String { enum_values: values } }
+    pub fn object(properties: HashMap<String, Box<OpenApiType>>, required: Vec<String>) -> Self {
+        OpenApiType::Object { object: OpenApiObjectType::Object { properties, required } }
+    }
+    pub fn anonymous_object() -> Self {
+        OpenApiType::Object { object: OpenApiObjectType::AnonymousObject { additional_properties: true } }
+    }
     pub fn from_rust_type_str(s: &str) -> OpenApiType {
         match s {
             "u8" | "u16" | "u32" | "u64" | "u128" | "usize" |
             "i8" | "i16" | "i32" | "i64" | "i128" | "isize" => OpenApiType::Integer,
             "f32" | "f64" => OpenApiType::Number,
             "bool" | "Bool" | "Boolean" => OpenApiType::Boolean,
-            _ => OpenApiType::String
+            _ => OpenApiType::string()
         }
     }
 }
@@ -156,7 +194,7 @@ pub struct OpenApiParameter {
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct OpenApiRequestBody {
     pub(crate) description: String,
-    pub(crate) content: HashMap<String, OpenApiContent>,
+    pub(crate) content: HashMap<OpenApiMimeTypes, OpenApiContent>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -182,5 +220,5 @@ impl Default for OpenApiSchema {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct OpenApiResponse {
     pub(crate) description: String,
-    pub(crate) content: HashMap<String, OpenApiContent>,
+    pub(crate) content: HashMap<OpenApiMimeTypes, OpenApiContent>,
 }

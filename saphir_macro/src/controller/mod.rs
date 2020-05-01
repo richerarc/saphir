@@ -346,7 +346,7 @@ impl ArgsRepr {
 
         (quote! {
 
-             let #id = Ext::<#typ>::from_req(&mut req).await.#err_handling;
+             let #id: #typ = Ext::from_request(&mut req).await.#err_handling;
         })
         .to_tokens(stream);
     }

@@ -191,7 +191,6 @@ impl Builder {
     }
 }
 
-#[derive(Debug)]
 pub struct Redirect {
     status: StatusCode,
     location: Option<Url>,

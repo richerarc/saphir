@@ -48,6 +48,11 @@ pub(crate) struct DocGenArgs {
     #[structopt(parse(from_os_str), short = "p", long = "project-path", default_value = ".")]
     project_path: PathBuf,
 
+    /// (optionnal) Path to the `.cargo` directory. By default, read from the current executable's environment,
+    ///             which work when running this command as a cargo sub-command.
+    #[structopt(parse(from_os_str), long = "cargo-path", default_value = "~/.cargo")]
+    cargo_path: PathBuf,
+
     /// (Optional) Resulting output path. Either the path to the resulting yaml file,
     ///            or a dir, which would then contain a openapi.yaml
     #[structopt(parse(from_os_str), default_value = ".")]
@@ -60,7 +65,8 @@ pub(crate) struct DocGen {
     pub doc: OpenApi,
     pub operation_ids: HashSet<String>,
     pub handlers: Vec<HandlerInfo>,
-    pub loaded_files_ast: BTreeMap<String, AstFile>,
+    pub loaded_files_ast: HashMap<String, AstFile>,
+    pub dependancies: HashMap<String, HashMap<String, CargoDependancy>>,
 }
 
 impl Command for DocGen {
@@ -79,7 +85,9 @@ impl Command for DocGen {
     fn run(mut self) -> CommandResult {
         let now = Instant::now();
         self.read_cargo_toml()?;
-        self.read_main_file()?;
+        self.read_cargo_dependancies("crate", self.args.project_path.clone())?;
+        self.read_rust_entrypoint_ast(self.args.project_path.clone(), "src/main.rs")?;
+        self.parse_ast()?;
         let handlers = std::mem::take(&mut self.handlers);
         self.add_all_paths(handlers)?;
         let file = self.write_doc_file()?;
@@ -88,7 +96,51 @@ impl Command for DocGen {
     }
 }
 
+#[derive(Default, Debug)]
+pub(crate) struct CargoDependancy {
+    pub name: String,
+    pub version: String,
+    pub targets: Vec<CargoTarget>,
+}
+
+#[derive(Default, Debug)]
+pub(crate) struct CargoTarget {
+    pub target_type: String,
+    pub path: PathBuf,
+}
+
 impl DocGen {
+    // fn read_cargo_crate(&mut self, crate_name: &str, parent_crate: &str, ) -> CommandResult {
+    //
+    // }
+
+    fn read_cargo_dependancies(&mut self, crate_name: &str, root_path: PathBuf) -> CommandResult {
+        let metadata = cargo_metadata::MetadataCommand::new()
+            .manifest_path(root_path.join("Cargo.toml"))
+            .exec().map_err(|e| e.to_string())?;
+        let mut dependancies = HashMap::new();
+        for package in metadata.packages {
+            let mut targets = Vec::new();
+            for target in &package.targets {
+                if target.kind.contains(&"bin".to_string()) || target.kind.contains(&"lib".to_string()) {
+                    targets.push(CargoTarget {
+                        target_type: target.kind.join(","),
+                        path: target.src_path.clone(),
+                    })
+                }
+            }
+            let name = package.name.replace("-", "_");
+            let dependancy = CargoDependancy {
+                name: name.clone(),
+                version: package.version.to_string(),
+                targets,
+            };
+            dependancies.insert(name, dependancy);
+        }
+        self.dependancies.insert(crate_name.to_string(), dependancies);
+        Ok(())
+    }
+
     fn write_doc_file(&self) -> Result<String, String> {
         let mut path = self.args.output_file.clone();
         if path.is_dir() {
@@ -130,15 +182,15 @@ impl DocGen {
         Ok(())
     }
 
-    fn read_main_file(&mut self) -> CommandResult {
-        let main_path = self.args.project_path.clone().join("src/main.rs");
+    fn read_rust_entrypoint_ast(&mut self, path: PathBuf, entry_file_path: &str) -> CommandResult {
+        let file_path = path.join(entry_file_path);
 
-        let mut f = File::open(&main_path).map_err(|_| print_project_path_error!("src/main.rs", self.args.project_path))?;
+        let mut f = File::open(&file_path).map_err(|_| print_project_path_error!(entry_file_path, path))?;
         let mut buffer = String::new();
         f.read_to_string(&mut buffer)
-            .map_err(|_| print_project_path_error!("src/main.rs", self.args.project_path))?;
-        let path = main_path.to_str().ok_or(format!("Invalid path : `{:?}`", &main_path))?.to_string();
-        self.parse_ast(path, "crate".to_string(), buffer)
+            .map_err(|_| print_project_path_error!(entry_file_path, path))?;
+        let path = file_path.to_str().ok_or(format!("Invalid path : `{:?}`", &file_path))?.to_string();
+        self.read_mods_in_ast(path, "crate".to_string(), buffer)
     }
 
     fn read_mod_file(&mut self, dir: String, module_path: String, mod_name: String) -> CommandResult {
@@ -154,38 +206,45 @@ impl DocGen {
         let mut buffer = String::new();
         f.read_to_string(&mut buffer).map_err(|_| format!("Unable to read module `{}`", mod_name))?;
 
-        self.parse_ast(path_str, format!("{}::{}", module_path, mod_name), buffer)
+        self.read_mods_in_ast(path_str, format!("{}::{}", module_path, mod_name), buffer)
     }
 
-    fn parse_ast(&mut self, file: String, module_path: String, buffer: String) -> CommandResult {
-        let mut modules: Vec<String> = Vec::new();
-        {
-            let ast = syn::parse_file(buffer.as_str()).map_err(|_| format!("Unable to parse the module file `{:?}`", file))?;
-            for item in &ast.items {
-                match item {
-                    Item::Mod(md) => {
-                        let mod_name = md.ident.to_string();
-                        if let Some((_, items)) = &md.content {
-                            self.parse_controllers_ast(module_path.clone(), items)?;
-                        } else {
-                            modules.push(mod_name);
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            self.parse_controllers_ast(module_path.clone(), &ast.items)?;
-            self.loaded_files_ast.insert(module_path.clone(), ast);
-        }
-
+    fn read_mods_in_ast(&mut self, file: String, module_path: String, buffer: String) -> CommandResult {
         let file = std::path::Path::new(file.as_str());
         let dir = file.parent().ok_or(format!("`{:?}` is not a path to a rust file", file)).unwrap();
         let dir = dir.to_str().unwrap();
 
-        for module in modules {
-            self.read_mod_file(dir.to_string(), module_path.clone(), module)?;
+        let ast = syn::parse_file(buffer.as_str()).map_err(|_| format!("Unable to parse the module file `{:?}`", file))?;
+        for md in ast.items.iter().filter_map(|i| match i {
+            Item::Mod(md) => Some(md),
+            _ => None
+        }) {
+            let mod_name = md.ident.to_string();
+            if md.content.is_none() {
+                self.read_mod_file(dir.to_string(), module_path.clone(), mod_name)?;
+            }
         }
+        self.loaded_files_ast.insert(module_path.clone(), ast);
 
+        Ok(())
+    }
+
+    fn parse_ast(&mut self) -> CommandResult {
+        // temporary take ownership to allow mutable loop
+        let mut loaded_files_ast = std::mem::take(&mut self.loaded_files_ast);
+        for (module_path, ast) in &loaded_files_ast {
+            for md in ast.items.iter().filter_map(|i| match i {
+                Item::Mod(md) => Some(md),
+                _ => None
+            }) {
+                if let Some((_, items)) = &md.content {
+                    self.parse_controllers_ast(module_path.clone(), items)?;
+                }
+            }
+            self.parse_controllers_ast(module_path.clone(), &ast.items)?;
+        }
+        // put back into self
+        self.loaded_files_ast = std::mem::take(&mut loaded_files_ast);
         Ok(())
     }
 

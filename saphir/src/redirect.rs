@@ -1,13 +1,13 @@
 use crate::{body::TransmuteBody, http_context::HttpContext, responder::Responder, response::Builder as ResponseBuilder};
-use http::{StatusCode, HeaderValue, HeaderMap};
+use http::header::HeaderName;
+use http::{HeaderMap, HeaderValue, StatusCode};
 use hyper::body::Body as RawBody;
 use mime::Mime;
 use serde::Serialize;
 use std::collections::HashMap;
-use url::Url;
-use std::fmt::Debug;
-use http::header::HeaderName;
 use std::convert::TryInto;
+use std::fmt::Debug;
+use url::Url;
 
 #[derive(Debug)]
 pub enum BuilderError {
@@ -85,11 +85,12 @@ impl Builder {
 
     #[inline]
     pub fn header<E, K, V>(mut self, name: K, value: V) -> Self
-        where E: Into<http::Error>,
-              K: TryInto<HeaderName, Error = E>,
-              // <K as TryInto<HeaderName>>::Error: Into<http::Error>,
-              V: TryInto<HeaderValue, Error = E>,
-              // <V as TryInto<HeaderValue>>::Error: Into<http::Error>
+    where
+        E: Into<http::Error>,
+        K: TryInto<HeaderName, Error = E>,
+        // <K as TryInto<HeaderName>>::Error: Into<http::Error>,
+        V: TryInto<HeaderValue, Error = E>,
+        // <V as TryInto<HeaderValue>>::Error: Into<http::Error>
     {
         let name = match name.try_into() {
             Ok(name) => Some(name),
@@ -150,7 +151,11 @@ impl Builder {
         }
 
         let Builder {
-            status, content, content_type, extra_headers, ..
+            status,
+            content,
+            content_type,
+            extra_headers,
+            ..
         } = self;
 
         Ok(Redirect {
@@ -242,13 +247,19 @@ pub struct Redirect {
 
 impl Redirect {
     #[inline]
-    pub fn status(&self) -> &StatusCode { &self.status }
+    pub fn status(&self) -> &StatusCode {
+        &self.status
+    }
 
     #[inline]
-    pub fn location(&self) -> Option<&Url> { self.location.as_ref() }
+    pub fn location(&self) -> Option<&Url> {
+        self.location.as_ref()
+    }
 
     #[inline]
-    pub fn content_type(&self) -> Option<&Mime> { self.content_type.as_ref() }
+    pub fn content_type(&self) -> Option<&Mime> {
+        self.content_type.as_ref()
+    }
 
     #[inline]
     pub fn moved_permanently() -> Builder {

@@ -88,10 +88,7 @@ impl Builder {
     where
         E: Into<http::Error>,
         K: TryInto<HeaderName, Error = E>,
-        // <K as TryInto<HeaderName>>::Error: Into<http::Error>,
-        V: TryInto<HeaderValue, Error = E>,
-        // <V as TryInto<HeaderValue>>::Error: Into<http::Error>
-    {
+        V: TryInto<HeaderValue, Error = E> {
         let name = match name.try_into() {
             Ok(name) => Some(name),
             Err(e) => {

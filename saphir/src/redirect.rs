@@ -5,6 +5,7 @@ use mime::Mime;
 use serde::Serialize;
 use std::collections::HashMap;
 use url::Url;
+use std::fmt::Debug;
 
 #[derive(Debug)]
 pub enum BuilderError {
@@ -32,6 +33,7 @@ pub struct Builder {
     form_data: Option<Result<HashMap<String, String>, BuilderError>>,
     content: Option<Box<dyn TransmuteBody + Send + Sync>>,
     content_type: Option<Mime>,
+    extra_headers: HashMap<String, String>,
 }
 
 impl Builder {
@@ -68,6 +70,12 @@ impl Builder {
     #[inline]
     pub fn choices<B: 'static + Into<RawBody> + Send + Sync>(mut self, content: B) -> Self {
         self.content = Some(Box::new(Some(content)));
+        self
+    }
+
+    #[inline]
+    pub fn add_header<K: AsRef<str>, V: AsRef<str>>(mut self, key: K, value: V) -> Self {
+        self.extra_headers.insert(key.as_ref().to_owned(), value.as_ref().to_owned());
         self
     }
 
@@ -110,7 +118,7 @@ impl Builder {
         }
 
         let Builder {
-            status, content, content_type, ..
+            status, content, content_type, extra_headers, ..
         } = self;
 
         Ok(Redirect {
@@ -118,6 +126,7 @@ impl Builder {
             location,
             content,
             content_type,
+            extra_headers,
         })
     }
 
@@ -191,15 +200,24 @@ impl Builder {
     }
 }
 
-#[derive(Debug)]
 pub struct Redirect {
     status: StatusCode,
     location: Option<Url>,
     content: Option<Box<dyn TransmuteBody + Send + Sync>>,
     content_type: Option<Mime>,
+    extra_headers: HashMap<String, String>,
 }
 
 impl Redirect {
+    #[inline]
+    pub fn status(&self) -> &StatusCode { &self.status }
+
+    #[inline]
+    pub fn location(&self) -> Option<&Url> { self.location.as_ref() }
+
+    #[inline]
+    pub fn content_type(&self) -> Option<&Mime> { self.content_type.as_ref() }
+
     #[inline]
     pub fn moved_permanently() -> Builder {
         Builder {
@@ -261,6 +279,10 @@ impl Redirect {
 impl Responder for Redirect {
     fn respond_with_builder(self, mut builder: ResponseBuilder, _ctx: &HttpContext) -> ResponseBuilder {
         builder = builder.status(self.status);
+
+        for (key, value) in self.extra_headers {
+            builder = builder.header(key.as_str(), value)
+        }
 
         if let Some(location) = self.location {
             builder = builder.header("Location", location.as_str())

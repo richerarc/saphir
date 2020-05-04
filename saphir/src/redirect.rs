@@ -43,6 +43,7 @@ pub struct Builder {
     content: Option<Box<dyn TransmuteBody + Send + Sync>>,
     content_type: Option<Mime>,
     extra_headers: HeaderMap<HeaderValue>,
+    extra_headers_errors: Vec<http::Error>,
 }
 
 impl Builder {
@@ -83,20 +84,31 @@ impl Builder {
     }
 
     #[inline]
-    pub fn header<K, V>(mut self, key: K, value: V) -> Result<Self, BuilderError>
-        where K: TryInto<HeaderName>,
-              <K as TryInto<HeaderName>>::Error: Into<http::Error>,
-              V: TryInto<HeaderValue>,
-              <V as TryInto<HeaderValue>>::Error: Into<http::Error> {
-        self.extra_headers.insert(
-            key.try_into().map_err(|e| {
-                BuilderError::HeaderError(Box::new(e.into()))
-            })?,
-            value.try_into().map_err(|e| {
-                BuilderError::HeaderError(Box::new(e.into()))
-            })?
-        );
-        Ok(self)
+    pub fn header<E, K, V>(mut self, name: K, value: V) -> Self
+        where E: Into<http::Error>,
+              K: TryInto<HeaderName, Error = E>,
+              // <K as TryInto<HeaderName>>::Error: Into<http::Error>,
+              V: TryInto<HeaderValue, Error = E>,
+              // <V as TryInto<HeaderValue>>::Error: Into<http::Error>
+    {
+        let name = match name.try_into() {
+            Ok(name) => Some(name),
+            Err(e) => {
+                self.extra_headers_errors.push(e.into());
+                None
+            }
+        };
+        let value = match value.try_into() {
+            Ok(value) => Some(value),
+            Err(e) => {
+                self.extra_headers_errors.push(e.into());
+                None
+            }
+        };
+        if let (Some(name), Some(value)) = (name, value) {
+            self.extra_headers.insert(name, value);
+        }
+        self
     }
 
     pub fn build(mut self) -> Result<Redirect, BuilderError> {
@@ -300,8 +312,8 @@ impl Responder for Redirect {
     fn respond_with_builder(self, mut builder: ResponseBuilder, _ctx: &HttpContext) -> ResponseBuilder {
         builder = builder.status(self.status);
 
-        for (key, value) in self.extra_headers.iter() {
-            builder = builder.header(key.as_str(), value)
+        if let Some(headers) = builder.headers_mut() {
+            headers.extend(self.extra_headers);
         }
 
         if let Some(location) = self.location {

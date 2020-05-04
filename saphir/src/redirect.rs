@@ -1,9 +1,12 @@
 use crate::{body::TransmuteBody, http_context::HttpContext, responder::Responder, response::Builder as ResponseBuilder};
-use http::StatusCode;
+use http::header::HeaderName;
+use http::{HeaderMap, HeaderValue, StatusCode};
 use hyper::body::Body as RawBody;
 use mime::Mime;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::convert::TryInto;
+use std::fmt::Debug;
 use url::Url;
 
 #[derive(Debug)]
@@ -21,6 +24,13 @@ pub enum BuilderError {
     UnexpectedContent,
     MissingContent,
     UnexpectedContentType,
+    HeaderError(Box<http::Error>),
+}
+
+impl From<http::Error> for BuilderError {
+    fn from(e: http::Error) -> Self {
+        BuilderError::HeaderError(Box::new(e))
+    }
 }
 
 #[derive(Default)]
@@ -32,6 +42,8 @@ pub struct Builder {
     form_data: Option<Result<HashMap<String, String>, BuilderError>>,
     content: Option<Box<dyn TransmuteBody + Send + Sync>>,
     content_type: Option<Mime>,
+    extra_headers: HeaderMap<HeaderValue>,
+    extra_headers_errors: Vec<http::Error>,
 }
 
 impl Builder {
@@ -68,6 +80,35 @@ impl Builder {
     #[inline]
     pub fn choices<B: 'static + Into<RawBody> + Send + Sync>(mut self, content: B) -> Self {
         self.content = Some(Box::new(Some(content)));
+        self
+    }
+
+    #[inline]
+    pub fn header<E, K, V>(mut self, name: K, value: V) -> Self
+    where
+        E: Into<http::Error>,
+        K: TryInto<HeaderName, Error = E>,
+        // <K as TryInto<HeaderName>>::Error: Into<http::Error>,
+        V: TryInto<HeaderValue, Error = E>,
+        // <V as TryInto<HeaderValue>>::Error: Into<http::Error>
+    {
+        let name = match name.try_into() {
+            Ok(name) => Some(name),
+            Err(e) => {
+                self.extra_headers_errors.push(e.into());
+                None
+            }
+        };
+        let value = match value.try_into() {
+            Ok(value) => Some(value),
+            Err(e) => {
+                self.extra_headers_errors.push(e.into());
+                None
+            }
+        };
+        if let (Some(name), Some(value)) = (name, value) {
+            self.extra_headers.insert(name, value);
+        }
         self
     }
 
@@ -110,7 +151,11 @@ impl Builder {
         }
 
         let Builder {
-            status, content, content_type, ..
+            status,
+            content,
+            content_type,
+            extra_headers,
+            ..
         } = self;
 
         Ok(Redirect {
@@ -118,6 +163,7 @@ impl Builder {
             location,
             content,
             content_type,
+            extra_headers,
         })
     }
 
@@ -196,9 +242,25 @@ pub struct Redirect {
     location: Option<Url>,
     content: Option<Box<dyn TransmuteBody + Send + Sync>>,
     content_type: Option<Mime>,
+    extra_headers: HeaderMap<HeaderValue>,
 }
 
 impl Redirect {
+    #[inline]
+    pub fn status(&self) -> &StatusCode {
+        &self.status
+    }
+
+    #[inline]
+    pub fn location(&self) -> Option<&Url> {
+        self.location.as_ref()
+    }
+
+    #[inline]
+    pub fn content_type(&self) -> Option<&Mime> {
+        self.content_type.as_ref()
+    }
+
     #[inline]
     pub fn moved_permanently() -> Builder {
         Builder {
@@ -260,6 +322,10 @@ impl Redirect {
 impl Responder for Redirect {
     fn respond_with_builder(self, mut builder: ResponseBuilder, _ctx: &HttpContext) -> ResponseBuilder {
         builder = builder.status(self.status);
+
+        if let Some(headers) = builder.headers_mut() {
+            headers.extend(self.extra_headers);
+        }
 
         if let Some(location) = self.location {
             builder = builder.header("Location", location.as_str())

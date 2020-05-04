@@ -1,11 +1,13 @@
 use crate::{body::TransmuteBody, http_context::HttpContext, responder::Responder, response::Builder as ResponseBuilder};
-use http::StatusCode;
+use http::{StatusCode, HeaderValue, HeaderMap};
 use hyper::body::Body as RawBody;
 use mime::Mime;
 use serde::Serialize;
 use std::collections::HashMap;
 use url::Url;
 use std::fmt::Debug;
+use http::header::HeaderName;
+use std::convert::TryInto;
 
 #[derive(Debug)]
 pub enum BuilderError {
@@ -22,6 +24,13 @@ pub enum BuilderError {
     UnexpectedContent,
     MissingContent,
     UnexpectedContentType,
+    HeaderError(Box<http::Error>),
+}
+
+impl From<http::Error> for BuilderError {
+    fn from(e: http::Error) -> Self {
+        BuilderError::HeaderError(Box::new(e))
+    }
 }
 
 #[derive(Default)]
@@ -33,7 +42,7 @@ pub struct Builder {
     form_data: Option<Result<HashMap<String, String>, BuilderError>>,
     content: Option<Box<dyn TransmuteBody + Send + Sync>>,
     content_type: Option<Mime>,
-    extra_headers: HashMap<String, String>,
+    extra_headers: HeaderMap<HeaderValue>,
 }
 
 impl Builder {
@@ -74,9 +83,20 @@ impl Builder {
     }
 
     #[inline]
-    pub fn add_header<K: AsRef<str>, V: AsRef<str>>(mut self, key: K, value: V) -> Self {
-        self.extra_headers.insert(key.as_ref().to_owned(), value.as_ref().to_owned());
-        self
+    pub fn header<K, V>(mut self, key: K, value: V) -> Result<Self, BuilderError>
+        where K: TryInto<HeaderName>,
+              <K as TryInto<HeaderName>>::Error: Into<http::Error>,
+              V: TryInto<HeaderValue>,
+              <V as TryInto<HeaderValue>>::Error: Into<http::Error> {
+        self.extra_headers.insert(
+            key.try_into().map_err(|e| {
+                BuilderError::HeaderError(Box::new(e.into()))
+            })?,
+            value.try_into().map_err(|e| {
+                BuilderError::HeaderError(Box::new(e.into()))
+            })?
+        );
+        Ok(self)
     }
 
     pub fn build(mut self) -> Result<Redirect, BuilderError> {
@@ -205,7 +225,7 @@ pub struct Redirect {
     location: Option<Url>,
     content: Option<Box<dyn TransmuteBody + Send + Sync>>,
     content_type: Option<Mime>,
-    extra_headers: HashMap<String, String>,
+    extra_headers: HeaderMap<HeaderValue>,
 }
 
 impl Redirect {
@@ -280,7 +300,7 @@ impl Responder for Redirect {
     fn respond_with_builder(self, mut builder: ResponseBuilder, _ctx: &HttpContext) -> ResponseBuilder {
         builder = builder.status(self.status);
 
-        for (key, value) in self.extra_headers {
+        for (key, value) in self.extra_headers.iter() {
             builder = builder.header(key.as_str(), value)
         }
 

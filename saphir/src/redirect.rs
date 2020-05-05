@@ -142,8 +142,7 @@ impl Builder {
         #[cfg(feature = "post-redirect")]
         {
             if let StatusCode::OK = self.status {
-                let loc = location.take();
-                self.format_form_data(loc.as_ref().map(|u| u.to_string()).unwrap_or("/".to_string()).as_str())?;
+                self.format_form_data(location.take().as_deref().unwrap_or("/"))?;
             }
         }
 

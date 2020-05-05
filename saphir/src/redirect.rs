@@ -325,7 +325,7 @@ impl Responder for Redirect {
         }
 
         if let Some(location) = self.location {
-            builder = builder.header("Location", location.to_string().as_str())
+            builder = builder.header("Location", location.as_str())
         }
 
         if let Some(mut c) = self.content {

@@ -362,3 +362,19 @@ mod form {
         }
     }
 }
+
+#[cfg(feature = "file")]
+mod file {
+    use super::*;
+    use crate::{file::FileStream, prelude::Bytes};
+    use futures::Stream;
+
+    impl Builder {
+        pub fn file<F: Into<FileStream>>(self, file: F) -> Builder {
+            self.body(Box::new(file.into())
+                as Box<
+                    dyn Stream<Item = Result<Bytes, Box<dyn std::error::Error + 'static + Sync + Send>>> + 'static + Sync + Send,
+                >)
+        }
+    }
+}

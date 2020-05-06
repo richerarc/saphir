@@ -69,6 +69,30 @@ pub trait Responder {
     fn respond_with_builder(self, builder: Builder, ctx: &HttpContext) -> Builder;
 }
 
+impl<T> Responder for Vec<T>
+where
+    T: Responder,
+{
+    fn respond_with_builder(self, mut builder: Builder, ctx: &HttpContext) -> Builder {
+        for responder in self {
+            builder = responder.respond_with_builder(builder, ctx);
+        }
+        builder
+    }
+}
+
+impl<T> Responder for &'static [T]
+where
+    T: Responder + Clone,
+{
+    fn respond_with_builder(self, mut builder: Builder, ctx: &HttpContext) -> Builder {
+        for responder in self {
+            builder = responder.clone().respond_with_builder(builder, ctx);
+        }
+        builder
+    }
+}
+
 impl Responder for StatusCode {
     fn respond_with_builder(self, builder: Builder, _ctx: &HttpContext) -> Builder {
         builder.status(self)

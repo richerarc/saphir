@@ -12,6 +12,7 @@ use std::{
 use crate::{body::Body, prelude::Bytes};
 pub use http::Extensions;
 
+#[derive(Debug)]
 pub enum ExtError {
     /// The extension type was not found, the type name of the missing extension
     /// is returned

@@ -333,7 +333,7 @@ mod tests {
         assert_eq!(field_headers.content_transfer_encoding, Some("quoted-printable"));
         assert_eq!(field_headers.content_type, Some(Mime::from_str("text/plain;charset=UTF-8").unwrap()));
         assert_eq!(field_headers.content_disposition_name, "field1");
-        assert_eq!(field_headers.content_disposition_filename.as_ref().map(|s| &**s), Some("file.txt"));
+        assert_eq!(field_headers.content_disposition_filename.as_deref(), Some("file.txt"));
         assert_eq!(input, &b"this is plain text data"[..]);
     }
 

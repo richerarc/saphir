@@ -15,8 +15,12 @@ use syn::{
 };
 use crate::docgen::type_info::TypeInfo;
 use std::cell::RefCell;
+use std::rc::Rc;
+use std::pin::Pin;
+use crate::docgen::route_info::RouteInfo;
 
 mod type_info;
+mod route_info;
 
 macro_rules! print_project_path_error {
     ($file:expr, $project_path:expr) => {{
@@ -69,8 +73,8 @@ pub(crate) struct DocGen {
     pub doc: OpenApi,
     pub operation_ids: RefCell<HashSet<String>>,
     pub handlers: RefCell<Vec<HandlerInfo>>,
-    pub loaded_files_ast: RefCell<HashMap<String, Box<AstFile>>>,
-    pub dependancies: RefCell<HashMap<String, HashMap<String, CargoDependancy>>>,
+    pub loaded_files_ast: RefCell<HashMap<String, Pin<Box<AstFile>>>>,
+    pub dependancies: RefCell<HashMap<String, Pin<Box<HashMap<String, CargoDependancy>>>>>,
 }
 
 impl Command for DocGen {
@@ -137,7 +141,7 @@ impl DocGen {
             };
             dependancies.insert(name, dependancy);
         }
-        self.dependancies.borrow_mut().insert(crate_name.to_string(), dependancies);
+        self.dependancies.borrow_mut().insert(crate_name.to_string(), Box::pin(dependancies));
         Ok(())
     }
 
@@ -208,7 +212,7 @@ impl DocGen {
                 self.read_mod_file(dir.to_string(), module_path.clone(), mod_name)?;
             }
         }
-        self.loaded_files_ast.borrow_mut().insert(module_path.clone(), Box::new(ast));
+        self.loaded_files_ast.borrow_mut().insert(module_path.clone(), Box::pin(ast));
         Ok(())
     }
 
@@ -419,11 +423,14 @@ impl DocGen {
                 "Json" | "Form" => {
                     if let PathArguments::AngleBracketed(ag) = &body.arguments {
                         if let Some(GenericArgument::Type(t)) = ag.args.first() {
-                            if let Some(type_info) = self.find_type_info(
-                                module_path.as_str(),
-                                t
-                            ) {
-                                body_info = Some(BodyParamInfo { openapi_type, type_info });
+                            let loaded_files_ast = self.loaded_files_ast.borrow();
+                            if let Some(ast_file) = loaded_files_ast.get(module_path.as_str()) {
+                                if let Some(type_info) = self.find_type_info(
+                                    ast_file,
+                                    t
+                                ) {
+                                    body_info = Some(BodyParamInfo { openapi_type, type_info });
+                                }
                             }
                         }
                     }
@@ -823,7 +830,7 @@ impl DocGen {
                 .flatten()
             {
                 if let Some(mut field_type_info) = self.find_type_info(
-                    type_info.ast_file_path.as_str(),
+                    type_info.file,
                     &field.ty,
                 ) {
                     let field_type = self
@@ -862,34 +869,6 @@ impl DocGen {
         // TODO: properly support tuple and struct enum variants.
         //       this will require the &TypeInfo ref
         Some(OpenApiType::anonymous_object())
-    }
-
-    fn route_info_from_method_macro(&self, controller: &ControllerInfo, m: &ImplItemMethod) -> Vec<RouteInfo> {
-        let mut routes = Vec::new();
-        for attr in &m.attrs {
-            let method = match self.handler_method_from_attr(&attr) {
-                Some(m) => m,
-                None => continue,
-            };
-
-            let (path, uri_params) = match self.handler_path_from_attr(&attr) {
-                Some(p) => p,
-                None => continue,
-            };
-            let mut full_path = format!("/{}{}", controller.base_path(), path);
-            if full_path.ends_with('/') {
-                full_path = (&full_path[0..(full_path.len() - 1)]).to_string();
-            }
-            if !full_path.starts_with(self.args.scope.as_str()) {
-                continue;
-            }
-            routes.push(RouteInfo {
-                method,
-                uri: full_path,
-                uri_params,
-            })
-        }
-        routes
     }
 
     fn handler_operation_id_from_sig(&self, sig: &Signature) -> String {
@@ -969,13 +948,6 @@ impl ControllerInfo {
         }
         path
     }
-}
-
-#[derive(Clone, Debug, Default)]
-struct RouteInfo {
-    method: OpenApiPathMethod,
-    uri: String,
-    uri_params: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default)]

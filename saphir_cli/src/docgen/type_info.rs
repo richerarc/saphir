@@ -2,14 +2,16 @@ use syn::{File, Item, Type, PathArguments, GenericArgument, Expr, UseTree, Lit};
 use std::collections::HashMap;
 use crate::docgen::{CargoDependancy, DocGen};
 use std::rc::{Weak, Rc};
+use std::borrow::Borrow;
+use std::pin::Pin;
 
 #[derive(Clone, Debug)]
 pub(crate) struct TypeInfo {
     pub name: String,
     // pub ast_file_path: String,
     // pub ast_item_name: String,
-    pub file: Weak<File>,
-    pub item: Weak<Item>,
+    pub file: &'static File,
+    pub item: &'static Item,
     pub is_array: bool,
     pub is_optional: bool,
     pub min_array_len: Option<u32>,
@@ -19,10 +21,10 @@ pub(crate) struct TypeInfo {
 impl DocGen {
     pub fn find_type_info(
         &self,
-        file: Rc<File>,
+        file: &'static File,
         t: &Type
     ) -> Option<TypeInfo> {
-        match t {
+        match t.borrow() {
             Type::Path(p) => {
                 if let Some(s) = p.path.segments.first() {
                     let name = s.ident.to_string();
@@ -54,7 +56,7 @@ impl DocGen {
                             return Some(type_info);
                         }
                     } else {
-                        if let Some((file, item)) = self.find_type(file.downgrade(), name.as_str()) {
+                        if let Some((file, item)) = self.find_type(file, name.as_str()) {
                             return Some(TypeInfo { name, file, item, is_array: false, is_optional: false, min_array_len: None, max_array_len: None })
                         }
                     }
@@ -81,12 +83,12 @@ impl DocGen {
         None
     }
 
-    fn find_type(
+    fn find_type<'f>(
         &self,
-        file: Weak<File>,
+        file: &'f File,
         item_name: &str,
-    ) -> Option<(Weak<File>, Weak<Item>)> {
-        if let Some(item) = self.find_type_in_file(file.clone(), item_name) {
+    ) -> Option<(&'f File, &'f Item)> {
+        if let Some(item) = self.find_type_in_file(file, item_name) {
             return Some((file, item));
         }
 
@@ -97,13 +99,13 @@ impl DocGen {
         None
     }
 
-    fn find_type_in_file(
+    fn find_type_in_file<'f>(
         &self,
-        file: Weak<File>,
+        file: &'f File,
         item_name: &str,
-    ) -> Option<Weak<Item>> {
+    ) -> Option<&'f Item> {
         // Find type in current file
-        for item in file.items {
+        for item in &file.items {
             match item {
                 Item::Struct(s) if s.ident.to_string().as_str() == item_name => return Some(item),
                 Item::Enum(e) if e.ident.to_string().as_str() == item_name => return Some(item),
@@ -114,11 +116,11 @@ impl DocGen {
         None
     }
 
-    fn find_type_in_use(
+    fn find_type_in_use<'f>(
         &self,
-        file: Weak<File>,
+        file: &'f File,
         item_name: &str,
-    ) -> Option<(Weak<File>, Weak<Item>)> {
+    ) -> Option<(&'f File, &'f Item)> {
         for u in file.items.iter().filter_map(|i| match i {
             Item::Use(u) => Some(u),
             _ => None,
@@ -136,17 +138,17 @@ impl DocGen {
     //     None
     // }
 
-    fn find_type_in_use_tree(
+    fn find_type_in_use_tree<'f>(
         &self,
-        use_tree: Weak<UseTree>,
-        file: Weak<File>,
+        use_tree: &'f UseTree,
+        file: &'f File,
         item_name: &str,
-    ) -> Option<(Weak<File>, Weak<Item>)> {
+    ) -> Option<(&'f File, &'f Item)> {
         match use_tree {
             UseTree::Name(n) => {
                 let name = n.ident.to_string();
                 if name == *item_name {
-                    if let Some(item) = self.find_type_in_file(file.clone(), name.as_str()) {
+                    if let Some(item) = self.find_type_in_file(file, name.as_str()) {
                         return Some((file, item));
                     }
                 }
@@ -154,19 +156,20 @@ impl DocGen {
             UseTree::Rename(r) => {
                 let rename = r.rename.to_string();
                 if rename == *item_name {
-                    if let Some(item) = self.find_type_in_file(file.clone(), rename.as_str()) {
+                    if let Some(item) = self.find_type_in_file(file, rename.as_str()) {
                         return Some((file, item));
                     }
                 }
             }
             UseTree::Group(g) => {
-                for t in g.items {
-                    if let Some(resolved) = self.find_type_in_use_tree(Rc::new(t).downgrade(), file.clone(), item_name) {
+                for t in &g.items {
+                    if let Some(resolved) = self.find_type_in_use_tree(t, file, item_name) {
                         return Some(resolved);
                     }
                 }
             }
             UseTree::Path(u) => {
+                u.
                 // let mut first_segment = u.ident.to_string();
                 // if first_segment.as_str() == "self" {
                 //     first_segment = self_module_path.clone();

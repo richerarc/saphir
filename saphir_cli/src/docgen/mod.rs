@@ -73,7 +73,7 @@ pub(crate) struct DocGen {
     pub doc: OpenApi,
     pub operation_ids: RefCell<HashSet<String>>,
     pub handlers: RefCell<Vec<HandlerInfo>>,
-    pub loaded_files_ast: RefCell<HashMap<String, Pin<Box<AstFile>>>>,
+    pub loaded_files_ast: RefCell<HashMap<String, &'static AstFile>>,
     pub dependancies: RefCell<HashMap<String, Pin<Box<HashMap<String, CargoDependancy>>>>>,
 }
 
@@ -212,7 +212,7 @@ impl DocGen {
                 self.read_mod_file(dir.to_string(), module_path.clone(), mod_name)?;
             }
         }
-        self.loaded_files_ast.borrow_mut().insert(module_path.clone(), Box::pin(ast));
+        self.loaded_files_ast.borrow_mut().insert(module_path.clone(), Box::leak(Box::new(ast)));
         Ok(())
     }
 
@@ -930,7 +930,7 @@ impl DocGen {
 }
 
 #[derive(Clone, Debug, Default)]
-struct ControllerInfo {
+pub(crate) struct ControllerInfo {
     controller_name: String,
     name: String,
     version: Option<String>,

@@ -14,6 +14,7 @@ use syn::{
     Pat, PathArguments, Signature, Type, UseTree,
 };
 use crate::docgen::type_info::TypeInfo;
+use std::cell::RefCell;
 
 mod type_info;
 
@@ -66,10 +67,10 @@ pub(crate) struct DocGenArgs {
 pub(crate) struct DocGen {
     pub args: <DocGen as Command>::Args,
     pub doc: OpenApi,
-    pub operation_ids: HashSet<String>,
-    pub handlers: Vec<HandlerInfo>,
-    pub loaded_files_ast: HashMap<String, AstFile>,
-    pub dependancies: HashMap<String, HashMap<String, CargoDependancy>>,
+    pub operation_ids: RefCell<HashSet<String>>,
+    pub handlers: RefCell<Vec<HandlerInfo>>,
+    pub loaded_files_ast: RefCell<HashMap<String, Box<AstFile>>>,
+    pub dependancies: RefCell<HashMap<String, HashMap<String, CargoDependancy>>>,
 }
 
 impl Command for DocGen {
@@ -91,7 +92,7 @@ impl Command for DocGen {
         self.read_cargo_dependancies("crate", self.args.project_path.clone())?;
         self.read_rust_entrypoint_ast(self.args.project_path.clone(), "src/main.rs")?;
         self.parse_ast()?;
-        let handlers = std::mem::take(&mut self.handlers);
+        let handlers = std::mem::take(&mut *self.handlers.borrow_mut());
         self.add_all_paths(handlers)?;
         let file = self.write_doc_file()?;
         println!("Succesfully created `{}` in {}ms", file, now.elapsed().as_millis());
@@ -112,19 +113,7 @@ pub(crate) struct CargoTarget {
     pub path: PathBuf,
 }
 
-#[derive(Default, Debug)]
-pub(crate) enum LoadedData {
-    FileAst(String, AstFile),
-    Handler(HandlerInfo),
-}
-
-type ParseResult = Result<Vec<LoadedData>, String>;
-
 impl DocGen {
-    // fn read_cargo_crate(&mut self, crate_name: &str, parent_crate: &str, ) -> CommandResult {
-    //
-    // }
-
     fn read_cargo_dependancies(&mut self, crate_name: &str, root_path: PathBuf) -> CommandResult {
         let metadata = cargo_metadata::MetadataCommand::new()
             .manifest_path(root_path.join("Cargo.toml"))
@@ -148,7 +137,7 @@ impl DocGen {
             };
             dependancies.insert(name, dependancy);
         }
-        self.dependancies.insert(crate_name.to_string(), dependancies);
+        self.dependancies.borrow_mut().insert(crate_name.to_string(), dependancies);
         Ok(())
     }
 
@@ -219,9 +208,7 @@ impl DocGen {
                 self.read_mod_file(dir.to_string(), module_path.clone(), mod_name)?;
             }
         }
-        println!("Loaded {}", &module_path);
-        self.loaded_files_ast.insert(module_path.clone(), ast);
-
+        self.loaded_files_ast.borrow_mut().insert(module_path.clone(), Box::new(ast));
         Ok(())
     }
 
@@ -241,45 +228,31 @@ impl DocGen {
         self.read_mods_in_ast(path_str, format!("{}::{}", module_path, mod_name), buffer)
     }
 
-    fn parse_ast(&mut self) -> CommandResult {
-        let mut data: Vec<LoadedData> = Vec::new();
-        for (module_path, ast) in &self.loaded_files_ast {
+    fn parse_ast(&self) -> CommandResult {
+        for (module_path, ast) in self.loaded_files_ast.borrow().iter() {
             for md in ast.items.iter().filter_map(|i| match i {
                 Item::Mod(md) => Some(md),
                 _ => None
             }) {
                 if let Some((_, items)) = &md.content {
-                    let loaded_data = self.parse_controllers_ast(module_path.clone(), items)?;
-                    data.extend(loaded_data);
+                    self.parse_controllers_ast(module_path.clone(), items)?;
                 }
             }
-            let loaded_data = self.parse_controllers_ast(module_path.clone(), &ast.items)?;
-            data.extend(loaded_data);
-        }
-        for d in data {
-            match d {
-                LoadedData::FileAst(s, f) => self.loaded_files_ast.insert(s, f),
-                LoadedData::Handler(mut h) => {
-                    h.operation_id = self.make_handler_operation_id_unique(h.operation_id.clone());
-                    self.handlers.push(h);
-                }
-            }
+            self.parse_controllers_ast(module_path.clone(), &ast.items)?;
         }
         Ok(())
     }
 
-    fn parse_controllers_ast(&self, module_path: String, items: &Vec<Item>) -> ParseResult {
-        let mut data = Vec::new();
+    fn parse_controllers_ast(&self, module_path: String, items: &Vec<Item>) -> CommandResult {
         for im in items.iter().filter_map(|i| match i {
             Item::Impl(im) => Some(im),
             _ => None,
         }) {
             if let Some(controller) = self.get_controller_info(im) {
-                let extra_data = self.parse_handlers_ast(module_path.clone(), controller, &im.items)?;
-                data.extend(extra_data);
+                self.parse_handlers_ast(module_path.clone(), controller, &im.items)?;
             }
         }
-        Ok(data)
+        Ok(())
     }
 
     fn get_controller_info(&self, im: &ItemImpl) -> Option<ControllerInfo> {
@@ -333,8 +306,7 @@ impl DocGen {
     }
 
     // Return a vec of models to load from the current file
-    fn parse_handlers_ast(&self, module_path: String, controller: ControllerInfo, items: &Vec<ImplItem>) -> ParseResult {
-        let mut data = Vec::new();
+    fn parse_handlers_ast(&self, module_path: String, controller: ControllerInfo, items: &Vec<ImplItem>) -> CommandResult {
         for m in items.iter().filter_map(|i| match i {
             ImplItem::Method(m) => Some(m),
             _ => None,
@@ -350,8 +322,8 @@ impl DocGen {
             }
 
             for route in routes {
-                let operation_id = sig.ident.to_string();
-                data.push(LoadedData::Handler(HandlerInfo {
+                let operation_id = self.handler_operation_id_from_sig(&m.sig);
+                self.handlers.borrow_mut().push(HandlerInfo {
                     module_path: module_path.clone(),
                     controller: controller.clone(),
                     route,
@@ -359,14 +331,13 @@ impl DocGen {
                     operation_id,
                     use_cookies: consume_cookies,
                     body_info: parameters_info.body_info.clone(),
-                }));
+                });
             }
         }
-        Ok(data)
+        Ok(())
     }
 
-    fn parse_handler_parameters(&self, module_path: String, m: &ImplItemMethod, uri_params: &Vec<String>) -> (RouteParametersInfo, Vec<LoadedData>) {
-        let mut loaded_data = Vec::new();
+    fn parse_handler_parameters(&self, module_path: String, m: &ImplItemMethod, uri_params: &Vec<String>) -> RouteParametersInfo {
         let mut parameters = Vec::new();
         let mut has_cookies_param = false;
         let mut body_type = None;
@@ -448,12 +419,11 @@ impl DocGen {
                 "Json" | "Form" => {
                     if let PathArguments::AngleBracketed(ag) = &body.arguments {
                         if let Some(GenericArgument::Type(t)) = ag.args.first() {
-                            if let Some((type_info, extra_loaded_data)) = self.find_type_info(
+                            if let Some(type_info) = self.find_type_info(
                                 module_path.as_str(),
                                 t
                             ) {
                                 body_info = Some(BodyParamInfo { openapi_type, type_info });
-                                loaded_data.extend(extra_loaded_data);
                             }
                         }
                     }
@@ -462,11 +432,11 @@ impl DocGen {
             };
         }
 
-        (RouteParametersInfo {
+        RouteParametersInfo {
             parameters,
             has_cookies_param,
             body_info,
-        }, loaded_data)
+        }
     }
 
     // fn parse_ast_type(&self, module_path: String, t: &Type) -> Option<TypeInfo> {
@@ -922,13 +892,16 @@ impl DocGen {
         routes
     }
 
-    fn make_handler_operation_id_unique(&mut self, mut operation_id: String) -> String {
+    fn handler_operation_id_from_sig(&self, sig: &Signature) -> String {
+        let method_name = sig.ident.to_string();
+        let mut operation_id = method_name.clone();
         let mut i = 2;
-        while self.operation_ids.contains(operation_id.as_str()) {
+        let mut operation_ids = self.operation_ids.borrow_mut();
+        while operation_ids.contains(operation_id.as_str()) {
             operation_id = format!("{}_{}", &method_name, &i);
             i += 1;
         }
-        self.operation_ids.insert(operation_id.clone());
+        operation_ids.insert(operation_id.clone());
         operation_id
     }
 

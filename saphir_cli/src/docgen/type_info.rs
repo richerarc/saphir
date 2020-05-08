@@ -1,6 +1,6 @@
 use syn::{File, Item, Type, PathArguments, GenericArgument, Expr, UseTree, Lit};
 use std::collections::HashMap;
-use crate::docgen::{CargoDependancy, DocGen, LoadedData};
+use crate::docgen::{CargoDependancy, DocGen};
 
 #[derive(Clone, Debug)]
 pub(crate) struct TypeInfo {
@@ -18,8 +18,7 @@ impl DocGen {
         &self,
         ast_file_path: &str,
         t: &Type
-    ) -> Option<(TypeInfo, Vec<LoadedData>)> {
-        println!("Loaded types length : {}", self.loaded_files_ast.len());
+    ) -> Option<TypeInfo> {
         match t {
             Type::Path(p) => {
                 if let Some(s) = p.path.segments.first() {
@@ -52,11 +51,8 @@ impl DocGen {
                             return Some(type_info);
                         }
                     } else {
-                        if let Some((ast_file_path, ast_item_name, loaded_data)) = self.find_type(ast_file_path, name.as_str()) {
-                            return Some((
-                                TypeInfo { name, ast_file_path, ast_item_name, is_array: false, is_optional: false, min_array_len: None, max_array_len: None },
-                                loaded_data
-                            ))
+                        if let Some((ast_file_path, ast_item_name)) = self.find_type(ast_file_path, name.as_str()) {
+                            return Some(TypeInfo { name, ast_file_path, ast_item_name, is_array: false, is_optional: false, min_array_len: None, max_array_len: None })
                         }
                     }
                 }
@@ -70,11 +66,11 @@ impl DocGen {
                     _ => None,
                 };
 
-                if let Some((mut type_info, loaded_data)) = self.find_type_info(ast_file_path, a.elem.as_ref()) {
+                if let Some(mut type_info) = self.find_type_info(ast_file_path, a.elem.as_ref()) {
                     type_info.is_array = true;
                     type_info.min_array_len = len.clone();
                     type_info.max_array_len = len;
-                    return Some((type_info, loaded_data));
+                    return Some(type_info);
                 }
             }
             _ => {},
@@ -86,9 +82,9 @@ impl DocGen {
         &self,
         ast_file_path: &str,
         ast_item_name: &str,
-    ) -> Option<(String, String, Vec<LoadedData>)> {
-        let loaded_data = Vec::new();
-        let cur_file = self.loaded_files_ast.get(ast_file_path)?;
+    ) -> Option<(String, String)> {
+        let loaded_files_ast = self.loaded_files_ast.borrow();
+        let cur_file = loaded_files_ast.get(ast_file_path)?;
 
         if self.find_type_in_file(cur_file, ast_item_name).is_some() {
             return Some((ast_file_path.to_string(), ast_item_name.to_string()));
@@ -123,7 +119,9 @@ impl DocGen {
         ast_file_path: &str,
         ast_item_name: &str,
     ) -> Option<(String, String)> {
-        let cur_file = self.loaded_files_ast.get(ast_file_path)?;
+        let loaded_files_ast = self.loaded_files_ast.borrow();
+        let cur_file = loaded_files_ast.get(ast_file_path)?;
+
         for u in cur_file.items.iter().filter_map(|i| match i {
             Item::Use(u) => Some(u),
             _ => None,
@@ -147,7 +145,9 @@ impl DocGen {
         ast_file_path: &str,
         ast_item_name: &str,
     ) -> Option<(String, String)> {
-        let cur_file = self.loaded_files_ast.get(ast_file_path)?;
+        let loaded_files_ast = self.loaded_files_ast.borrow();
+        let cur_file = loaded_files_ast.get(ast_file_path)?;
+
         match use_tree {
             UseTree::Name(n) => {
                 let name = n.ident.to_string();

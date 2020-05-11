@@ -74,6 +74,8 @@ pub(crate) struct DocGen {
     pub handlers: RefCell<Vec<HandlerInfo>>,
     pub loaded_files_ast: RefCell<HashMap<String, &'static AstFile>>,
     pub dependancies: RefCell<HashMap<String, Pin<Box<HashMap<String, CargoDependancy>>>>>,
+    // pub found_rust_types: RefCell<HashMap<String, Option<RustType>>>,
+
     loaded_files_to_free: Vec<*mut AstFile>,
 }
 
@@ -100,6 +102,7 @@ impl Command for DocGen {
             handlers: RefCell::new(Vec::new()),
             loaded_files_ast: RefCell::new(HashMap::new()),
             dependancies: RefCell::new(Default::default()),
+            // found_rust_types: RefCell::new(Default::default()),
             loaded_files_to_free: Vec::new(),
         }
     }

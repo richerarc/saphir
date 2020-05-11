@@ -1,7 +1,7 @@
 use syn::{Item, Type, PathArguments, GenericArgument, Expr, UseTree, Lit, ItemStruct, ItemEnum};
 use crate::docgen::{DocGen};
 use std::borrow::Borrow;
-use std::collections::HashSet;
+use std::collections::{HashSet};
 
 #[derive(Clone, Debug)]
 pub(crate) struct TypeInfo {
@@ -64,9 +64,8 @@ impl DocGen {
                             return Some(type_info);
                         }
                     } else {
-                        if let rust_type = self.find_type_in_module(module_path, name.as_str()) {
-                            return Some(TypeInfo { name, rust_type, is_array: false, is_optional: false, min_array_len: None, max_array_len: None })
-                        }
+                        let rust_type = self.find_type_in_module(module_path, name.as_str()).unwrap_or(RustType::Primitive);
+                        return Some(TypeInfo { name, rust_type, is_array: false, is_optional: false, min_array_len: None, max_array_len: None });
                     }
                 }
             }
@@ -95,25 +94,35 @@ impl DocGen {
         &self,
         module_path: &str,
         item_name: &str,
-    ) -> RustType {
-        if let Some(rust_type) = self.find_type_in_file(module_path, item_name) {
-            return rust_type;
-        }
+    ) -> Option<RustType> {
+        // let fully_qualified_item_name = format!("{}::{}", module_path, item_name);
+        // if let Some(type_info) = self.found_rust_types.borrow().get(fully_qualified_item_name.as_str()) {
+        //     return type_info.clone();
+        // }
 
-        if let Some(rust_type) = self.find_type_in_use(module_path, item_name) {
-            return rust_type;
-        }
+        let file = *self.loaded_files_ast.borrow().get(module_path)?;
+        let result = self.find_type_in_items(&file.items, module_path, item_name);
+        // self.found_rust_types.borrow_mut().insert(fully_qualified_item_name, result.clone());
 
-        return RustType::Primitive;
+        // if let Some(result) = &result {
+        //     self.found_rust_types.borrow_mut().insert(fully_qualified_item_name, Some(result.clone()));
+        // }
+
+        // if let Some(rust_type) = self.find_type_in_use(module_path, item_name) {
+        //     return Some(rust_type);
+        // }
+
+        result
     }
 
-    fn find_type_in_file<'f>(
+    fn find_type_in_items(
         &self,
+        items: &'static [Item],
         module_path: &str,
         item_name: &str,
     ) -> Option<RustType> {
-        let file = *self.loaded_files_ast.borrow().get(module_path)?;
-        for item in &file.items {
+        // First, search inline
+        for item in items {
             match item {
                 Item::Struct(s) if s.ident.to_string().as_str() == item_name => return Some(RustType::Struct {
                     file_path: module_path.to_string(),
@@ -127,42 +136,74 @@ impl DocGen {
             }
         }
 
-        None
-    }
-
-    fn find_type_in_use<'f>(
-        &self,
-        module_path: &str,
-        item_name: &str,
-    ) -> Option<RustType> {
-        let file = *self.loaded_files_ast.borrow().get(module_path)?;
-
-        let modules: HashSet<String> = file.items.iter().filter_map(|i| match i {
-            Item::Mod(m) => Some(m.ident.to_string()),
+        // Then, search in modules. (search in inline modules, and discover module files)
+        let mut module_files: HashSet<String> = HashSet::new();
+        for module in items.iter().filter_map(|i| match i {
+            Item::Mod(m) => Some(m),
             _ => None,
-        }).collect();
-        println!("Modules: {:?}", modules);
+        }) {
+            if let Some((_, i)) = &module.content {
+                if let Some(rust_type) = self.find_type_in_items(i, module_path, item_name) {
+                    return Some(rust_type);
+                }
+            } else {
+                module_files.insert(module.ident.to_string());
+            }
+        }
 
-        for u in file.items.iter().filter_map(|i| match i {
+        // Then resolve use tree
+        for u in items.iter().filter_map(|i| match i {
             Item::Use(u) => Some(u),
             _ => None,
         }) {
-            if let Some((module_path, module_item_name)) = self.find_type_in_use_tree(&u.tree, module_path, &modules,None, item_name) {
-                let rust_type = self.find_type_in_file(module_path.as_str(), module_item_name.as_str());
+            if let Some((module_path, module_item_name)) = self.find_type_in_use_tree(&u.tree, module_path, &module_files,None, item_name) {
+                let rust_type = self.find_type_in_module(module_path.as_str(), module_item_name.as_str());
                 if let Some(rust_type) = rust_type {
                     return Some(rust_type);
                 } else {
                     println!("{} not found in {:?}", item_name, module_path);
 
                     //TODO: Load dependancy here
-                    let t = self.find_type_in_module(module_path.as_str(), item_name);
-                    println!("Type : {:?}", t);
+
+                    // println!("{:?}", self.dependancies);
+
+                    // let t = self.find_type_in_module(module_path.as_str(), item_name);
+                    // println!("Type : {:?}", t);
                 }
             }
         }
 
-       None
+        None
     }
+
+    // fn find_type_in_use<'f>(
+    //     &self,
+    //     module_files: &HashSet<String>,
+    //     module_path: &str,
+    //     item_name: &str,
+    // ) -> Option<RustType> {
+    //     // let file = *self.loaded_files_ast.borrow().get(module_path)?;
+    //
+    //     for u in items.iter().filter_map(|i| match i {
+    //         Item::Use(u) => Some(u),
+    //         _ => None,
+    //     }) {
+    //         if let Some((module_path, module_item_name)) = self.find_type_in_use_tree(&u.tree, module_path, module_files,None, item_name) {
+    //             let rust_type = self.find_type_in_module(module_path.as_str(), module_item_name.as_str());
+    //             if let Some(rust_type) = rust_type {
+    //                 return Some(rust_type);
+    //             } else {
+    //                 println!("{} not found in {:?}", item_name, module_path);
+    //
+    //                 //TODO: Load dependancy here
+    //                 let t = self.find_type_in_module(module_path.as_str(), item_name);
+    //                 println!("Type : {:?}", t);
+    //             }
+    //         }
+    //     }
+    //
+    //    None
+    // }
 
     // TODO: Implement this
     // fn resolve_glob_use_tree(&self, use_glob: &UseGlob, self_module_path: String, current_type_path: Option<String>, type_name: &String) -> Option<String> {
@@ -182,7 +223,7 @@ impl DocGen {
         &self,
         use_tree: &'f UseTree,
         module_path: &str,
-        modules: &HashSet<String>,
+        module_files: &HashSet<String>,
         mut current_module_path: Option<String>,
         item_name: &str,
     ) -> Option<(String, String)> {
@@ -207,7 +248,7 @@ impl DocGen {
             }
             UseTree::Group(g) => {
                 for t in &g.items {
-                    if let Some(resolved) = self.find_type_in_use_tree(t, module_path, modules, current_module_path.clone(), item_name) {
+                    if let Some(resolved) = self.find_type_in_use_tree(t, module_path, module_files, current_module_path.clone(), item_name) {
                         return Some(resolved);
                     }
                 }
@@ -218,7 +259,7 @@ impl DocGen {
                     first_segment = module_path.to_string();
                 }
 
-                if current_module_path.is_none() && modules.contains(first_segment.as_str()) {
+                if current_module_path.is_none() && module_files.contains(first_segment.as_str()) {
                     current_module_path = Some(module_path.to_string());
                 }
 
@@ -231,7 +272,7 @@ impl DocGen {
                 return self.find_type_in_use_tree(
                     &u.tree,
                     module_path,
-                    modules,
+                    module_files,
                     Some(path),
                     item_name,
                 )

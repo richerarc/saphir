@@ -10,12 +10,11 @@ use std::path::PathBuf;
 use std::time::Instant;
 use structopt::StructOpt;
 use syn::{
-    Attribute, Expr, Fields, File as AstFile, FnArg, GenericArgument, ImplItem, ImplItemMethod, Item, ItemEnum, ItemImpl, ItemStruct, Lit, Meta, NestedMeta,
-    Pat, PathArguments, Signature, Type, UseTree,
+    Attribute, Fields, File as AstFile, FnArg, GenericArgument, ImplItem, ImplItemMethod, Item, ItemEnum, ItemImpl, ItemStruct, Lit, Meta, NestedMeta,
+    Pat, PathArguments, Signature, Type,
 };
-use crate::docgen::type_info::TypeInfo;
+use crate::docgen::type_info::{TypeInfo, RustType};
 use std::cell::RefCell;
-use std::rc::Rc;
 use std::pin::Pin;
 use crate::docgen::route_info::RouteInfo;
 
@@ -75,6 +74,17 @@ pub(crate) struct DocGen {
     pub handlers: RefCell<Vec<HandlerInfo>>,
     pub loaded_files_ast: RefCell<HashMap<String, &'static AstFile>>,
     pub dependancies: RefCell<HashMap<String, Pin<Box<HashMap<String, CargoDependancy>>>>>,
+    loaded_files_to_free: Vec<*mut AstFile>,
+}
+
+impl Drop for DocGen {
+    fn drop(&mut self) {
+        for file in self.loaded_files_to_free.iter_mut() {
+            unsafe {
+                let _ = Box::from_raw(*file);
+            }
+        }
+    }
 }
 
 impl Command for DocGen {
@@ -86,7 +96,11 @@ impl Command for DocGen {
         Self {
             args,
             doc,
-            ..Default::default()
+            operation_ids: RefCell::new(Default::default()),
+            handlers: RefCell::new(Vec::new()),
+            loaded_files_ast: RefCell::new(HashMap::new()),
+            dependancies: RefCell::new(Default::default()),
+            loaded_files_to_free: Vec::new(),
         }
     }
 
@@ -212,7 +226,9 @@ impl DocGen {
                 self.read_mod_file(dir.to_string(), module_path.clone(), mod_name)?;
             }
         }
-        self.loaded_files_ast.borrow_mut().insert(module_path.clone(), Box::leak(Box::new(ast)));
+        let leaked: &'static mut AstFile = Box::leak(Box::new(ast));
+        self.loaded_files_to_free.push(leaked as *mut AstFile);
+        self.loaded_files_ast.borrow_mut().insert(module_path.clone(), leaked);
         Ok(())
     }
 
@@ -309,7 +325,6 @@ impl DocGen {
         None
     }
 
-    // Return a vec of models to load from the current file
     fn parse_handlers_ast(&self, module_path: String, controller: ControllerInfo, items: &Vec<ImplItem>) -> CommandResult {
         for m in items.iter().filter_map(|i| match i {
             ImplItem::Method(m) => Some(m),
@@ -423,14 +438,11 @@ impl DocGen {
                 "Json" | "Form" => {
                     if let PathArguments::AngleBracketed(ag) = &body.arguments {
                         if let Some(GenericArgument::Type(t)) = ag.args.first() {
-                            let loaded_files_ast = self.loaded_files_ast.borrow();
-                            if let Some(ast_file) = loaded_files_ast.get(module_path.as_str()) {
-                                if let Some(type_info) = self.find_type_info(
-                                    ast_file,
-                                    t
-                                ) {
-                                    body_info = Some(BodyParamInfo { openapi_type, type_info });
-                                }
+                            if let Some(type_info) = self.find_type_info(
+                                module_path.as_str(),
+                                t
+                            ) {
+                                body_info = Some(BodyParamInfo { openapi_type, type_info });
                             }
                         }
                     }
@@ -631,7 +643,7 @@ impl DocGen {
             ..Default::default()
         };
 
-        if let Some(mut body_info) = info.body_info {
+        if let Some(body_info) = info.body_info {
             if method == OpenApiPathMethod::Get {
                 let parameters = self.get_open_api_parameters_from_body_info(&body_info);
                 data.parameters.extend(parameters);
@@ -698,32 +710,23 @@ impl DocGen {
 
     // TODO: Support HashMap
     fn get_open_api_type_from_type_info(&self, type_info: &TypeInfo) -> Option<OpenApiType> {
-        // let ast = self.loaded_files_ast.get(type_info.use_path.as_str())?;
-        // for item in &ast.items {
-        //     match item {
-        //         Item::Struct(s) => {
-        //             let name = s.ident.to_string();
-        //             if name == type_info.use_name {
-        //                 if self.find_macro_attribute_flag(&s.attrs, "derive", "Deserialize") {
-        //                     if let Some(s) = self.get_open_api_type_from_struct(type_info, &s) {
-        //                         return Some(s);
-        //                     }
-        //                 }
-        //             }
-        //         }
-        //         Item::Enum(e) => {
-        //             let name = e.ident.to_string();
-        //             if name == type_info.use_name {
-        //                 if self.find_macro_attribute_flag(&e.attrs, "derive", "Deserialize") {
-        //                     if let Some(s) = self.get_open_api_type_from_enum(type_info, &e) {
-        //                         return Some(s);
-        //                     }
-        //                 }
-        //             }
-        //         }
-        //         _ => {}
-        //     }
-        // }
+        match &type_info.rust_type {
+            RustType::Struct { file_path, item } => {
+                if self.find_macro_attribute_flag(&item.attrs, "derive", "Deserialize") {
+                    if let Some(s) = self.get_open_api_type_from_struct(file_path, item) {
+                        return Some(s);
+                    }
+                }
+            }
+            RustType::Enum { file_path, item } => {
+                if self.find_macro_attribute_flag(&item.attrs, "derive", "Deserialize") {
+                    if let Some(s) = self.get_open_api_type_from_enum(file_path, item) {
+                        return Some(s);
+                    }
+                }
+            }
+            _ => {}
+        }
         None
     }
 
@@ -764,9 +767,7 @@ impl DocGen {
                                 return true;
                             }
                         }
-                        NestedMeta::Lit(l) => {
-                            println!(" Litteral meta : {:?}", l);
-                        }
+                        NestedMeta::Lit(_) => {}
                     }
                 }
             }
@@ -819,7 +820,7 @@ impl DocGen {
         None
     }
 
-    fn get_open_api_type_from_struct(&mut self, type_info: &TypeInfo, s: &ItemStruct) -> Option<OpenApiType> {
+    fn get_open_api_type_from_struct(&self, file_path: &str, s: &ItemStruct) -> Option<OpenApiType> {
         let mut properties = HashMap::new();
         let mut required = Vec::new();
         for field in &s.fields {
@@ -829,8 +830,8 @@ impl DocGen {
                 .map(|i| self.get_serde_field(i.to_string(), &field.attrs, &s.attrs))
                 .flatten()
             {
-                if let Some(mut field_type_info) = self.find_type_info(
-                    type_info.file,
+                if let Some(field_type_info) = self.find_type_info(
+                    file_path,
                     &field.ty,
                 ) {
                     let field_type = self
@@ -855,7 +856,7 @@ impl DocGen {
         }
     }
 
-    fn get_open_api_type_from_enum(&self, _type_info: &TypeInfo, e: &ItemEnum) -> Option<OpenApiType> {
+    fn get_open_api_type_from_enum(&self, _file_path: &str, e: &ItemEnum) -> Option<OpenApiType> {
         if e.variants.iter().all(|v| v.fields == Fields::Unit) {
             let mut values: Vec<String> = Vec::new();
             for variant in &e.variants {
@@ -867,7 +868,7 @@ impl DocGen {
         }
 
         // TODO: properly support tuple and struct enum variants.
-        //       this will require the &TypeInfo ref
+        //       this will require the _file_path param
         Some(OpenApiType::anonymous_object())
     }
 

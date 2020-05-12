@@ -1,12 +1,9 @@
 use crate::{body::TransmuteBody, http_context::HttpContext, responder::Responder, response::Builder as ResponseBuilder};
-use http::header::HeaderName;
-use http::{HeaderMap, HeaderValue, StatusCode, Uri};
+use http::{header::HeaderName, HeaderMap, HeaderValue, StatusCode, Uri};
 use hyper::body::Body as RawBody;
 use mime::Mime;
 use serde::Serialize;
-use std::collections::HashMap;
-use std::convert::TryInto;
-use std::fmt::Debug;
+use std::{collections::HashMap, convert::TryInto, fmt::Debug};
 
 #[derive(Debug)]
 pub enum BuilderError {

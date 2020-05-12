@@ -108,9 +108,9 @@ impl Responder for () {
 impl<T: Responder> Responder for Option<T> {
     fn respond_with_builder(self, builder: Builder, ctx: &HttpContext) -> Builder {
         if let Some(r) = self {
-            r.respond_with_builder(builder.status_if_not_set(200), ctx)
+            r.respond_with_builder(builder, ctx).status_if_not_set(200)
         } else {
-            builder.status(404)
+            builder.status_if_not_set(404)
         }
     }
 }
@@ -118,8 +118,8 @@ impl<T: Responder> Responder for Option<T> {
 impl<T: Responder, E: Responder> Responder for Result<T, E> {
     fn respond_with_builder(self, builder: Builder, ctx: &HttpContext) -> Builder {
         match self {
-            Ok(r) => r.respond_with_builder(builder, ctx),
-            Err(r) => r.respond_with_builder(builder, ctx),
+            Ok(r) => r.respond_with_builder(builder, ctx).status_if_not_set(200),
+            Err(r) => r.respond_with_builder(builder, ctx).status_if_not_set(500),
         }
     }
 }

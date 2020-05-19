@@ -13,7 +13,7 @@ use syn::{
     Attribute, Fields, File as SynFile, FnArg, GenericArgument, ImplItem, ImplItemMethod, Item as SynItem, ItemEnum, ItemImpl, ItemStruct, Lit, Meta, NestedMeta,
     Pat, PathArguments, Signature, Type,
 };
-use crate::docgen::type_info::{TypeInfo, RustType};
+use crate::docgen::type_info::{TypeInfo};
 use std::cell::{RefCell, Ref};
 use std::pin::Pin;
 use crate::docgen::route_info::RouteInfo;
@@ -104,7 +104,7 @@ impl Command for DocGen {
         let now = Instant::now();
         self.read_project_cargo_toml()?;
         let browser = Browser::new(self.args.project_path.clone()).map_err(|e| format!("{}", e))?;
-        let entrypoint = self.get_crate_entrypoint(&browser).map_err(|e| format!("{}", e))?;
+        let entrypoint = Self::get_crate_entrypoint(self.args.package_name.as_ref(), &browser).map_err(|e| format!("{}", e))?;
         for m in entrypoint.modules().map_err(|e| format!("{}", e))? {
             match m {
                 Module::Inline { module, .. } =>  println!("Inline module : {:?}", module),
@@ -131,7 +131,7 @@ impl Command for DocGen {
         // self.read_rust_entrypoint_ast(self.args.project_path.clone(), "src/main.rs")?;
         // self.parse_ast()?;
         let handlers = std::mem::take(&mut *self.handlers.borrow_mut());
-        self.add_all_paths(handlers)?;
+        self.add_all_paths(entrypoint, handlers)?;
         let file = self.write_doc_file()?;
         println!("Succesfully created `{}` in {}ms", file, now.elapsed().as_millis());
 
@@ -154,8 +154,8 @@ impl DocGen {
     //     self.browser
     // }
 
-    fn get_crate_entrypoint<'b>(&'b self, browser: &'b Browser<'b>) -> Result<&'b File, String> {
-        let main_package = if let Some(main_name) = self.args.package_name.as_ref() {
+    fn get_crate_entrypoint<'b>(package_name: Option<&String>, browser: &'b Browser<'b>) -> Result<&'b File<'b>, String> {
+        let main_package = if let Some(main_name) = package_name {
             browser.package_by_name(main_name).expect(format!("Crate does not include a member named `{}`.", main_name).as_str())
         } else if browser.packages().len() == 1 {
             browser.packages().first().expect("Condition ensure exactly 1 workspace member")
@@ -573,8 +573,8 @@ by using the --package flag."));
     //     }
     // }
 
-    fn add_all_paths(&mut self, handlers: Vec<HandlerInfo>) -> CommandResult {
-        let (_, errors): (Vec<_>, Vec<_>) = handlers.into_iter().map(|handler| self.add_path(handler)).partition(Result::is_ok);
+    fn add_all_paths<'b>(&mut self, entrypoint: &'b File, handlers: Vec<HandlerInfo>) -> CommandResult {
+        let (_, errors): (Vec<_>, Vec<_>) = handlers.into_iter().map(|handler| self.add_path(entrypoint, handler)).partition(Result::is_ok);
         let errors: Vec<_> = errors.into_iter().map(Result::unwrap_err).collect();
         if errors.len() > 0 {
             let mut error_message = format!("Some errors ({}) occured while processing the routes : ", errors.len());
@@ -672,7 +672,7 @@ by using the --package flag."));
     //     None
     // }
 
-    fn add_path(&mut self, info: HandlerInfo) -> CommandResult {
+    fn add_path<'b>(&mut self, entrypoint: &'b File, info: HandlerInfo) -> CommandResult {
         let path = info.route.uri;
         let method = info.route.method;
         let description = if info.use_cookies {
@@ -689,10 +689,10 @@ by using the --package flag."));
 
         if let Some(body_info) = info.body_info {
             if method == OpenApiPathMethod::Get {
-                let parameters = self.get_open_api_parameters_from_body_info(&body_info);
+                let parameters = self.get_open_api_parameters_from_body_info(entrypoint, &body_info);
                 data.parameters.extend(parameters);
             } else {
-                data.request_body = self.get_open_api_body_param(&body_info);
+                data.request_body = self.get_open_api_body_param(entrypoint, &body_info);
             }
         }
 
@@ -714,10 +714,8 @@ by using the --package flag."));
         Ok(())
     }
 
-    // TODO: Handle re-exports (pub use)
-    // TODO: Handle type alias
-    fn get_open_api_body_param(&self, body_info: &BodyParamInfo) -> Option<OpenApiRequestBody> {
-        if let Some(t) = self.get_open_api_type_from_type_info(&body_info.type_info) {
+    fn get_open_api_body_param<'b>(&self, entrypoint: &'b File, body_info: &BodyParamInfo) -> Option<OpenApiRequestBody> {
+        if let Some(t) = self.get_open_api_type_from_type_info(entrypoint, &body_info.type_info) {
             let mut content: HashMap<OpenApiMimeTypes, OpenApiContent> = HashMap::new();
             content.insert(
                 body_info.openapi_type.clone(),
@@ -734,9 +732,9 @@ by using the --package flag."));
         None
     }
 
-    fn get_open_api_parameters_from_body_info(&self, body_info: &BodyParamInfo) -> Vec<OpenApiParameter> {
+    fn get_open_api_parameters_from_body_info<'b>(&self, entrypoint: &'b File, body_info: &BodyParamInfo) -> Vec<OpenApiParameter> {
         let mut parameters = Vec::new();
-        if let Some(t) = self.get_open_api_type_from_type_info(&body_info.type_info) {
+        if let Some(t) = self.get_open_api_type_from_type_info(entrypoint, &body_info.type_info) {
             if let OpenApiType::Object { object: OpenApiObjectType::Object { properties, required } } = t {
                 for (name, openapi_type) in &properties {
                     parameters.push(OpenApiParameter {
@@ -753,8 +751,14 @@ by using the --package flag."));
     }
 
     // TODO: Support HashMap
-    fn get_open_api_type_from_type_info(&self, type_info: &TypeInfo) -> Option<OpenApiType> {
-        println!("get_open_api_type_from_type_info not yet implemented");
+    fn get_open_api_type_from_type_info<'b>(&self, entrypoint: &'b File, type_info: &TypeInfo) -> Option<OpenApiType> {
+        println!("Checking type info for {:?}", type_info.name);
+        // println!("get_open_api_type_from_type_info not yet implemented");
+        let type_path = type_info.type_path.as_ref()?;
+
+
+
+        None
         // match &type_info.rust_type {
         //     RustType::Struct { file_path, item } => {
         //         if self.find_macro_attribute_flag(&item.attrs, "derive", "Deserialize") {
@@ -772,7 +776,6 @@ by using the --package flag."));
         //     }
         //     _ => {}
         // }
-        None
     }
 
     fn get_serde_field(&self, mut field_name: String, field_attributes: &Vec<Attribute>, container_attributes: &Vec<Attribute>) -> Option<String> {
@@ -865,7 +868,7 @@ by using the --package flag."));
         None
     }
 
-    fn get_open_api_type_from_struct<'b>(&self, item: &'b Item<'b>, s: &ItemStruct) -> Option<OpenApiType> {
+    fn get_open_api_type_from_struct<'b>(&self, item: &'b Item, s: &ItemStruct) -> Option<OpenApiType> {
         let mut properties = HashMap::new();
         let mut required = Vec::new();
         for field in &s.fields {
@@ -880,7 +883,7 @@ by using the --package flag."));
                     &field.ty,
                 ) {
                     let field_type = self
-                        .get_open_api_type_from_type_info(&field_type_info)
+                        .get_open_api_type_from_type_info(item.file, &field_type_info)
                         .unwrap_or_else(|| OpenApiType::from_rust_type_str(field_type_info.name.as_str()));
                     if !field_type_info.is_optional
                         && !self.find_macro_attribute_flag(&field.attrs, "serde", "default")
@@ -901,7 +904,7 @@ by using the --package flag."));
         }
     }
 
-    fn get_open_api_type_from_enum(&self, _file_path: &str, e: &ItemEnum) -> Option<OpenApiType> {
+    fn get_open_api_type_from_enum<'b>(&self, item: &'b Item, e: &ItemEnum) -> Option<OpenApiType> {
         if e.variants.iter().all(|v| v.fields == Fields::Unit) {
             let mut values: Vec<String> = Vec::new();
             for variant in &e.variants {

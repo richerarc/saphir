@@ -6,7 +6,7 @@ use Error::*;
 use syn::export::fmt::Display;
 use syn::export::Formatter;
 use cargo_metadata::{Package as MetaPackage, Target as MetaTarget, PackageId};
-use syn::{File as SynFile, Item as SynItem, ItemMod as SynMod};
+use syn::{File as SynFile, Item as SynItem, ItemMod as SynMod, ItemUse, UseTree};
 use std::fs::File as FsFile;
 use std::fmt::Debug;
 use std::io::Read;
@@ -155,6 +155,7 @@ pub struct Target<'b> {
     member: &'b Package<'b>,
     target: &'b MetaTarget,
     entrypoint: LazyCell<File<'b>>,
+    files: RefCell<HashMap<String, &'b File<'b>>>,
 }
 
 impl<'b> Target<'b> {
@@ -166,6 +167,7 @@ impl<'b> Target<'b> {
             member,
             target,
             entrypoint: LazyCell::new(),
+            files: RefCell::default(),
         }
     }
 
@@ -173,14 +175,31 @@ impl<'b> Target<'b> {
         if !self.entrypoint.filled() {
             let file = File::new(self, &self.target.src_path, "crate".to_string() )?;
             self.entrypoint.fill(file);
+            let file = self.entrypoint.borrow().unwrap();
+            self.files.borrow_mut().insert(file.use_path.clone(), file);
         }
         Ok(self.entrypoint.borrow().expect("Should have been initialized by the previous statement"))
+    }
+
+    pub fn file_by_use_path(&'b self, path: &str) -> Result<Option<&'b File>, Error> {
+        //TODO: This work, uncomment once file resolution below is successfully implemented
+        if let Some(file) = self.files.borrow().get(path) {
+            return Ok(Some(file));
+        }
+        if let Some(root) = path.split("::").next() {
+            if root == "crate" {
+            } else {
+                // TODO: Implement resolution of dependancy files
+                println!("Dependancies files resolution is not implemented yet");
+            }
+        }
+        Ok(None)
     }
 }
 
 #[derive(Debug)]
 pub struct File<'b> {
-    target: &'b Target<'b>,
+    pub(crate) target: &'b Target<'b>,
     pub file: SynFile,
     pub use_path: String,
     items: LazyCell<Vec<Item<'b>>>,
@@ -193,21 +212,23 @@ impl<'b> File<'b> {
         target: &'b Target<'b>,
         path: &PathBuf,
         use_path: String,
-    ) -> Result<Self, Error> {
+    ) -> Result<File<'b>, Error> {
         let mut f = FsFile::open(path).map_err(|e| FileIoError(Box::new(path.clone()), Box::new(e)))?;
         let mut buffer = String::new();
         f.read_to_string(&mut buffer).map_err(|e| FileIoError(Box::new(path.clone()), Box::new(e)))?;
 
         let file = syn::parse_file(buffer.as_str()).map_err(|e| FileParseError(Box::new(path.clone()), Box::new(e)))?;
 
-        Ok(Self {
+        let file = Self {
             target,
             file,
-            use_path,
+            use_path: use_path.clone(),
             items: LazyCell::new(),
             modules: LazyCell::new(),
             dir: path.parent().expect("Valid file path should have valid parent folder").to_path_buf()
-        })
+        };
+
+        Ok(file)
     }
 
     pub fn items(&'b self) -> &'b Vec<Item<'b>> {
@@ -231,10 +252,30 @@ impl<'b> File<'b> {
                 .map(|m| Module::new(self, m))
                 .collect::<Result<Vec<_>, _>>()?;
             self.modules.fill(modules);
+            for m in self.modules.borrow().unwrap() {
+                match &m {
+                    Module::External { file, .. } => { self.target.files.borrow_mut().insert(file.use_path.clone(), &file); },
+                    _ => { },
+                }
+            }
         }
         Ok(self.modules.borrow().expect("Should have been initialized by the previous statement"))
     }
 
+    /// Return all syn::File items in this file, including inline modules.
+    pub fn all_file_items(&'b self) -> Result<Vec<&'b Item<'b>>, Error> {
+        let mut vec = Vec::new();
+        vec.extend(self.items());
+        for m in self.modules()? {
+            match m {
+                Module::Inline { items, .. } => vec.extend(items),
+                _ => {}
+            }
+        }
+        Ok(vec)
+    }
+
+    /// Return all syn::Item nested within this file, including included modules.
     pub fn all_items(&'b self) -> Result<Vec<&'b Item<'b>>, Error> {
         let mut vec = Vec::new();
         vec.extend(self.items());
@@ -242,6 +283,84 @@ impl<'b> File<'b> {
             vec.extend(m.all_items()?);
         }
         Ok(vec)
+    }
+
+    pub fn find_impl(&'b self, name: &str) -> Result<Option<&'b Item<'b>>, Error> {
+        if let Some(item) = self.find_impl_inline(name)? {
+            return Ok(Some(item));
+        }
+
+        for u in self.items().iter().filter_map(|i| match i.item {
+            SynItem::Use(u) => Some(u),
+            _ => None
+        }) {
+            for (path, name, alias) in self.expand_use_tree(&u.tree, None) {
+                if alias.as_str() == name {
+                    println!("({}) {}", alias, path);
+                    if let Some(file) = self.target.file_by_use_path(path.as_str())? {
+                        return file.find_impl_inline(name.as_str());
+                    }
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    fn find_impl_inline(&'b self, name: &str) -> Result<Option<&'b Item<'b>>, Error> {
+        for (item, item_name) in self.all_file_items()?.iter().filter_map(|i| match &i.item {
+            SynItem::Enum(e) => Some((i, e.ident.to_string())),
+            SynItem::Struct(s) => Some((i, s.ident.to_string())),
+            _ => None
+        }) {
+            if item_name.as_str() == name {
+                return Ok(Some(item));
+            }
+        }
+        Ok(None)
+    }
+
+    fn expand_use_tree(&'b self, u: &'b UseTree, prefix: Option<String>) -> Vec<(String, String, String)> {
+        match u {
+            UseTree::Name(n) => {
+                let name = n.ident.to_string();
+                let path = prefix.unwrap_or_else(|| self.use_path.clone());
+                vec![(path, name.clone(), name)]
+            },
+            UseTree::Rename(n) => {
+                let name = n.ident.to_string();
+                let rename = n.rename.to_string();
+                let path = prefix.unwrap_or_else(|| self.use_path.clone());
+                vec![(path, name, rename)]
+            },
+            UseTree::Group(g) => {
+                let mut vec = Vec::new();
+                for u in &g.items {
+                    vec.extend(self.expand_use_tree(u, prefix.clone()))
+                }
+                vec
+            },
+            UseTree::Path(p) => {
+                let path_segment = p.ident.to_string();
+                let prefix = if prefix.is_none() {
+                    if path_segment.as_str() == "self" {
+                        self.use_path.clone()
+                    } else {
+                        path_segment
+                    }
+                } else {
+                    if let Some(p) = prefix {
+                        format!("{}::{}", p, path_segment)
+                    } else {
+                        format!("{}::{}", self.use_path, path_segment)
+                    }
+                };
+                self.expand_use_tree(p.tree.as_ref(), Some(prefix))
+            }
+            UseTree::Glob(g) => {
+                // TODO: Implement glob pattern resolution
+                vec![]
+            }
+        }
     }
 }
 
@@ -290,10 +409,11 @@ impl<'b> Module<'b> {
             if !path.exists() {
                 path = file.dir.join(format!("{}.rs", name));
             }
-            Module::External {
+            let module = Module::External {
                 module,
-                file: File::new(file.target, &path, use_path)?
-            }
+                file: File::new(file.target, &path, use_path.clone())?
+            };
+            module
         })
     }
 

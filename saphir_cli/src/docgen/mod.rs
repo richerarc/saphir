@@ -4,22 +4,29 @@ use convert_case::{Case, Casing};
 use serde::export::TryFrom;
 use serde_derive::Deserialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fs::File;
+use std::fs::File as FsFile;
 use std::io::Read;
 use std::path::PathBuf;
 use std::time::Instant;
 use structopt::StructOpt;
 use syn::{
-    Attribute, Fields, File as AstFile, FnArg, GenericArgument, ImplItem, ImplItemMethod, Item, ItemEnum, ItemImpl, ItemStruct, Lit, Meta, NestedMeta,
+    Attribute, Fields, File as SynFile, FnArg, GenericArgument, ImplItem, ImplItemMethod, Item, ItemEnum, ItemImpl, ItemStruct, Lit, Meta, NestedMeta,
     Pat, PathArguments, Signature, Type,
 };
 use crate::docgen::type_info::{TypeInfo, RustType};
-use std::cell::RefCell;
+use std::cell::{RefCell, Ref};
 use std::pin::Pin;
 use crate::docgen::route_info::RouteInfo;
+use crate::docgen::rust_module::{CargoDependancy, CargoTarget, RustModule};
+use std::mem::{MaybeUninit};
+use std::ops::Deref;
+use cargo_metadata::Metadata;
+use crate::docgen::crate_syn_browser::{Browser, File, Error, Target};
 
 mod type_info;
 mod route_info;
+mod rust_module;
+mod crate_syn_browser;
 
 macro_rules! print_project_path_error {
     ($file:expr, $project_path:expr) => {{
@@ -55,6 +62,11 @@ pub(crate) struct DocGenArgs {
     #[structopt(parse(from_os_str), short = "p", long = "project-path", default_value = ".")]
     project_path: PathBuf,
 
+    /// (Optional) If running on a workspace, name of the package of the lucid server for which we want
+    ///            to build openapi doc
+    #[structopt(long = "package")]
+    package_name: Option<String>,
+
     /// (optionnal) Path to the `.cargo` directory. By default, read from the current executable's environment,
     ///             which work when running this command as a cargo sub-command.
     #[structopt(parse(from_os_str), long = "cargo-path", default_value = "~/.cargo")]
@@ -66,22 +78,71 @@ pub(crate) struct DocGenArgs {
     output_file: PathBuf,
 }
 
-#[derive(Default)]
+pub(crate) struct CargoMetadata {
+    metadata: Option<&'static cargo_metadata::Metadata>,
+    to_free: *mut cargo_metadata::Metadata,
+}
+
+impl CargoMetadata {
+    pub fn uninit() -> Self {
+        Self {
+            metadata: None,
+            to_free: std::ptr::null_mut(),
+        }
+    }
+
+    pub fn init(&mut self, manifest_path: PathBuf) -> Result<(), String> {
+        let metadata = cargo_metadata::MetadataCommand::new()
+            .manifest_path(manifest_path)
+            .exec().map_err(|e| e.to_string())?;
+
+        let leaked: &'static mut cargo_metadata::Metadata = Box::leak(Box::new(metadata));
+        let raw = leaked as *mut cargo_metadata::Metadata;
+        self.metadata = Some(leaked);
+        self.to_free = raw;
+        Ok(())
+    }
+}
+
+impl Deref for CargoMetadata {
+    type Target = cargo_metadata::Metadata;
+
+    fn deref(&self) -> &'static cargo_metadata::Metadata {
+        self.metadata.expect("Cannot be used before calling init")
+    }
+}
+
+impl AsRef<cargo_metadata::Metadata> for CargoMetadata {
+    fn as_ref(&self) -> &'static Metadata {
+        self.metadata.expect("Cannot be used before calling init")
+    }
+}
+
+impl Drop for CargoMetadata {
+    fn drop(&mut self) {
+        if !self.to_free.is_null() {
+            unsafe {
+                let _ = Box::from_raw(self.to_free);
+            }
+        }
+    }
+}
+
 pub(crate) struct DocGen {
     pub args: <DocGen as Command>::Args,
     pub doc: OpenApi,
     pub operation_ids: RefCell<HashSet<String>>,
     pub handlers: RefCell<Vec<HandlerInfo>>,
-    pub loaded_files_ast: RefCell<HashMap<String, &'static AstFile>>,
-    pub dependancies: RefCell<HashMap<String, Pin<Box<HashMap<String, CargoDependancy>>>>>,
-    // pub found_rust_types: RefCell<HashMap<String, Option<RustType>>>,
+    pub loaded_files_ast: RefCell<HashMap<String, &'static SynFile>>,
+    pub cargo_metadata: CargoMetadata,
+    pub browser: Option<Browser>,
 
-    loaded_files_to_free: Vec<*mut AstFile>,
+    loaded_files_to_free: RefCell<Vec<*mut SynFile>>,
 }
 
 impl Drop for DocGen {
     fn drop(&mut self) {
-        for file in self.loaded_files_to_free.iter_mut() {
+        for file in self.loaded_files_to_free.borrow_mut().iter_mut() {
             unsafe {
                 let _ = Box::from_raw(*file);
             }
@@ -101,64 +162,77 @@ impl Command for DocGen {
             operation_ids: RefCell::new(Default::default()),
             handlers: RefCell::new(Vec::new()),
             loaded_files_ast: RefCell::new(HashMap::new()),
-            dependancies: RefCell::new(Default::default()),
-            // found_rust_types: RefCell::new(Default::default()),
-            loaded_files_to_free: Vec::new(),
+            cargo_metadata: CargoMetadata::uninit(),
+            loaded_files_to_free: Default::default(),
+            browser: None,
         }
     }
 
     fn run(mut self) -> CommandResult {
         let now = Instant::now();
-        self.read_cargo_toml()?;
-        self.read_cargo_dependancies("crate", self.args.project_path.clone())?;
-        self.read_rust_entrypoint_ast(self.args.project_path.clone(), "src/main.rs")?;
-        self.parse_ast()?;
-        let handlers = std::mem::take(&mut *self.handlers.borrow_mut());
-        self.add_all_paths(handlers)?;
-        let file = self.write_doc_file()?;
+        self.read_project_cargo_toml()?;
+        let entrypoint = self.get_crate_entrypoint().map_err(|e| format!("{}", e))?;
+
+
+        // self.cargo_metadata.init(self.args.project_path.join("Cargo.toml"))?;
+        // self.load_cargo_dependancies()?;
+        // let crate_module = RustModule::new_from_root_path(
+        //     "crate".to_string(),
+        //     self.args.project_path.clone(),
+        //     self.args.project_path.join("src/main.rs"),
+        // )?;
+
+
+
+        // self.read_cargo_dependancies("crate", self.args.project_path.clone().join("Cargo.toml"))?;
+        // self.read_rust_entrypoint_ast(self.args.project_path.clone(), "src/main.rs")?;
+        // self.parse_ast()?;
+        // let handlers = std::mem::take(&mut *self.handlers.borrow_mut());
+        // self.add_all_paths(handlers)?;
+        // let file = self.write_doc_file()?;
+        // println!("Succesfully created `{}` in {}ms", file, now.elapsed().as_millis());
+
+        let file = "doc";
         println!("Succesfully created `{}` in {}ms", file, now.elapsed().as_millis());
         Ok(())
     }
 }
 
-#[derive(Default, Debug)]
-pub(crate) struct CargoDependancy {
-    pub name: String,
-    pub version: String,
-    pub targets: Vec<CargoTarget>,
-}
-
-#[derive(Default, Debug)]
-pub(crate) struct CargoTarget {
-    pub target_type: String,
-    pub path: PathBuf,
-}
-
 impl DocGen {
-    fn read_cargo_dependancies(&mut self, crate_name: &str, root_path: PathBuf) -> CommandResult {
-        let metadata = cargo_metadata::MetadataCommand::new()
-            .manifest_path(root_path.join("Cargo.toml"))
-            .exec().map_err(|e| e.to_string())?;
-        let mut dependancies = HashMap::new();
-        for package in metadata.packages {
-            let mut targets = Vec::new();
-            for target in &package.targets {
-                if target.kind.contains(&"bin".to_string()) || target.kind.contains(&"lib".to_string()) {
-                    targets.push(CargoTarget {
-                        target_type: target.kind.join(","),
-                        path: target.src_path.clone(),
-                    })
-                }
-            }
-            let name = package.name.replace("-", "_");
-            let dependancy = CargoDependancy {
-                name: name.clone(),
-                version: package.version.to_string(),
-                targets,
-            };
-            dependancies.insert(name, dependancy);
-        }
-        self.dependancies.borrow_mut().insert(crate_name.to_string(), Box::pin(dependancies));
+    fn get_crate_entrypoint<'f>(&'f mut self) -> Result<Ref<'f, Target>, String> {
+        let browser = Browser::new(self.args.project_path.clone()).map_err(|e| format!("{}", e))?;
+        self.browser = Some(browser);
+        let browser = self.browser.as_ref().unwrap();
+        println!("crate members : {:?}", browser.packages());
+        let main_package = if let Some(main_name) = self.args.package_name.as_ref() {
+            browser.package_by_name(main_name).expect(format!("Crate does not include a member named `{}`.", main_name).as_str())
+        } else if browser.packages().len() == 1 {
+            browser.first_package().expect("Condition ensure exactly 1 workspace member")
+        } else {
+            return Err(format!("This crate is a workspace with multiple packages!
+Please select the package for which you want to generate the openapi documentation
+by using the --package flag."));
+        };
+        println!("Main package : {:?}", main_package);
+        let bin_target = main_package.bin_target().expect("Crate does not have a Binary target.");
+        Ok(bin_target)
+        // println!("Main Target: {:?}", bin_target);
+        // let entrypoint = bin_target.entrypoint().map_err(|e| e.to_string())?;
+        // println!("Entrypoint : {:?}", entrypoint);
+        // Ok(entrypoint)
+    }
+
+    fn load_cargo_dependancies(&mut self) -> CommandResult {
+        let main_package = if let Some(main_name) = self.args.package_name.as_ref() {
+            self.cargo_metadata.packages.iter().find(|p| p.name == *main_name)
+        } else if self.cargo_metadata.workspace_members.len() == 1 {
+            self.cargo_metadata.packages.iter().find(|p| p.id == *self.cargo_metadata.workspace_members.first().expect("Condition ensure exactly 1 workspace member"))
+        } else {
+            return Err(format!("This crate is a workspace with multiple packages ({})!
+Please select the package for which you want to generate the openapi documentation
+by using the --package flag.", self.cargo_metadata.workspace_members.iter().map(|p| p.repr.to_string()).collect::<Vec<String>>().join(",")));
+        };
+        println!("Main package : {:?}", main_package);
         Ok(())
     }
 
@@ -175,12 +249,12 @@ impl DocGen {
                 }
             }
         }
-        let f = File::create(&path).map_err(|_| format!("Unable to create file `{:?}`", &path))?;
+        let f = FsFile::create(&path).map_err(|_| format!("Unable to create file `{:?}`", &path))?;
         serde_yaml::to_writer(f, &self.doc).map_err(|_| format!("Unable to write to `{:?}`", path))?;
         Ok(path.to_str().unwrap_or_default().to_string())
     }
 
-    fn read_cargo_toml(&mut self) -> CommandResult {
+    fn read_project_cargo_toml(&mut self) -> CommandResult {
         #[derive(Deserialize)]
         struct Cargo {
             pub package: Package,
@@ -191,7 +265,7 @@ impl DocGen {
             pub version: String,
         }
         let cargo_path = self.args.project_path.clone().join("Cargo.toml");
-        let mut f = File::open(&cargo_path).map_err(|_| print_project_path_error!("Cargo.toml", self.args.project_path))?;
+        let mut f = FsFile::open(&cargo_path).map_err(|_| print_project_path_error!("Cargo.toml", self.args.project_path))?;
         let mut buffer = String::new();
         f.read_to_string(&mut buffer)
             .map_err(|_| print_project_path_error!("Cargo.toml", self.args.project_path))?;
@@ -203,18 +277,35 @@ impl DocGen {
         Ok(())
     }
 
-    fn read_rust_entrypoint_ast(&mut self, path: PathBuf, entry_file_path: &str) -> CommandResult {
-        let file_path = path.join(entry_file_path);
+    // fn read_rust_entrypoint_ast(&mut self, path: PathBuf, entry_file_path: &str) -> CommandResult {
+    //     let file_path = path.join(entry_file_path);
+    //
+    //     let mut f = File::open(&file_path).map_err(|_| print_project_path_error!(entry_file_path, path))?;
+    //     let mut buffer = String::new();
+    //     f.read_to_string(&mut buffer)
+    //         .map_err(|_| print_project_path_error!(entry_file_path, path))?;
+    //     let path = file_path.to_str().ok_or(format!("Invalid path : `{:?}`", &file_path))?.to_string();
+    //     self.read_mods_in_ast(path, "crate".to_string(), buffer)
+    // }
 
-        let mut f = File::open(&file_path).map_err(|_| print_project_path_error!(entry_file_path, path))?;
-        let mut buffer = String::new();
-        f.read_to_string(&mut buffer)
-            .map_err(|_| print_project_path_error!(entry_file_path, path))?;
-        let path = file_path.to_str().ok_or(format!("Invalid path : `{:?}`", &file_path))?.to_string();
-        self.read_mods_in_ast(path, "crate".to_string(), buffer)
-    }
+    // fn read_rust_dependancy_ast(&self, parent_module_name: String, dependancy: &CargoDependancy) -> CommandResult {
+    //     for target in &dependancy.targets {
+    //         let mut f = File::open(&target.path).map_err(|_| format!("Unable to load dependancy {:?}", target.path))?;
+    //         let mut buffer = String::new();
+    //         f.read_to_string(&mut buffer)
+    //             .map_err(|_| format!("Unable to load dependancy {:?}", target.path))?;
+    //         let path = target.path.to_str().ok_or(format!("Invalid path : `{:?}`", &target.path))?.to_string();
+    //         let module_path = if parent_module_name.as_str() == "crate" {
+    //             dependancy.name.to_string()
+    //         } else {
+    //             format!("{}::{}", parent_module_name, dependancy.name)
+    //         };
+    //         self.read_mods_in_ast(path, module_path, buffer)?;
+    //     }
+    //     Ok(())
+    // }
 
-    fn read_mods_in_ast(&mut self, file: String, module_path: String, buffer: String) -> CommandResult {
+    fn read_mods_in_ast(&self, file: String, module_path: String, buffer: String) -> CommandResult {
         let file = std::path::Path::new(file.as_str());
         let dir = file.parent().ok_or(format!("`{:?}` is not a path to a rust file", file)).unwrap();
         let dir = dir.to_str().unwrap();
@@ -229,13 +320,13 @@ impl DocGen {
                 self.read_mod_file(dir.to_string(), module_path.clone(), mod_name)?;
             }
         }
-        let leaked: &'static mut AstFile = Box::leak(Box::new(ast));
-        self.loaded_files_to_free.push(leaked as *mut AstFile);
+        let leaked: &'static mut SynFile = Box::leak(Box::new(ast));
+        self.loaded_files_to_free.borrow_mut().push(leaked as *mut SynFile);
         self.loaded_files_ast.borrow_mut().insert(module_path.clone(), leaked);
         Ok(())
     }
 
-    fn read_mod_file(&mut self, dir: String, module_path: String, mod_name: String) -> CommandResult {
+    fn read_mod_file(&self, dir: String, module_path: String, mod_name: String) -> CommandResult {
         let dir = std::path::Path::new(dir.as_str());
         let mut path = dir.join(mod_name.as_str());
         if path.is_dir() {
@@ -244,7 +335,7 @@ impl DocGen {
             path = dir.join(format!("{}.rs", mod_name).as_str());
         }
         let path_str = path.to_str().ok_or(format!("Invalid path : `{:?}`", path))?.to_string();
-        let mut f = File::open(path).map_err(|_| format!("Unable to read module `{}`", mod_name))?;
+        let mut f = FsFile::open(path).map_err(|_| format!("Unable to read module `{}`", mod_name))?;
         let mut buffer = String::new();
         f.read_to_string(&mut buffer).map_err(|_| format!("Unable to read module `{}`", mod_name))?;
 

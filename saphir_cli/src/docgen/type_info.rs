@@ -1,5 +1,5 @@
 use syn::{Item, Type, PathArguments, GenericArgument, Expr, UseTree, Lit, ItemStruct, ItemEnum};
-use crate::docgen::{DocGen};
+use crate::docgen::{DocGen, CargoDependancy};
 use std::borrow::Borrow;
 use std::collections::{HashSet};
 
@@ -156,22 +156,58 @@ impl DocGen {
             Item::Use(u) => Some(u),
             _ => None,
         }) {
-            if let Some((module_path, module_item_name)) = self.find_type_in_use_tree(&u.tree, module_path, &module_files,None, item_name) {
-                let rust_type = self.find_type_in_module(module_path.as_str(), module_item_name.as_str());
+            if let Some((item_module_path, module_item_name)) = self.find_type_in_use_tree(&u.tree, module_path, &module_files, None, item_name) {
+                let rust_type = self.find_type_in_module(item_module_path.as_str(), module_item_name.as_str());
                 if let Some(rust_type) = rust_type {
                     return Some(rust_type);
-                } else {
-                    println!("{} not found in {:?}", item_name, module_path);
-
-                    //TODO: Load dependancy here
-
-                    // println!("{:?}", self.dependancies);
-
-                    // let t = self.find_type_in_module(module_path.as_str(), item_name);
-                    // println!("Type : {:?}", t);
+                } else if let Some(rust_type) = self.find_type_in_dependancy(module_path, item_module_path, module_item_name) {
+                    return Some(rust_type);
                 }
+                //     println!("{} not found in {:?}", item_name, item_module_path);
+                //     let module_root = match module_path.split("::").next() { Some(s) => s, None => continue, };
+                //     let module_dependancies = match self.dependancies.borrow().get(module_root) { Some(s) => s, None => continue, };
+                //     println!("module root : {}", module_root);
+                //     //TODO: Load dependancy here
+                //
+                //     // println!("{:?}", self.dependancies);
+                //
+                //     // let t = self.find_type_in_module(module_path.as_str(), item_name);
+                //     // println!("Type : {:?}", t);
+                // }
             }
         }
+
+        None
+    }
+
+    fn find_type_in_dependancy(
+        &self,
+        initial_module_path: &str,
+        item_module_path: String,
+        module_item_name: String,
+    ) -> Option<RustType> {
+        // println!("{} not found in {:?}", module_item_name, item_module_path);
+        let module_root = initial_module_path.split("::").next()?;
+        let item_module_root = item_module_path.split("::").next()?;
+        // let dependancy_info = {
+        //     let dependancies = self.dependancies.borrow();
+        //     let root_dependancies = dependancies.get(module_root)?;
+        //     let dep_info = root_dependancies.get(item_module_root)?;
+        //     dep_info.to_owned()
+        // };
+        // println!("module root : {}", module_root);
+        // println!("module dependancies : {:?}", dependancies.keys());
+        // let item_module_root = item_module_path.split("::").next()?;
+        // let dependancy_info = root_dependancies.get(item_module_root)?;
+        // println!("item module root : {:?}", item_module_root);
+        // println!("Searching for {:?} in {:?}", module_item_name, item_module_path);
+        // println!("dependancy name : {}", &dependancy_info.name);
+        // println!("item module dependancy : {:?}", dependancy_info);
+
+        // println!("loading cargo dep from manifest : {:?}", dependancy_info.manifest_path);
+        // self.read_cargo_dependancies(dependancy_info.name.as_str(), dependancy_info.manifest_path.clone()).ok()?;
+
+        // self.read_rust_dependancy_ast(module_root.to_string(), &dependancy_info);
 
         None
     }

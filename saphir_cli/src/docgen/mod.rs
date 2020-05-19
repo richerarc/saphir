@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 use structopt::StructOpt;
 use syn::{
-    Attribute, Fields, File as SynFile, FnArg, GenericArgument, ImplItem, ImplItemMethod, Item, ItemEnum, ItemImpl, ItemStruct, Lit, Meta, NestedMeta,
+    Attribute, Fields, File as SynFile, FnArg, GenericArgument, ImplItem, ImplItemMethod, Item as SynItem, ItemEnum, ItemImpl, ItemStruct, Lit, Meta, NestedMeta,
     Pat, PathArguments, Signature, Type,
 };
 use crate::docgen::type_info::{TypeInfo, RustType};
@@ -21,7 +21,8 @@ use crate::docgen::rust_module::{CargoDependancy, CargoTarget, RustModule};
 use std::mem::{MaybeUninit};
 use std::ops::Deref;
 use cargo_metadata::Metadata;
-use crate::docgen::crate_syn_browser::{Browser, File, Error, Target};
+use crate::docgen::crate_syn_browser::{Browser, File, Error, Target, Module, Item};
+use lazycell::LazyCell;
 
 mod type_info;
 mod route_info;
@@ -78,76 +79,11 @@ pub(crate) struct DocGenArgs {
     output_file: PathBuf,
 }
 
-pub(crate) struct CargoMetadata {
-    metadata: Option<&'static cargo_metadata::Metadata>,
-    to_free: *mut cargo_metadata::Metadata,
-}
-
-impl CargoMetadata {
-    pub fn uninit() -> Self {
-        Self {
-            metadata: None,
-            to_free: std::ptr::null_mut(),
-        }
-    }
-
-    pub fn init(&mut self, manifest_path: PathBuf) -> Result<(), String> {
-        let metadata = cargo_metadata::MetadataCommand::new()
-            .manifest_path(manifest_path)
-            .exec().map_err(|e| e.to_string())?;
-
-        let leaked: &'static mut cargo_metadata::Metadata = Box::leak(Box::new(metadata));
-        let raw = leaked as *mut cargo_metadata::Metadata;
-        self.metadata = Some(leaked);
-        self.to_free = raw;
-        Ok(())
-    }
-}
-
-impl Deref for CargoMetadata {
-    type Target = cargo_metadata::Metadata;
-
-    fn deref(&self) -> &'static cargo_metadata::Metadata {
-        self.metadata.expect("Cannot be used before calling init")
-    }
-}
-
-impl AsRef<cargo_metadata::Metadata> for CargoMetadata {
-    fn as_ref(&self) -> &'static Metadata {
-        self.metadata.expect("Cannot be used before calling init")
-    }
-}
-
-impl Drop for CargoMetadata {
-    fn drop(&mut self) {
-        if !self.to_free.is_null() {
-            unsafe {
-                let _ = Box::from_raw(self.to_free);
-            }
-        }
-    }
-}
-
 pub(crate) struct DocGen {
     pub args: <DocGen as Command>::Args,
     pub doc: OpenApi,
     pub operation_ids: RefCell<HashSet<String>>,
     pub handlers: RefCell<Vec<HandlerInfo>>,
-    pub loaded_files_ast: RefCell<HashMap<String, &'static SynFile>>,
-    pub cargo_metadata: CargoMetadata,
-    pub browser: Option<Browser>,
-
-    loaded_files_to_free: RefCell<Vec<*mut SynFile>>,
-}
-
-impl Drop for DocGen {
-    fn drop(&mut self) {
-        for file in self.loaded_files_to_free.borrow_mut().iter_mut() {
-            unsafe {
-                let _ = Box::from_raw(*file);
-            }
-        }
-    }
 }
 
 impl Command for DocGen {
@@ -161,18 +97,25 @@ impl Command for DocGen {
             doc,
             operation_ids: RefCell::new(Default::default()),
             handlers: RefCell::new(Vec::new()),
-            loaded_files_ast: RefCell::new(HashMap::new()),
-            cargo_metadata: CargoMetadata::uninit(),
-            loaded_files_to_free: Default::default(),
-            browser: None,
         }
     }
 
     fn run(mut self) -> CommandResult {
         let now = Instant::now();
         self.read_project_cargo_toml()?;
-        let entrypoint = self.get_crate_entrypoint().map_err(|e| format!("{}", e))?;
-
+        let browser = Browser::new(self.args.project_path.clone()).map_err(|e| format!("{}", e))?;
+        let entrypoint = self.get_crate_entrypoint(&browser).map_err(|e| format!("{}", e))?;
+        for m in entrypoint.modules().map_err(|e| format!("{}", e))? {
+            match m {
+                Module::Inline { module, .. } =>  println!("Inline module : {:?}", module),
+                Module::External { module, .. } =>  println!("External module : {:?}", module),
+            }
+        }
+        self.parse_controllers_ast(entrypoint)?;
+        // for i in entrypoint.all_items().map_err(|e| format!("{}", e))? {
+        //     self.parse_controllers_ast()
+        //     println!("Item : {:?}", "i");
+        // }
 
         // self.cargo_metadata.init(self.args.project_path.join("Cargo.toml"))?;
         // self.load_cargo_dependancies()?;
@@ -187,54 +130,58 @@ impl Command for DocGen {
         // self.read_cargo_dependancies("crate", self.args.project_path.clone().join("Cargo.toml"))?;
         // self.read_rust_entrypoint_ast(self.args.project_path.clone(), "src/main.rs")?;
         // self.parse_ast()?;
-        // let handlers = std::mem::take(&mut *self.handlers.borrow_mut());
-        // self.add_all_paths(handlers)?;
-        // let file = self.write_doc_file()?;
-        // println!("Succesfully created `{}` in {}ms", file, now.elapsed().as_millis());
-
-        let file = "doc";
+        let handlers = std::mem::take(&mut *self.handlers.borrow_mut());
+        self.add_all_paths(handlers)?;
+        let file = self.write_doc_file()?;
         println!("Succesfully created `{}` in {}ms", file, now.elapsed().as_millis());
+
+        // let file = "doc";
+        // println!("Succesfully created `{}` in {}ms", file, now.elapsed().as_millis());
         Ok(())
     }
 }
 
 impl DocGen {
-    fn get_crate_entrypoint<'f>(&'f mut self) -> Result<Ref<'f, Target>, String> {
-        let browser = Browser::new(self.args.project_path.clone()).map_err(|e| format!("{}", e))?;
-        self.browser = Some(browser);
-        let browser = self.browser.as_ref().unwrap();
-        println!("crate members : {:?}", browser.packages());
+    // fn init_browser(&mut self) -> Result<(), String> {
+    //     let browser = Browser::new(self.args.project_path.clone()).map_err(|e| format!("{}", e))?;
+    //     let leak = Box::leak(Box::new(browser));
+    //     self.browser_to_free = Some(leak);
+    //     self.browser = Some(leak);
+    //     Ok(())
+    // }
+
+    // fn browser<'s>(&'s self) -> &'static Browser {
+    //     self.browser
+    // }
+
+    fn get_crate_entrypoint<'b>(&'b self, browser: &'b Browser<'b>) -> Result<&'b File, String> {
         let main_package = if let Some(main_name) = self.args.package_name.as_ref() {
             browser.package_by_name(main_name).expect(format!("Crate does not include a member named `{}`.", main_name).as_str())
         } else if browser.packages().len() == 1 {
-            browser.first_package().expect("Condition ensure exactly 1 workspace member")
+            browser.packages().first().expect("Condition ensure exactly 1 workspace member")
         } else {
             return Err(format!("This crate is a workspace with multiple packages!
 Please select the package for which you want to generate the openapi documentation
 by using the --package flag."));
         };
-        println!("Main package : {:?}", main_package);
         let bin_target = main_package.bin_target().expect("Crate does not have a Binary target.");
-        Ok(bin_target)
-        // println!("Main Target: {:?}", bin_target);
-        // let entrypoint = bin_target.entrypoint().map_err(|e| e.to_string())?;
-        // println!("Entrypoint : {:?}", entrypoint);
-        // Ok(entrypoint)
+        let entrypoint = bin_target.entrypoint().map_err(|e| e.to_string())?;
+        Ok(entrypoint)
     }
 
-    fn load_cargo_dependancies(&mut self) -> CommandResult {
-        let main_package = if let Some(main_name) = self.args.package_name.as_ref() {
-            self.cargo_metadata.packages.iter().find(|p| p.name == *main_name)
-        } else if self.cargo_metadata.workspace_members.len() == 1 {
-            self.cargo_metadata.packages.iter().find(|p| p.id == *self.cargo_metadata.workspace_members.first().expect("Condition ensure exactly 1 workspace member"))
-        } else {
-            return Err(format!("This crate is a workspace with multiple packages ({})!
-Please select the package for which you want to generate the openapi documentation
-by using the --package flag.", self.cargo_metadata.workspace_members.iter().map(|p| p.repr.to_string()).collect::<Vec<String>>().join(",")));
-        };
-        println!("Main package : {:?}", main_package);
-        Ok(())
-    }
+//     fn load_cargo_dependancies(&mut self) -> CommandResult {
+//         let main_package = if let Some(main_name) = self.args.package_name.as_ref() {
+//             self.cargo_metadata.packages.iter().find(|p| p.name == *main_name)
+//         } else if self.cargo_metadata.workspace_members.len() == 1 {
+//             self.cargo_metadata.packages.iter().find(|p| p.id == *self.cargo_metadata.workspace_members.first().expect("Condition ensure exactly 1 workspace member"))
+//         } else {
+//             return Err(format!("This crate is a workspace with multiple packages ({})!
+// Please select the package for which you want to generate the openapi documentation
+// by using the --package flag.", self.cargo_metadata.workspace_members.iter().map(|p| p.repr.to_string()).collect::<Vec<String>>().join(",")));
+//         };
+//         println!("Main package : {:?}", main_package);
+//         Ok(())
+//     }
 
     fn write_doc_file(&self) -> Result<String, String> {
         let mut path = self.args.output_file.clone();
@@ -305,71 +252,73 @@ by using the --package flag.", self.cargo_metadata.workspace_members.iter().map(
     //     Ok(())
     // }
 
-    fn read_mods_in_ast(&self, file: String, module_path: String, buffer: String) -> CommandResult {
-        let file = std::path::Path::new(file.as_str());
-        let dir = file.parent().ok_or(format!("`{:?}` is not a path to a rust file", file)).unwrap();
-        let dir = dir.to_str().unwrap();
+    // fn read_mods_in_ast(&self, file: String, module_path: String, buffer: String) -> CommandResult {
+    //     let file = std::path::Path::new(file.as_str());
+    //     let dir = file.parent().ok_or(format!("`{:?}` is not a path to a rust file", file)).unwrap();
+    //     let dir = dir.to_str().unwrap();
+    //
+    //     let ast = syn::parse_file(buffer.as_str()).map_err(|_| format!("Unable to parse the module file `{:?}`", file))?;
+    //     for md in ast.items.iter().filter_map(|i| match i {
+    //         Item::Mod(md) => Some(md),
+    //         _ => None
+    //     }) {
+    //         let mod_name = md.ident.to_string();
+    //         if md.content.is_none() {
+    //             self.read_mod_file(dir.to_string(), module_path.clone(), mod_name)?;
+    //         }
+    //     }
+    //     let leaked: &'static mut SynFile = Box::leak(Box::new(ast));
+    //     self.loaded_files_to_free.borrow_mut().push(leaked as *mut SynFile);
+    //     self.loaded_files_ast.borrow_mut().insert(module_path.clone(), leaked);
+    //     Ok(())
+    // }
+    //
+    // fn read_mod_file(&self, dir: String, module_path: String, mod_name: String) -> CommandResult {
+    //     let dir = std::path::Path::new(dir.as_str());
+    //     let mut path = dir.join(mod_name.as_str());
+    //     if path.is_dir() {
+    //         path = path.join("mod.rs");
+    //     } else {
+    //         path = dir.join(format!("{}.rs", mod_name).as_str());
+    //     }
+    //     let path_str = path.to_str().ok_or(format!("Invalid path : `{:?}`", path))?.to_string();
+    //     let mut f = FsFile::open(path).map_err(|_| format!("Unable to read module `{}`", mod_name))?;
+    //     let mut buffer = String::new();
+    //     f.read_to_string(&mut buffer).map_err(|_| format!("Unable to read module `{}`", mod_name))?;
+    //
+    //     self.read_mods_in_ast(path_str, format!("{}::{}", module_path, mod_name), buffer)
+    // }
 
-        let ast = syn::parse_file(buffer.as_str()).map_err(|_| format!("Unable to parse the module file `{:?}`", file))?;
-        for md in ast.items.iter().filter_map(|i| match i {
-            Item::Mod(md) => Some(md),
-            _ => None
-        }) {
-            let mod_name = md.ident.to_string();
-            if md.content.is_none() {
-                self.read_mod_file(dir.to_string(), module_path.clone(), mod_name)?;
-            }
-        }
-        let leaked: &'static mut SynFile = Box::leak(Box::new(ast));
-        self.loaded_files_to_free.borrow_mut().push(leaked as *mut SynFile);
-        self.loaded_files_ast.borrow_mut().insert(module_path.clone(), leaked);
-        Ok(())
-    }
+    // fn parse_ast(&self) -> CommandResult {
+    //     for (module_path, ast) in self.loaded_files_ast.borrow().iter() {
+    //         for md in ast.items.iter().filter_map(|i| match i {
+    //             Item::Mod(md) => Some(md),
+    //             _ => None
+    //         }) {
+    //             if let Some((_, items)) = &md.content {
+    //                 self.parse_controllers_ast(module_path.clone(), items)?;
+    //             }
+    //         }
+    //         self.parse_controllers_ast(module_path.clone(), &ast.items)?;
+    //     }
+    //     Ok(())
+    // }
 
-    fn read_mod_file(&self, dir: String, module_path: String, mod_name: String) -> CommandResult {
-        let dir = std::path::Path::new(dir.as_str());
-        let mut path = dir.join(mod_name.as_str());
-        if path.is_dir() {
-            path = path.join("mod.rs");
-        } else {
-            path = dir.join(format!("{}.rs", mod_name).as_str());
-        }
-        let path_str = path.to_str().ok_or(format!("Invalid path : `{:?}`", path))?.to_string();
-        let mut f = FsFile::open(path).map_err(|_| format!("Unable to read module `{}`", mod_name))?;
-        let mut buffer = String::new();
-        f.read_to_string(&mut buffer).map_err(|_| format!("Unable to read module `{}`", mod_name))?;
-
-        self.read_mods_in_ast(path_str, format!("{}::{}", module_path, mod_name), buffer)
-    }
-
-    fn parse_ast(&self) -> CommandResult {
-        for (module_path, ast) in self.loaded_files_ast.borrow().iter() {
-            for md in ast.items.iter().filter_map(|i| match i {
-                Item::Mod(md) => Some(md),
-                _ => None
+    fn parse_controllers_ast<'b>(&self, entrypoint: &'b File<'b>) -> CommandResult {
+        for (item, im) in entrypoint.all_items().map_err(|e| format!("{}", e))?
+            .iter()
+            .filter_map(|i| match i.item {
+                SynItem::Impl(im) => Some((i, im)),
+                _ => None,
             }) {
-                if let Some((_, items)) = &md.content {
-                    self.parse_controllers_ast(module_path.clone(), items)?;
-                }
-            }
-            self.parse_controllers_ast(module_path.clone(), &ast.items)?;
-        }
-        Ok(())
-    }
-
-    fn parse_controllers_ast(&self, module_path: String, items: &Vec<Item>) -> CommandResult {
-        for im in items.iter().filter_map(|i| match i {
-            Item::Impl(im) => Some(im),
-            _ => None,
-        }) {
-            if let Some(controller) = self.get_controller_info(im) {
-                self.parse_handlers_ast(module_path.clone(), controller, &im.items)?;
+            if let Some(controller) = self.get_controller_info(item, im) {
+                self.parse_handlers_ast(item.file, controller, &im.items)?;
             }
         }
         Ok(())
     }
 
-    fn get_controller_info(&self, im: &ItemImpl) -> Option<ControllerInfo> {
+    fn get_controller_info(&self, item: &Item, im: &ItemImpl) -> Option<ControllerInfo> {
         for attr in &im.attrs {
             if let Some(first_seg) = attr.path.segments.first() {
                 let t = im.self_ty.as_ref();
@@ -403,6 +352,8 @@ by using the --package flag.", self.cargo_metadata.workspace_members.iter().map(
                                     }
                                 }
 
+                                println!("Controller : {}", controller_name);
+
                                 return Some(ControllerInfo {
                                     controller_name,
                                     name,
@@ -419,7 +370,7 @@ by using the --package flag.", self.cargo_metadata.workspace_members.iter().map(
         None
     }
 
-    fn parse_handlers_ast(&self, module_path: String, controller: ControllerInfo, items: &Vec<ImplItem>) -> CommandResult {
+    fn parse_handlers_ast<'b>(&self, file : &'b File<'b>, controller: ControllerInfo, items: &'b Vec<ImplItem>) -> CommandResult {
         for m in items.iter().filter_map(|i| match i {
             ImplItem::Method(m) => Some(m),
             _ => None,
@@ -429,7 +380,7 @@ by using the --package flag.", self.cargo_metadata.workspace_members.iter().map(
             if routes.is_empty() {
                 continue;
             }
-            let parameters_info = self.parse_handler_parameters(module_path.clone(), &m, &routes[0].uri_params);
+            let parameters_info = self.parse_handler_parameters(file, &m, &routes[0].uri_params);
             if parameters_info.has_cookies_param {
                 consume_cookies = true;
             }
@@ -437,7 +388,6 @@ by using the --package flag.", self.cargo_metadata.workspace_members.iter().map(
             for route in routes {
                 let operation_id = self.handler_operation_id_from_sig(&m.sig);
                 self.handlers.borrow_mut().push(HandlerInfo {
-                    module_path: module_path.clone(),
                     controller: controller.clone(),
                     route,
                     parameters: parameters_info.parameters.clone(),
@@ -450,7 +400,7 @@ by using the --package flag.", self.cargo_metadata.workspace_members.iter().map(
         Ok(())
     }
 
-    fn parse_handler_parameters(&self, module_path: String, m: &ImplItemMethod, uri_params: &Vec<String>) -> RouteParametersInfo {
+    fn parse_handler_parameters<'b>(&self, file: &'b File<'b>, m: &ImplItemMethod, uri_params: &Vec<String>) -> RouteParametersInfo {
         let mut parameters = Vec::new();
         let mut has_cookies_param = false;
         let mut body_type = None;
@@ -533,7 +483,7 @@ by using the --package flag.", self.cargo_metadata.workspace_members.iter().map(
                     if let PathArguments::AngleBracketed(ag) = &body.arguments {
                         if let Some(GenericArgument::Type(t)) = ag.args.first() {
                             if let Some(type_info) = self.find_type_info(
-                                module_path.as_str(),
+                                file,
                                 t
                             ) {
                                 body_info = Some(BodyParamInfo { openapi_type, type_info });
@@ -804,23 +754,24 @@ by using the --package flag.", self.cargo_metadata.workspace_members.iter().map(
 
     // TODO: Support HashMap
     fn get_open_api_type_from_type_info(&self, type_info: &TypeInfo) -> Option<OpenApiType> {
-        match &type_info.rust_type {
-            RustType::Struct { file_path, item } => {
-                if self.find_macro_attribute_flag(&item.attrs, "derive", "Deserialize") {
-                    if let Some(s) = self.get_open_api_type_from_struct(file_path, item) {
-                        return Some(s);
-                    }
-                }
-            }
-            RustType::Enum { file_path, item } => {
-                if self.find_macro_attribute_flag(&item.attrs, "derive", "Deserialize") {
-                    if let Some(s) = self.get_open_api_type_from_enum(file_path, item) {
-                        return Some(s);
-                    }
-                }
-            }
-            _ => {}
-        }
+        println!("get_open_api_type_from_type_info not yet implemented");
+        // match &type_info.rust_type {
+        //     RustType::Struct { file_path, item } => {
+        //         if self.find_macro_attribute_flag(&item.attrs, "derive", "Deserialize") {
+        //             if let Some(s) = self.get_open_api_type_from_struct(file_path, item) {
+        //                 return Some(s);
+        //             }
+        //         }
+        //     }
+        //     RustType::Enum { file_path, item } => {
+        //         if self.find_macro_attribute_flag(&item.attrs, "derive", "Deserialize") {
+        //             if let Some(s) = self.get_open_api_type_from_enum(file_path, item) {
+        //                 return Some(s);
+        //             }
+        //         }
+        //     }
+        //     _ => {}
+        // }
         None
     }
 
@@ -914,7 +865,7 @@ by using the --package flag.", self.cargo_metadata.workspace_members.iter().map(
         None
     }
 
-    fn get_open_api_type_from_struct(&self, file_path: &str, s: &ItemStruct) -> Option<OpenApiType> {
+    fn get_open_api_type_from_struct<'b>(&self, item: &'b Item<'b>, s: &ItemStruct) -> Option<OpenApiType> {
         let mut properties = HashMap::new();
         let mut required = Vec::new();
         for field in &s.fields {
@@ -925,7 +876,7 @@ by using the --package flag.", self.cargo_metadata.workspace_members.iter().map(
                 .flatten()
             {
                 if let Some(field_type_info) = self.find_type_info(
-                    file_path,
+                    item.file,
                     &field.ty,
                 ) {
                     let field_type = self
@@ -1047,7 +998,6 @@ impl ControllerInfo {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct HandlerInfo {
-    module_path: String,
     controller: ControllerInfo,
     route: RouteInfo,
     parameters: Vec<OpenApiParameter>,

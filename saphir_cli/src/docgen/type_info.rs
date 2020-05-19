@@ -2,6 +2,7 @@ use syn::{Item, Type, PathArguments, GenericArgument, Expr, UseTree, Lit, ItemSt
 use crate::docgen::{DocGen, CargoDependancy};
 use std::borrow::Borrow;
 use std::collections::{HashSet};
+use crate::docgen::crate_syn_browser::File;
 
 #[derive(Clone, Debug)]
 pub(crate) struct TypeInfo {
@@ -27,67 +28,70 @@ pub(crate) enum RustType {
 }
 
 impl DocGen {
-    pub fn find_type_info(
+    pub fn find_type_info<'b>(
         &self,
-        module_path: &str,
+        file: &'b File<'b>,
         t: &Type
     ) -> Option<TypeInfo> {
-        match t.borrow() {
-            Type::Path(p) => {
-                if let Some(s) = p.path.segments.first() {
-                    let name = s.ident.to_string();
-                    if name == "Vec" || name == "Option" {
-                        let ag = match &s.arguments {
-                            PathArguments::AngleBracketed(ag) => ag,
-                            _ =>  {
-                                println!("{} need angle bracket type parameter. Maybe another type was aliased as {}, which is not supported.", name, name);
-                                return None;
-                            },
-                        };
-                        let t2 = match ag.args.iter().find_map(|a| match a {
-                            GenericArgument::Type(t) => Some(t),
-                            _ => None
-                        }) {
-                            Some(t) => t,
-                            None => {
-                                println!("{} should be provided a type in angle-bracketed format. Faulty type : {:?}", name, t);
-                                return None;
-                            }
-                        };
+        println!("find_type_info is not implemented yet");
+        return None;
 
-                        if let Some(mut type_info) = self.find_type_info(module_path, t2) {
-                            match name.as_str() {
-                                "Vec" => type_info.is_array = true,
-                                "Option" => type_info.is_optional = true,
-                                _ => unreachable!()
-                            }
-                            return Some(type_info);
-                        }
-                    } else {
-                        let rust_type = self.find_type_in_module(module_path, name.as_str()).unwrap_or(RustType::Primitive);
-                        return Some(TypeInfo { name, rust_type, is_array: false, is_optional: false, min_array_len: None, max_array_len: None });
-                    }
-                }
-            }
-            Type::Array(a) => {
-                let len: Option<u32> = match &a.len {
-                    Expr::Lit(l) => match &l.lit {
-                        Lit::Int(i) => i.base10_parse().ok(),
-                        _ => None,
-                    },
-                    _ => None,
-                };
-
-                if let Some(mut type_info) = self.find_type_info(module_path, a.elem.as_ref()) {
-                    type_info.is_array = true;
-                    type_info.min_array_len = len.clone();
-                    type_info.max_array_len = len;
-                    return Some(type_info);
-                }
-            }
-            _ => {},
-        };
-        None
+        // match t.borrow() {
+        //     Type::Path(p) => {
+        //         if let Some(s) = p.path.segments.first() {
+        //             let name = s.ident.to_string();
+        //             if name == "Vec" || name == "Option" {
+        //                 let ag = match &s.arguments {
+        //                     PathArguments::AngleBracketed(ag) => ag,
+        //                     _ =>  {
+        //                         println!("{} need angle bracket type parameter. Maybe another type was aliased as {}, which is not supported.", name, name);
+        //                         return None;
+        //                     },
+        //                 };
+        //                 let t2 = match ag.args.iter().find_map(|a| match a {
+        //                     GenericArgument::Type(t) => Some(t),
+        //                     _ => None
+        //                 }) {
+        //                     Some(t) => t,
+        //                     None => {
+        //                         println!("{} should be provided a type in angle-bracketed format. Faulty type : {:?}", name, t);
+        //                         return None;
+        //                     }
+        //                 };
+        //
+        //                 if let Some(mut type_info) = self.find_type_info(file, t2) {
+        //                     match name.as_str() {
+        //                         "Vec" => type_info.is_array = true,
+        //                         "Option" => type_info.is_optional = true,
+        //                         _ => unreachable!()
+        //                     }
+        //                     return Some(type_info);
+        //                 }
+        //             } else {
+        //                 let rust_type = self.find_type_in_module(module_path, name.as_str()).unwrap_or(RustType::Primitive);
+        //                 return Some(TypeInfo { name, rust_type, is_array: false, is_optional: false, min_array_len: None, max_array_len: None });
+        //             }
+        //         }
+        //     }
+        //     Type::Array(a) => {
+        //         let len: Option<u32> = match &a.len {
+        //             Expr::Lit(l) => match &l.lit {
+        //                 Lit::Int(i) => i.base10_parse().ok(),
+        //                 _ => None,
+        //             },
+        //             _ => None,
+        //         };
+        //
+        //         if let Some(mut type_info) = self.find_type_info(module_path, a.elem.as_ref()) {
+        //             type_info.is_array = true;
+        //             type_info.min_array_len = len.clone();
+        //             type_info.max_array_len = len;
+        //             return Some(type_info);
+        //         }
+        //     }
+        //     _ => {},
+        // };
+        // None
     }
 
     fn find_type_in_module<'f>(
@@ -95,24 +99,25 @@ impl DocGen {
         module_path: &str,
         item_name: &str,
     ) -> Option<RustType> {
-        // let fully_qualified_item_name = format!("{}::{}", module_path, item_name);
-        // if let Some(type_info) = self.found_rust_types.borrow().get(fully_qualified_item_name.as_str()) {
-        //     return type_info.clone();
-        // }
-
-        let file = *self.loaded_files_ast.borrow().get(module_path)?;
-        let result = self.find_type_in_items(&file.items, module_path, item_name);
-        // self.found_rust_types.borrow_mut().insert(fully_qualified_item_name, result.clone());
-
-        // if let Some(result) = &result {
-        //     self.found_rust_types.borrow_mut().insert(fully_qualified_item_name, Some(result.clone()));
-        // }
-
-        // if let Some(rust_type) = self.find_type_in_use(module_path, item_name) {
-        //     return Some(rust_type);
-        // }
-
-        result
+        None
+        // // let fully_qualified_item_name = format!("{}::{}", module_path, item_name);
+        // // if let Some(type_info) = self.found_rust_types.borrow().get(fully_qualified_item_name.as_str()) {
+        // //     return type_info.clone();
+        // // }
+        //
+        // let file = *self.loaded_files_ast.borrow().get(module_path)?;
+        // let result = self.find_type_in_items(&file.items, module_path, item_name);
+        // // self.found_rust_types.borrow_mut().insert(fully_qualified_item_name, result.clone());
+        //
+        // // if let Some(result) = &result {
+        // //     self.found_rust_types.borrow_mut().insert(fully_qualified_item_name, Some(result.clone()));
+        // // }
+        //
+        // // if let Some(rust_type) = self.find_type_in_use(module_path, item_name) {
+        // //     return Some(rust_type);
+        // // }
+        //
+        // result
     }
 
     fn find_type_in_items(

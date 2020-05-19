@@ -6,10 +6,11 @@ use Error::*;
 use syn::export::fmt::Display;
 use syn::export::Formatter;
 use cargo_metadata::{Package as MetaPackage, Target as MetaTarget, PackageId};
-use syn::{File as SynFile};
+use syn::{File as SynFile, Item as SynItem, ItemMod as SynMod};
 use std::fs::File as FsFile;
 use std::fmt::Debug;
 use std::io::Read;
+use lazycell::LazyCell;
 
 #[derive(Debug)]
 pub enum Error {
@@ -76,12 +77,12 @@ where F: Fn(&T) -> bool {
 }
 
 #[derive(Debug)]
-pub struct Browser {
+pub struct Browser<'b> {
     crate_metadata: cargo_metadata::Metadata,
-    packages: RefCell<Option<Vec<Package>>>,
+    packages: LazyCell<Vec<Package<'b>>>,
 }
 
-impl Browser {
+impl<'b> Browser<'b> {
     pub fn new(crate_path: PathBuf) -> Result<Self, Error> {
         let crate_metadata = cargo_metadata::MetadataCommand::new()
             .manifest_path(crate_path.join("Cargo.toml"))
@@ -89,114 +90,109 @@ impl Browser {
 
         let browser = Self {
             crate_metadata,
-            packages: RefCell::new(None),
+            packages: LazyCell::new()
         };
 
         Ok(browser)
     }
 
-    pub fn package_by_name(&self, name: &str) -> Option<Ref<Package>> {
-        find_in_ref_vec(self.packages(), |p| unsafe { (*p.package).name.as_str() } == name)
+    pub fn package_by_name(&'b self, name: &str) -> Option<&'b Package> {
+        self.packages().iter().find(|p| p.package.name.as_str() == name)
     }
 
-    pub fn first_package(&self) -> Option<Ref<Package>> {
-        let packages = self.packages();
-        if packages.is_empty() { return None; }
-        Some(Ref::map(packages, |p| &p[0]))
-    }
-
-    pub fn packages(&self) -> Ref<Vec<Package>> {
-        if self.packages.borrow().is_none() {
+    pub fn packages(&'b self) -> &'b Vec<Package> {
+        if !self.packages.filled() {
             let members: Vec<Package> = self.crate_metadata.workspace_members
                 .iter()
                 .map(|id| Package::new(self, id).expect("Should exist since we provided a proper PackageId"))
                 .collect();
-            *self.packages.borrow_mut() = Some(members);
+            self.packages.fill(members);
         }
 
-        return Ref::map(self.packages.borrow(), |m| m.as_ref().unwrap());
+        self.packages.borrow().expect("Should have been initialized by the previous statement")
     }
 }
 
 #[derive(Debug)]
-pub struct Package {
-    browser: *const Browser,
-    package: *const MetaPackage,
-    targets: RefCell<Option<Vec<Target>>>,
+pub struct Package<'b> {
+    browser: &'b Browser<'b>,
+    package: &'b MetaPackage,
+    targets: LazyCell<Vec<Target<'b>>>,
 }
 
-impl Package {
+impl<'b> Package<'b> {
     pub fn new(
-        browser: &Browser,
-        id: &PackageId,
+        browser: &'b Browser<'b>,
+        id: &'b PackageId,
     ) -> Option<Self> {
         let package = browser.crate_metadata.packages.iter().find(|p| p.id == *id)?;
 
         Some(Self {
-            browser: browser as *const Browser,
-            package: package as *const MetaPackage,
-            targets: RefCell::new(None),
+            browser,
+            package,
+            targets: LazyCell::new(),
         })
     }
 
-    fn targets(&self) -> Ref<Vec<Target>> {
-        if self.targets.borrow().is_none() {
-            let targets = unsafe { &(*self.package).targets }
+    fn targets(&'b self) -> &'b Vec<Target> {
+        if !self.targets.filled() {
+            let targets = self.package.targets
                 .iter()
                 .map(|t| Target::new(self, t))
                 .collect();
-            *self.targets.borrow_mut() = Some(targets);
+            self.targets.fill(targets);
         }
-
-        return Ref::map(self.targets.borrow(), |m| m.as_ref().unwrap());
+        self.targets.borrow().expect("Should have been initialized by the previous statement")
     }
 
-    pub fn bin_target(&self) -> Option<Ref<Target>> {
-        find_in_ref_vec(self.targets(), |t| {
-            let t = unsafe { &*t.target };
-            t.kind.contains(&"bin".to_string())
-        })
+    pub fn bin_target(&'b self) -> Option<&'b Target> {
+        self.targets().iter().find(|t| t.target.kind.contains(&"bin".to_string()))
     }
 }
 
 #[derive(Debug)]
-pub struct Target {
-    member: *const Package,
-    target: *const MetaTarget,
-    entrypoint: RefCell<Option<File>>,
+pub struct Target<'b> {
+    member: &'b Package<'b>,
+    target: &'b MetaTarget,
+    entrypoint: LazyCell<File<'b>>,
 }
 
-impl Target {
+impl<'b> Target<'b> {
     pub fn new(
-        member: &Package,
-        target: &MetaTarget,
+        member: &'b Package<'b>,
+        target: &'b MetaTarget,
     ) -> Self {
         Self {
             member,
             target,
-            entrypoint: RefCell::new(None),
+            entrypoint: LazyCell::new(),
         }
     }
 
-    pub fn entrypoint(&self) -> Result<Ref<File>, Error> {
-        if self.entrypoint.borrow().is_none() {
-            let file = File::new(self, unsafe { &(*self.target).src_path })?;
-            *self.entrypoint.borrow_mut() = Some(file);
+    pub fn entrypoint(&'b self) -> Result<&'b File, Error> {
+        if !self.entrypoint.filled() {
+            let file = File::new(self, &self.target.src_path, "crate".to_string() )?;
+            self.entrypoint.fill(file);
         }
-        Ok(Ref::map(self.entrypoint.borrow(), |e| e.as_ref().unwrap()))
+        Ok(self.entrypoint.borrow().expect("Should have been initialized by the previous statement"))
     }
 }
 
 #[derive(Debug)]
-pub struct File {
-    target: *const Target,
+pub struct File<'b> {
+    target: &'b Target<'b>,
     pub file: SynFile,
+    pub use_path: String,
+    items: LazyCell<Vec<Item<'b>>>,
+    modules: LazyCell<Vec<Module<'b>>>,
+    dir: PathBuf,
 }
 
-impl File {
+impl<'b> File<'b> {
     pub fn new(
-        target: &Target,
-        path: &PathBuf
+        target: &'b Target<'b>,
+        path: &PathBuf,
+        use_path: String,
     ) -> Result<Self, Error> {
         let mut f = FsFile::open(path).map_err(|e| FileIoError(Box::new(path.clone()), Box::new(e)))?;
         let mut buffer = String::new();
@@ -205,8 +201,113 @@ impl File {
         let file = syn::parse_file(buffer.as_str()).map_err(|e| FileParseError(Box::new(path.clone()), Box::new(e)))?;
 
         Ok(Self {
-            target: target as *const Target,
+            target,
             file,
+            use_path,
+            items: LazyCell::new(),
+            modules: LazyCell::new(),
+            dir: path.parent().expect("Valid file path should have valid parent folder").to_path_buf()
         })
+    }
+
+    pub fn items(&'b self) -> &'b Vec<Item<'b>> {
+        if !self.items.filled() {
+            let items = self.file.items
+                .iter()
+                .map(|i| Item::new(self, i))
+                .collect();
+            self.items.fill(items);
+        }
+        self.items.borrow().expect("Should have been initialized by the previous statement")
+    }
+
+    pub fn modules(&'b self) -> Result<&'b Vec<Module>, Error> {
+        if !self.modules.filled() {
+            let modules = self.items().iter()
+                .filter_map(|i| match i.item {
+                    SynItem::Mod(m) => Some(m),
+                    _ => None,
+                })
+                .map(|m| Module::new(self, m))
+                .collect::<Result<Vec<_>, _>>()?;
+            self.modules.fill(modules);
+        }
+        Ok(self.modules.borrow().expect("Should have been initialized by the previous statement"))
+    }
+
+    pub fn all_items(&'b self) -> Result<Vec<&'b Item<'b>>, Error> {
+        let mut vec = Vec::new();
+        vec.extend(self.items());
+        for m in self.modules()? {
+            vec.extend(m.all_items()?);
+        }
+        Ok(vec)
+    }
+}
+
+#[derive(Debug)]
+pub struct Item<'b> {
+    pub file: &'b File<'b>,
+    pub item: &'b SynItem,
+}
+
+impl<'b> Item<'b> {
+    pub fn new(
+        file: &'b File<'b>,
+        item: &'b SynItem
+    ) -> Self {
+        Self {
+            file,
+            item
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum Module<'b> {
+    Inline {
+        file: &'b File<'b>,
+        module: &'b SynMod,
+        items: Vec<Item<'b>>,
+    },
+    External {
+        module: &'b SynMod,
+        file: File<'b>,
+    }
+}
+
+impl<'b> Module<'b> {
+    pub fn new(
+        file: &'b File<'b>,
+        module: &'b SynMod,
+    ) -> Result<Self, Error> {
+        Ok(if module.content.is_some() {
+            Module::Inline { file, module, items: module.content.as_ref().unwrap().1.iter().map(|i| Item::new(file, i)).collect() }
+        } else {
+            let name = module.ident.to_string();
+            let use_path =  format!("{}::{}", file.use_path, &name);
+            let mut path = file.dir.join(&name).join("mod.rs");
+            if !path.exists() {
+                path = file.dir.join(format!("{}.rs", name));
+            }
+            Module::External {
+                module,
+                file: File::new(file.target, &path, use_path)?
+            }
+        })
+    }
+
+    pub fn items(&'b self) -> &'b Vec<Item<'b>> {
+        match self {
+            Module::Inline { items, .. } => items,
+            Module::External { file, .. } => file.items(),
+        }
+    }
+
+    pub fn all_items(&'b self) -> Result<Vec<&'b Item<'b>>, Error> {
+        match self {
+            Module::Inline { items, .. } => Ok(items.iter().collect()),
+            Module::External { file, .. } => file.all_items(),
+        }
     }
 }

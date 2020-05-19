@@ -7,7 +7,7 @@ use crate::docgen::DocGen;
 
 type CommandResult = std::result::Result<(), String>;
 
-trait Command {
+trait Command: Sized {
     type Args;
     fn new(args: Self::Args) -> Self;
     fn run(self) -> CommandResult;

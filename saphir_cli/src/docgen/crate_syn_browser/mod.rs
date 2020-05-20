@@ -1,5 +1,4 @@
-use std::cell::{RefCell, Ref};
-use crate::docgen::rust_module::AstFile;
+use std::cell::{RefCell};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use Error::*;
@@ -31,12 +30,6 @@ impl Into<String> for Error {
     }
 }
 
-// impl From<std::io::Error> for Error {
-//     fn from(e: std::io::Error) -> Self {
-//         FileError(Box::new(e))
-//     }
-// }
-
 // TODO: Pretty error messages
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -55,24 +48,6 @@ impl std::error::Error for Error {
             FileIoError(_, e) => Some(e),
             FileParseError(_, e) => Some(e),
         }
-    }
-}
-
-fn find_in_ref_vec<T, F>(r: Ref<Vec<T>>, criteria: F) -> Option<Ref<T>>
-where F: Fn(&T) -> bool {
-    if r.is_empty() { return None; }
-    let p = Ref::map(r, |r| {
-        for p in r {
-            if criteria(p) {
-                return p;
-            }
-        }
-        return &r[0];
-    });
-    if criteria(&p) {
-        Some(p)
-    } else {
-        None
     }
 }
 
@@ -97,27 +72,43 @@ impl<'b> Browser<'b> {
     }
 
     pub fn package_by_name(&'b self, name: &str) -> Option<&'b Package> {
-        self.packages().iter().find(|p| p.package.name.as_str() == name)
+        self.packages().iter().find(|p| p.meta.name.as_str() == name)
     }
 
-    pub fn packages(&'b self) -> &'b Vec<Package> {
+    fn init_packages(&'b self) {
         if !self.packages.filled() {
             let members: Vec<Package> = self.crate_metadata.workspace_members
                 .iter()
                 .map(|id| Package::new(self, id).expect("Should exist since we provided a proper PackageId"))
                 .collect();
-            self.packages.fill(members);
+            self.packages.fill(members).expect("We should never be filling this twice");
         }
+    }
 
+    pub fn packages(&'b self) -> &'b Vec<Package> {
+        self.init_packages();
         self.packages.borrow().expect("Should have been initialized by the previous statement")
     }
 }
 
 #[derive(Debug)]
 pub struct Package<'b> {
+    name: String,
     browser: &'b Browser<'b>,
-    package: &'b MetaPackage,
+    meta: &'b MetaPackage,
     targets: LazyCell<Vec<Target<'b>>>,
+    dependancies: RefCell<HashMap<String, Option<*const Package<'b>>>>,
+    dependancies_to_free: RefCell<Vec<*mut Package<'b>>>,
+}
+
+impl Drop for Package<'_> {
+    fn drop(&mut self) {
+        for free_me in self.dependancies_to_free.borrow_mut().iter() {
+            unsafe {
+                let _ = Box::from_raw(*free_me);
+            }
+        }
+    }
 }
 
 impl<'b> Package<'b> {
@@ -126,21 +117,58 @@ impl<'b> Package<'b> {
         id: &'b PackageId,
     ) -> Option<Self> {
         let package = browser.crate_metadata.packages.iter().find(|p| p.id == *id)?;
+        let name = package.name.clone();
 
         Some(Self {
             browser,
-            package,
+            name,
+            meta: package,
             targets: LazyCell::new(),
+            dependancies: RefCell::new(HashMap::new()),
+            dependancies_to_free: RefCell::new(Vec::new()),
         })
+    }
+
+    pub fn dependancy(&'b self, name: &str) -> Option<&'b Package> {
+        if !self.dependancies.borrow().contains_key(name) {
+            let package = self.meta.dependencies
+                .iter()
+                .find(|dep| dep.rename.as_ref().unwrap_or(&dep.name) == name)
+                .map(|dep| {
+                    self.browser.crate_metadata.packages
+                        .iter()
+                        .find(|package| package.name == dep.name && dep.req.matches(&package.version))
+                        .map(|p| Package::new(self.browser, &p.id))
+                        .flatten()
+                })
+                .flatten();
+            let to_add = if let Some(package) = package {
+                let raw_mut = Box::into_raw(Box::new(package));
+                self.dependancies_to_free.borrow_mut().push(raw_mut);
+                Some(raw_mut as *const Package)
+            } else {
+                None
+            };
+            self.dependancies.borrow_mut().insert(name.to_string(), to_add);
+        }
+        self.dependancies
+            .borrow()
+            .get(name)
+            .map(|d| d.as_ref())
+            .map(|d| d.map(|rc| rc.clone()))
+            .flatten()
+            .map(|b| {
+                unsafe { &*b }
+            })
     }
 
     fn targets(&'b self) -> &'b Vec<Target> {
         if !self.targets.filled() {
-            let targets = self.package.targets
+            let targets = self.meta.targets
                 .iter()
                 .map(|t| Target::new(self, t))
                 .collect();
-            self.targets.fill(targets);
+            self.targets.fill(targets).expect("We should never be filling this twice");
         }
         self.targets.borrow().expect("Should have been initialized by the previous statement")
     }
@@ -148,11 +176,15 @@ impl<'b> Package<'b> {
     pub fn bin_target(&'b self) -> Option<&'b Target> {
         self.targets().iter().find(|t| t.target.kind.contains(&"bin".to_string()))
     }
+
+    pub fn lib_target(&'b self) -> Option<&'b Target> {
+        self.targets().iter().find(|t| t.target.kind.contains(&"lib".to_string()))
+    }
 }
 
 #[derive(Debug)]
 pub struct Target<'b> {
-    member: &'b Package<'b>,
+    package: &'b Package<'b>,
     target: &'b MetaTarget,
     entrypoint: LazyCell<File<'b>>,
     files: RefCell<HashMap<String, &'b File<'b>>>,
@@ -160,40 +192,74 @@ pub struct Target<'b> {
 
 impl<'b> Target<'b> {
     pub fn new(
-        member: &'b Package<'b>,
+        package: &'b Package<'b>,
         target: &'b MetaTarget,
     ) -> Self {
         Self {
-            member,
+            package,
             target,
             entrypoint: LazyCell::new(),
             files: RefCell::default(),
         }
     }
 
-    pub fn entrypoint(&'b self) -> Result<&'b File, Error> {
+    pub fn entrypoint(&'b self) -> Result<&'b File<'b>, Error> {
         if !self.entrypoint.filled() {
-            let file = File::new(self, &self.target.src_path, "crate".to_string() )?;
-            self.entrypoint.fill(file);
+            let file = File::new(self, &self.target.src_path, self.package.name.clone() )?;
+            self.entrypoint.fill(file).expect("We should never be filling this twice");
             let file = self.entrypoint.borrow().unwrap();
             self.files.borrow_mut().insert(file.use_path.clone(), file);
         }
         Ok(self.entrypoint.borrow().expect("Should have been initialized by the previous statement"))
     }
 
-    pub fn file_by_use_path(&'b self, path: &str) -> Result<Option<&'b File>, Error> {
-        //TODO: This work, uncomment once file resolution below is successfully implemented
-        if let Some(file) = self.files.borrow().get(path) {
-            return Ok(Some(file));
-        }
-        if let Some(root) = path.split("::").next() {
+    pub fn file_by_use_path(&'b self, path: &str) -> Result<Option<&'b File<'b>>, Error> {
+        // if let Some(file) = self.files.borrow().get(path) {
+        //     return Ok(Some(file));
+        // }
+        let mut path_split = path.split("::");
+        if let Some(mut root) = path_split.next() {
             if root == "crate" {
-            } else {
-                // TODO: Implement resolution of dependancy files
-                println!("Dependancies files resolution is not implemented yet");
+                root = self.package.name.as_str();
             }
+            let file = if root == self.package.name.as_str() {
+                let mut cur_file = self.entrypoint()?;
+                for split in path_split {
+                    if let Some(m) = cur_file.modules()?.iter().find(|m| m.name().as_str() == split) {
+                        cur_file = match m {
+                            Module::External { file, .. } => file,
+                            Module::Inline { file, .. } => *file,
+                        };
+                    }
+                }
+                if cur_file.use_path == path {
+                    Some(cur_file)
+                } else {
+                    None
+                }
+            } else {
+                let dep_package = match self.package.dependancy(root) {
+                    Some(dep) => dep,
+                    None => return Ok(None),
+                };
+                let lib = dep_package.lib_target();
+                let lib = match lib {
+                    Some(lib) => lib,
+                    None => return Ok(None),
+                };
+                let mut remaining_path: Vec<&str> = vec![root];
+                remaining_path.extend(path_split);
+                let use_path = remaining_path.join("::");
+                let file = lib.file_by_use_path(use_path.as_str())?;
+                file
+            };
+            if let Some(file) = file {
+                self.files.borrow_mut().insert(path.to_string(), file);
+            }
+            Ok(file)
+        } else {
+            Ok(None)
         }
-        Ok(None)
     }
 }
 
@@ -222,7 +288,7 @@ impl<'b> File<'b> {
         let file = Self {
             target,
             file,
-            use_path: use_path.clone(),
+            use_path,
             items: LazyCell::new(),
             modules: LazyCell::new(),
             dir: path.parent().expect("Valid file path should have valid parent folder").to_path_buf()
@@ -237,7 +303,7 @@ impl<'b> File<'b> {
                 .iter()
                 .map(|i| Item::new(self, i))
                 .collect();
-            self.items.fill(items);
+            self.items.fill(items).expect("We should never be filling this twice");
         }
         self.items.borrow().expect("Should have been initialized by the previous statement")
     }
@@ -251,11 +317,10 @@ impl<'b> File<'b> {
                 })
                 .map(|m| Module::new(self, m))
                 .collect::<Result<Vec<_>, _>>()?;
-            self.modules.fill(modules);
+            self.modules.fill(modules).expect("We should never be filling this twice");
             for m in self.modules.borrow().unwrap() {
-                match &m {
-                    Module::External { file, .. } => { self.target.files.borrow_mut().insert(file.use_path.clone(), &file); },
-                    _ => { },
+                if let Module::External { file, .. } = &m {
+                    self.target.files.borrow_mut().insert(file.use_path.clone(), &file);
                 }
             }
         }
@@ -286,7 +351,7 @@ impl<'b> File<'b> {
     }
 
     pub fn find_impl(&'b self, name: &str) -> Result<Option<&'b Item<'b>>, Error> {
-        if let Some(item) = self.find_impl_inline(name)? {
+        if let Ok(Some(item)) = self.find_impl_inline(name) {
             return Ok(Some(item));
         }
 
@@ -294,15 +359,15 @@ impl<'b> File<'b> {
             SynItem::Use(u) => Some(u),
             _ => None
         }) {
-            for (path, name, alias) in self.expand_use_tree(&u.tree, None) {
+            for (path, use_name, alias) in self.expand_use_tree(&u.tree, None) {
                 if alias.as_str() == name {
-                    println!("({}) {}", alias, path);
                     if let Some(file) = self.target.file_by_use_path(path.as_str())? {
-                        return file.find_impl_inline(name.as_str());
+                        return file.find_impl_inline(use_name.as_str());
                     }
                 }
             }
         }
+        //At this point, this is most likely a primitive.
         Ok(None)
     }
 
@@ -344,6 +409,8 @@ impl<'b> File<'b> {
                 let prefix = if prefix.is_none() {
                     if path_segment.as_str() == "self" {
                         self.use_path.clone()
+                    } else if path_segment.as_str() == "crate" {
+                        self.target.package.name.clone()
                     } else {
                         path_segment
                     }
@@ -416,7 +483,15 @@ impl<'b> Module<'b> {
             module
         })
     }
+    pub fn name(&self) -> String {
+        let module = match self {
+            Module::Inline { module, .. } => module,
+            Module::External { module, .. } => module,
+        };
+        module.ident.to_string()
+    }
 
+    #[allow(dead_code)]
     pub fn items(&'b self) -> &'b Vec<Item<'b>> {
         match self {
             Module::Inline { items, .. } => items,

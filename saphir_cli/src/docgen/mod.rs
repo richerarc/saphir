@@ -10,23 +10,18 @@ use std::path::PathBuf;
 use std::time::Instant;
 use structopt::StructOpt;
 use syn::{
-    Attribute, Fields, File as SynFile, FnArg, GenericArgument, ImplItem, ImplItemMethod, Item as SynItem, ItemEnum, ItemImpl, ItemStruct, Lit, Meta, NestedMeta,
+    Attribute, Fields, FnArg, GenericArgument, ImplItem, ImplItemMethod, Item as SynItem, ItemEnum, ItemImpl, ItemStruct, Lit, Meta, NestedMeta,
     Pat, PathArguments, Signature, Type,
 };
 use crate::docgen::type_info::{TypeInfo};
-use std::cell::{RefCell, Ref};
-use std::pin::Pin;
+use std::cell::{RefCell};
 use crate::docgen::route_info::RouteInfo;
-use crate::docgen::rust_module::{CargoDependancy, CargoTarget, RustModule};
-use std::mem::{MaybeUninit};
-use std::ops::Deref;
-use cargo_metadata::Metadata;
-use crate::docgen::crate_syn_browser::{Browser, File, Error, Target, Module, Item};
-use lazycell::LazyCell;
+// use crate::docgen::rust_module::{CargoDependancy};
+use crate::docgen::crate_syn_browser::{Browser, File, Module, Item};
 
 mod type_info;
 mod route_info;
-mod rust_module;
+// mod rust_module;
 mod crate_syn_browser;
 
 macro_rules! print_project_path_error {
@@ -104,84 +99,32 @@ impl Command for DocGen {
         let now = Instant::now();
         self.read_project_cargo_toml()?;
         let browser = Browser::new(self.args.project_path.clone()).map_err(|e| format!("{}", e))?;
-        let entrypoint = Self::get_crate_entrypoint(self.args.package_name.as_ref(), &browser).map_err(|e| format!("{}", e))?;
-        for m in entrypoint.modules().map_err(|e| format!("{}", e))? {
-            match m {
-                Module::Inline { module, .. } =>  println!("Inline module : {:?}", module),
-                Module::External { module, .. } =>  println!("External module : {:?}", module),
-            }
-        }
+        let browser = unsafe { &*(&browser as *const Browser) }; // FIXME: Definitely find a better way to handle the lifetime issue here
+        let entrypoint = Self::get_crate_entrypoint(self.args.package_name.as_ref(), browser).map_err(|e| format!("{}", e))?;
         self.parse_controllers_ast(entrypoint)?;
-        // for i in entrypoint.all_items().map_err(|e| format!("{}", e))? {
-        //     self.parse_controllers_ast()
-        //     println!("Item : {:?}", "i");
-        // }
-
-        // self.cargo_metadata.init(self.args.project_path.join("Cargo.toml"))?;
-        // self.load_cargo_dependancies()?;
-        // let crate_module = RustModule::new_from_root_path(
-        //     "crate".to_string(),
-        //     self.args.project_path.clone(),
-        //     self.args.project_path.join("src/main.rs"),
-        // )?;
-
-
-
-        // self.read_cargo_dependancies("crate", self.args.project_path.clone().join("Cargo.toml"))?;
-        // self.read_rust_entrypoint_ast(self.args.project_path.clone(), "src/main.rs")?;
-        // self.parse_ast()?;
         let handlers = std::mem::take(&mut *self.handlers.borrow_mut());
         self.add_all_paths(entrypoint, handlers)?;
         let file = self.write_doc_file()?;
         println!("Succesfully created `{}` in {}ms", file, now.elapsed().as_millis());
-
-        // let file = "doc";
-        // println!("Succesfully created `{}` in {}ms", file, now.elapsed().as_millis());
         Ok(())
     }
 }
 
 impl DocGen {
-    // fn init_browser(&mut self) -> Result<(), String> {
-    //     let browser = Browser::new(self.args.project_path.clone()).map_err(|e| format!("{}", e))?;
-    //     let leak = Box::leak(Box::new(browser));
-    //     self.browser_to_free = Some(leak);
-    //     self.browser = Some(leak);
-    //     Ok(())
-    // }
-
-    // fn browser<'s>(&'s self) -> &'static Browser {
-    //     self.browser
-    // }
-
     fn get_crate_entrypoint<'b>(package_name: Option<&String>, browser: &'b Browser<'b>) -> Result<&'b File<'b>, String> {
         let main_package = if let Some(main_name) = package_name {
-            browser.package_by_name(main_name).expect(format!("Crate does not include a member named `{}`.", main_name).as_str())
+            browser.package_by_name(main_name).unwrap_or_else(|| panic!("Crate does not include a member named `{}`.", main_name))
         } else if browser.packages().len() == 1 {
             browser.packages().first().expect("Condition ensure exactly 1 workspace member")
         } else {
-            return Err(format!("This crate is a workspace with multiple packages!
+            return Err("This crate is a workspace with multiple packages!
 Please select the package for which you want to generate the openapi documentation
-by using the --package flag."));
+by using the --package flag.".to_string());
         };
         let bin_target = main_package.bin_target().expect("Crate does not have a Binary target.");
         let entrypoint = bin_target.entrypoint().map_err(|e| e.to_string())?;
         Ok(entrypoint)
     }
-
-//     fn load_cargo_dependancies(&mut self) -> CommandResult {
-//         let main_package = if let Some(main_name) = self.args.package_name.as_ref() {
-//             self.cargo_metadata.packages.iter().find(|p| p.name == *main_name)
-//         } else if self.cargo_metadata.workspace_members.len() == 1 {
-//             self.cargo_metadata.packages.iter().find(|p| p.id == *self.cargo_metadata.workspace_members.first().expect("Condition ensure exactly 1 workspace member"))
-//         } else {
-//             return Err(format!("This crate is a workspace with multiple packages ({})!
-// Please select the package for which you want to generate the openapi documentation
-// by using the --package flag.", self.cargo_metadata.workspace_members.iter().map(|p| p.repr.to_string()).collect::<Vec<String>>().join(",")));
-//         };
-//         println!("Main package : {:?}", main_package);
-//         Ok(())
-//     }
 
     fn write_doc_file(&self) -> Result<String, String> {
         let mut path = self.args.output_file.clone();
@@ -224,86 +167,6 @@ by using the --package flag."));
         Ok(())
     }
 
-    // fn read_rust_entrypoint_ast(&mut self, path: PathBuf, entry_file_path: &str) -> CommandResult {
-    //     let file_path = path.join(entry_file_path);
-    //
-    //     let mut f = File::open(&file_path).map_err(|_| print_project_path_error!(entry_file_path, path))?;
-    //     let mut buffer = String::new();
-    //     f.read_to_string(&mut buffer)
-    //         .map_err(|_| print_project_path_error!(entry_file_path, path))?;
-    //     let path = file_path.to_str().ok_or(format!("Invalid path : `{:?}`", &file_path))?.to_string();
-    //     self.read_mods_in_ast(path, "crate".to_string(), buffer)
-    // }
-
-    // fn read_rust_dependancy_ast(&self, parent_module_name: String, dependancy: &CargoDependancy) -> CommandResult {
-    //     for target in &dependancy.targets {
-    //         let mut f = File::open(&target.path).map_err(|_| format!("Unable to load dependancy {:?}", target.path))?;
-    //         let mut buffer = String::new();
-    //         f.read_to_string(&mut buffer)
-    //             .map_err(|_| format!("Unable to load dependancy {:?}", target.path))?;
-    //         let path = target.path.to_str().ok_or(format!("Invalid path : `{:?}`", &target.path))?.to_string();
-    //         let module_path = if parent_module_name.as_str() == "crate" {
-    //             dependancy.name.to_string()
-    //         } else {
-    //             format!("{}::{}", parent_module_name, dependancy.name)
-    //         };
-    //         self.read_mods_in_ast(path, module_path, buffer)?;
-    //     }
-    //     Ok(())
-    // }
-
-    // fn read_mods_in_ast(&self, file: String, module_path: String, buffer: String) -> CommandResult {
-    //     let file = std::path::Path::new(file.as_str());
-    //     let dir = file.parent().ok_or(format!("`{:?}` is not a path to a rust file", file)).unwrap();
-    //     let dir = dir.to_str().unwrap();
-    //
-    //     let ast = syn::parse_file(buffer.as_str()).map_err(|_| format!("Unable to parse the module file `{:?}`", file))?;
-    //     for md in ast.items.iter().filter_map(|i| match i {
-    //         Item::Mod(md) => Some(md),
-    //         _ => None
-    //     }) {
-    //         let mod_name = md.ident.to_string();
-    //         if md.content.is_none() {
-    //             self.read_mod_file(dir.to_string(), module_path.clone(), mod_name)?;
-    //         }
-    //     }
-    //     let leaked: &'static mut SynFile = Box::leak(Box::new(ast));
-    //     self.loaded_files_to_free.borrow_mut().push(leaked as *mut SynFile);
-    //     self.loaded_files_ast.borrow_mut().insert(module_path.clone(), leaked);
-    //     Ok(())
-    // }
-    //
-    // fn read_mod_file(&self, dir: String, module_path: String, mod_name: String) -> CommandResult {
-    //     let dir = std::path::Path::new(dir.as_str());
-    //     let mut path = dir.join(mod_name.as_str());
-    //     if path.is_dir() {
-    //         path = path.join("mod.rs");
-    //     } else {
-    //         path = dir.join(format!("{}.rs", mod_name).as_str());
-    //     }
-    //     let path_str = path.to_str().ok_or(format!("Invalid path : `{:?}`", path))?.to_string();
-    //     let mut f = FsFile::open(path).map_err(|_| format!("Unable to read module `{}`", mod_name))?;
-    //     let mut buffer = String::new();
-    //     f.read_to_string(&mut buffer).map_err(|_| format!("Unable to read module `{}`", mod_name))?;
-    //
-    //     self.read_mods_in_ast(path_str, format!("{}::{}", module_path, mod_name), buffer)
-    // }
-
-    // fn parse_ast(&self) -> CommandResult {
-    //     for (module_path, ast) in self.loaded_files_ast.borrow().iter() {
-    //         for md in ast.items.iter().filter_map(|i| match i {
-    //             Item::Mod(md) => Some(md),
-    //             _ => None
-    //         }) {
-    //             if let Some((_, items)) = &md.content {
-    //                 self.parse_controllers_ast(module_path.clone(), items)?;
-    //             }
-    //         }
-    //         self.parse_controllers_ast(module_path.clone(), &ast.items)?;
-    //     }
-    //     Ok(())
-    // }
-
     fn parse_controllers_ast<'b>(&self, entrypoint: &'b File<'b>) -> CommandResult {
         for (item, im) in entrypoint.all_items().map_err(|e| format!("{}", e))?
             .iter()
@@ -322,55 +185,50 @@ by using the --package flag."));
         for attr in &im.attrs {
             if let Some(first_seg) = attr.path.segments.first() {
                 let t = im.self_ty.as_ref();
-                match t {
-                    Type::Path(p) => {
-                        if let Some(struct_first_seg) = p.path.segments.first() {
-                            if first_seg.ident.eq("controller") {
-                                let controller_name = struct_first_seg.ident.to_string();
-                                let name = controller_name.to_ascii_lowercase();
-                                let name = &name[0..name.rfind("controller").unwrap_or_else(|| name.len())];
-                                let mut name = name.to_string();
-                                let mut prefix = None;
-                                let mut version = None;
-                                if let Ok(Meta::List(meta)) = attr.parse_meta() {
-                                    for nested in meta.nested {
-                                        if let NestedMeta::Meta(Meta::NameValue(nv)) = nested {
-                                            if let Some(p) = nv.path.segments.first() {
-                                                let value = match nv.lit {
-                                                    Lit::Str(s) => s.value(),
-                                                    Lit::Int(i) => i.to_string(),
-                                                    _ => continue,
-                                                };
-                                                match p.ident.to_string().as_str() {
-                                                    "name" => name = value,
-                                                    "prefix" => prefix = Some(value),
-                                                    "version" => version = Some(value),
-                                                    _ => {}
-                                                }
+                if let Type::Path(p) = t {
+                    if let Some(struct_first_seg) = p.path.segments.first() {
+                        if first_seg.ident.eq("controller") {
+                            let controller_name = struct_first_seg.ident.to_string();
+                            let name = controller_name.to_ascii_lowercase();
+                            let name = &name[0..name.rfind("controller").unwrap_or_else(|| name.len())];
+                            let mut name = name.to_string();
+                            let mut prefix = None;
+                            let mut version = None;
+                            if let Ok(Meta::List(meta)) = attr.parse_meta() {
+                                for nested in meta.nested {
+                                    if let NestedMeta::Meta(Meta::NameValue(nv)) = nested {
+                                        if let Some(p) = nv.path.segments.first() {
+                                            let value = match nv.lit {
+                                                Lit::Str(s) => s.value(),
+                                                Lit::Int(i) => i.to_string(),
+                                                _ => continue,
+                                            };
+                                            match p.ident.to_string().as_str() {
+                                                "name" => name = value,
+                                                "prefix" => prefix = Some(value),
+                                                "version" => version = Some(value),
+                                                _ => {}
                                             }
                                         }
                                     }
                                 }
-
-                                println!("Controller : {}", controller_name);
-
-                                return Some(ControllerInfo {
-                                    controller_name,
-                                    name,
-                                    prefix,
-                                    version,
-                                });
                             }
+
+                            return Some(ControllerInfo {
+                                controller_name,
+                                name,
+                                prefix,
+                                version,
+                            });
                         }
                     }
-                    _ => {}
                 }
             }
         }
         None
     }
 
-    fn parse_handlers_ast<'b>(&self, file : &'b File<'b>, controller: ControllerInfo, items: &'b Vec<ImplItem>) -> CommandResult {
+    fn parse_handlers_ast<'b>(&self, file : &'b File<'b>, controller: ControllerInfo, items: &[ImplItem]) -> CommandResult {
         for m in items.iter().filter_map(|i| match i {
             ImplItem::Method(m) => Some(m),
             _ => None,
@@ -400,7 +258,7 @@ by using the --package flag."));
         Ok(())
     }
 
-    fn parse_handler_parameters<'b>(&self, file: &'b File<'b>, m: &ImplItemMethod, uri_params: &Vec<String>) -> RouteParametersInfo {
+    fn parse_handler_parameters<'b>(&self, file: &'b File<'b>, m: &ImplItemMethod, uri_params: &[String]) -> RouteParametersInfo {
         let mut parameters = Vec::new();
         let mut has_cookies_param = false;
         let mut body_type = None;
@@ -502,81 +360,10 @@ by using the --package flag."));
         }
     }
 
-    // fn parse_ast_type(&self, module_path: String, t: &Type) -> Option<TypeInfo> {
-    //     let mut type_info = None;
-    //     match t {
-    //         Type::Path(p) => {
-    //             let name = p.path.get_ident().map(|i| i.to_string());
-    //             if let Some(name) = name {
-    //                 type_info = Some(TypeInfo { name, ..Default::default() });
-    //             } else {
-    //                 if let Some(s) = p.path.segments.first() {
-    //                     match s.ident.to_string().as_str() {
-    //                         "Vec" => {
-    //                             if let PathArguments::AngleBracketed(ag) = &s.arguments {
-    //                                 if let Some(GenericArgument::Type(t)) = ag.args.first() {
-    //                                     type_info = self.parse_ast_type(module_path.clone(), t);
-    //                                     if let Some(mut info) = type_info.as_mut() {
-    //                                         info.is_array = true;
-    //                                     }
-    //                                 }
-    //                             }
-    //                         }
-    //                         "Option" => {
-    //                             if let PathArguments::AngleBracketed(ag) = &s.arguments {
-    //                                 if let Some(GenericArgument::Type(t)) = ag.args.first() {
-    //                                     type_info = self.parse_ast_type(module_path.clone(), t);
-    //                                     if let Some(mut info) = type_info.as_mut() {
-    //                                         info.is_optional = true;
-    //                                     }
-    //                                 }
-    //                             }
-    //                         }
-    //                         _ => {}
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //         Type::Array(a) => {
-    //             let len: Option<u32> = match &a.len {
-    //                 Expr::Lit(l) => match &l.lit {
-    //                     Lit::Int(i) => i.base10_parse().ok(),
-    //                     _ => None,
-    //                 },
-    //                 _ => None,
-    //             };
-    //             type_info = self.parse_ast_type(module_path.clone(), t);
-    //             if let Some(mut info) = type_info.as_mut() {
-    //                 info.is_array = true;
-    //                 info.min_array_len = len.clone();
-    //                 info.max_array_len = len;
-    //             }
-    //         }
-    //         _ => return None,
-    //     };
-    //
-    //     if let Some(mut type_info) = type_info {
-    //         if type_info.use_name.is_empty() {
-    //             if let Some((use_path, use_name)) = self.resolve_use(module_path.clone(), type_info.name.clone()) {
-    //                 type_info.use_name = use_name;
-    //                 type_info.use_path = use_path;
-    //                 Some(type_info)
-    //             } else {
-    //                 println!("Unable to resolve {:?} in {:?}", type_info.name, module_path);
-    //                 None
-    //             }
-    //         } else {
-    //             Some(type_info)
-    //         }
-    //     } else {
-    //         None
-    //     }
-    // }
-
     fn add_all_paths<'b>(&mut self, entrypoint: &'b File, handlers: Vec<HandlerInfo>) -> CommandResult {
         let (_, errors): (Vec<_>, Vec<_>) = handlers.into_iter().map(|handler| self.add_path(entrypoint, handler)).partition(Result::is_ok);
         let errors: Vec<_> = errors.into_iter().map(Result::unwrap_err).collect();
-        if errors.len() > 0 {
+        if !errors.is_empty() {
             let mut error_message = format!("Some errors ({}) occured while processing the routes : ", errors.len());
             for error in errors {
                 error_message = format!("{}\n- {}", error_message, error);
@@ -586,91 +373,6 @@ by using the --package flag."));
             Ok(())
         }
     }
-
-    // fn resolve_use(&self, module_path: String, type_name: String) -> Option<(String, String)> {
-    //     let ast = self.loaded_files_ast.get(module_path.as_str())?;
-    //     for u in ast.items.iter().filter_map(|i| match i {
-    //         Item::Use(u) => Some(u),
-    //         _ => None,
-    //     }) {
-    //         if let Some(resolved) = self.resolve_use_tree(&u.tree, module_path.clone(), None, &type_name) {
-    //             return Some(resolved);
-    //         }
-    //     }
-    //     //TODO: Implement glob pattern imports resolution
-    //     //
-    //     // println!("{:?} is possibly imported with a glob pattern ({})", type_name, module_path);
-    //     // for u in ast.items.iter().filter_map(|i| match i {
-    //     //     Item::Use(u) => Some(u),
-    //     //     _ => None,
-    //     // }) {
-    //     //     match &u.tree {
-    //     //         UseTree::Glob(g) => {
-    //     //             if let Some(resolved) = self.resolve_glob_use_tree(g, module_path.clone(), None, &type_name) {
-    //     //                 return Some(resolved);
-    //     //             }
-    //     //         }
-    //     //         _ => {}
-    //     //     }
-    //     // }
-    //     Some((module_path, type_name))
-    // }
-    //
-    // // TODO: Implement this
-    // // fn resolve_glob_use_tree(&self, use_glob: &UseGlob, self_module_path: String, current_type_path: Option<String>, type_name: &String) -> Option<String> {
-    // //     None
-    // // }
-    //
-    // fn resolve_use_tree(
-    //     &self,
-    //     use_tree: &UseTree,
-    //     self_module_path: String,
-    //     current_type_path: Option<String>,
-    //     type_name: &String,
-    // ) -> Option<(String, String)> {
-    //     match use_tree {
-    //         UseTree::Name(n) => {
-    //             let name = n.ident.to_string();
-    //             if name == *type_name {
-    //                 if let Some(cur) = current_type_path {
-    //                     return Some((cur, name));
-    //                 }
-    //             }
-    //         }
-    //         UseTree::Rename(r) => {
-    //             let name = r.ident.to_string();
-    //             let rename = r.rename.to_string();
-    //             if rename == *type_name {
-    //                 if let Some(cur) = current_type_path {
-    //                     return Some((format!("{}::{}", cur, name), name));
-    //                 }
-    //             }
-    //         }
-    //         UseTree::Group(g) => {
-    //             for t in &g.items {
-    //                 if let Some(resolved) = self.resolve_use_tree(t, self_module_path.clone(), current_type_path.clone(), type_name) {
-    //                     return Some(resolved);
-    //                 }
-    //             }
-    //         }
-    //         UseTree::Path(u) => {
-    //             let mut first_segment = u.ident.to_string();
-    //             if first_segment.as_str() == "self" {
-    //                 first_segment = self_module_path.clone();
-    //             }
-    //             let path = if let Some(cur) = current_type_path {
-    //                 format!("{}::{}", cur, first_segment)
-    //             } else if first_segment.as_str() == "crate" {
-    //                 first_segment
-    //             } else {
-    //                 return None;
-    //             };
-    //             return self.resolve_use_tree(&u.tree, self_module_path, Some(path), type_name);
-    //         }
-    //         UseTree::Glob(_) => {}
-    //     }
-    //     None
-    // }
 
     fn add_path<'b>(&mut self, entrypoint: &'b File, info: HandlerInfo) -> CommandResult {
         let path = info.route.uri;
@@ -715,21 +417,23 @@ by using the --package flag."));
     }
 
     fn get_open_api_body_param<'b>(&self, entrypoint: &'b File, body_info: &BodyParamInfo) -> Option<OpenApiRequestBody> {
-        if let Some(t) = self.get_open_api_type_from_type_info(entrypoint, &body_info.type_info) {
-            let mut content: HashMap<OpenApiMimeTypes, OpenApiContent> = HashMap::new();
-            content.insert(
-                body_info.openapi_type.clone(),
-                OpenApiContent {
-                    schema: OpenApiSchema::Inline(t),
-                },
-            );
-            return Some(OpenApiRequestBody {
-                description: body_info.type_info.name.clone(),
-                required: !body_info.type_info.is_optional,
-                content,
-            });
-        }
-        None
+        let t = if body_info.type_info.is_type_deserializable {
+            self.get_open_api_type_from_type_info(entrypoint, &body_info.type_info)?
+        } else {
+            OpenApiType::anonymous_object()
+        };
+        let mut content: HashMap<OpenApiMimeTypes, OpenApiContent> = HashMap::new();
+        content.insert(
+            body_info.openapi_type.clone(),
+            OpenApiContent {
+                schema: OpenApiSchema::Inline(t),
+            },
+        );
+        return Some(OpenApiRequestBody {
+            description: body_info.type_info.name.clone(),
+            required: !body_info.type_info.is_optional,
+            content,
+        });
     }
 
     fn get_open_api_parameters_from_body_info<'b>(&self, entrypoint: &'b File, body_info: &BodyParamInfo) -> Vec<OpenApiParameter> {
@@ -752,33 +456,21 @@ by using the --package flag."));
 
     // TODO: Support HashMap
     fn get_open_api_type_from_type_info<'b>(&self, entrypoint: &'b File, type_info: &TypeInfo) -> Option<OpenApiType> {
-        println!("Checking type info for {:?}", type_info.name);
-        // println!("get_open_api_type_from_type_info not yet implemented");
         let type_path = type_info.type_path.as_ref()?;
-
-
-
-        None
-        // match &type_info.rust_type {
-        //     RustType::Struct { file_path, item } => {
-        //         if self.find_macro_attribute_flag(&item.attrs, "derive", "Deserialize") {
-        //             if let Some(s) = self.get_open_api_type_from_struct(file_path, item) {
-        //                 return Some(s);
-        //             }
-        //         }
-        //     }
-        //     RustType::Enum { file_path, item } => {
-        //         if self.find_macro_attribute_flag(&item.attrs, "derive", "Deserialize") {
-        //             if let Some(s) = self.get_open_api_type_from_enum(file_path, item) {
-        //                 return Some(s);
-        //             }
-        //         }
-        //     }
-        //     _ => {}
-        // }
+        let type_file = entrypoint.target.file_by_use_path(type_path).ok().flatten()?;
+        let type_impl = type_file.find_impl(type_info.name.as_str()).ok().flatten()?;
+        match type_impl.item {
+            SynItem::Struct(s) => {
+                self.get_open_api_type_from_struct(type_impl, s)
+            },
+            SynItem::Enum(e) => {
+                self.get_open_api_type_from_enum(type_impl, e)
+            },
+            _ => unreachable!(),
+        }
     }
 
-    fn get_serde_field(&self, mut field_name: String, field_attributes: &Vec<Attribute>, container_attributes: &Vec<Attribute>) -> Option<String> {
+    fn get_serde_field(&self, mut field_name: String, field_attributes: &[Attribute], container_attributes: &[Attribute]) -> Option<String> {
         if self.find_macro_attribute_flag(field_attributes, "serde", "skip") || self.find_macro_attribute_flag(field_attributes, "serde", "skip_serializing") {
             return None;
         }
@@ -792,12 +484,12 @@ by using the --package flag."));
         Some(field_name)
     }
 
-    fn find_macro_attribute_flag(&self, attrs: &Vec<Attribute>, macro_name: &str, value_name: &str) -> bool {
+    fn find_macro_attribute_flag(&self, attrs: &[Attribute], macro_name: &str, value_name: &str) -> bool {
         for attr in attrs
             .iter()
             .filter(|a| a.path.get_ident().filter(|i| i.to_string().as_str() == macro_name).is_some())
         {
-            if let Some(meta) = attr.parse_meta().ok() {
+            if let Ok(meta) = attr.parse_meta() {
                 if self.find_macro_attribute_flag_from_meta(&meta, value_name) {
                     return true;
                 }
@@ -829,12 +521,12 @@ by using the --package flag."));
         false
     }
 
-    fn find_macro_attribute_named_value(&self, attrs: &Vec<Attribute>, macro_name: &str, value_name: &str) -> Option<Lit> {
+    fn find_macro_attribute_named_value(&self, attrs: &[Attribute], macro_name: &str, value_name: &str) -> Option<Lit> {
         for attr in attrs
             .iter()
             .filter(|a| a.path.get_ident().filter(|i| i.to_string().as_str() == macro_name).is_some())
         {
-            if let Some(meta) = attr.parse_meta().ok() {
+            if let Ok(meta) = attr.parse_meta() {
                 if let Some(s) = self.find_macro_attribute_value_from_meta(&meta, value_name) {
                     return Some(s);
                 }
@@ -916,7 +608,7 @@ by using the --package flag."));
         }
 
         // TODO: properly support tuple and struct enum variants.
-        //       this will require the _file_path param
+        //       this will require the item param
         Some(OpenApiType::anonymous_object())
     }
 
@@ -948,7 +640,8 @@ by using the --package flag."));
                 while i < chars.len() {
                     if chars[i] == '<' || chars[i] == '{' {
                         chars[i] = '{';
-                        for j in i..chars.len() {
+                        let start = i;
+                        for j in start..chars.len() {
                             if chars[j] == '>' || chars[j] == '}' {
                                 chars[j] = '}';
                                 params.push((&chars[(i + 1)..j]).iter().collect());

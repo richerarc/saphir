@@ -70,6 +70,8 @@
 #[macro_use]
 extern crate log;
 
+pub use crate::runtime::main;
+
 ///
 pub mod body;
 ///
@@ -116,6 +118,8 @@ pub mod utils;
 pub use http;
 #[doc(hidden)]
 pub use hyper;
+
+pub mod runtime;
 
 /// Contains everything you need to bootstrap your http server
 ///

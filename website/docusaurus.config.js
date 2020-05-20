@@ -7,6 +7,12 @@ module.exports = {
   organizationName: 'richerarc',
   projectName: 'saphir',
   themeConfig: {
+    algolia: {
+      apiKey: 'api-key',
+      indexName: 'index-name',
+      appId: 'app-id', // Optional, if you run the DocSearch crawler on your own
+      algoliaOptions: {}, // Optional, if provided by Algolia
+    },
     prism: {
       theme: require('prism-react-renderer/themes/dracula'),
       additionalLanguages: ['rust', 'toml'],

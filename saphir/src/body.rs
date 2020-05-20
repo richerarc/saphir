@@ -14,10 +14,10 @@ pub use hyper::body::Bytes;
 
 #[cfg(feature = "form")]
 pub use form::Form;
+use futures::stream::StreamExt;
 #[cfg(feature = "json")]
 pub use json::Json;
 use std::ops::DerefMut;
-use tokio::stream::StreamExt;
 
 #[doc(hidden)]
 pub(crate) static mut REQUEST_BODY_BYTES_LIMIT: Option<usize> = None;

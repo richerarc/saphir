@@ -371,7 +371,7 @@ impl Server {
                             let http_handler = http.serve_connection(client_socket, stack.new_handler(peer_addr));
                             let f = timeout(Duration::from_millis(request_timeout_ms), http_handler);
 
-                            tokio::spawn(f);
+                            crate::runtime::spawn(f);
                         }
                         Err(e) => {
                             warn!("incoming connection encountered an error: {}", e);
@@ -387,7 +387,7 @@ impl Server {
                             let peer_addr = client_socket.peer_addr().ok();
                             let http_handler = http.serve_connection(client_socket, stack.new_handler(peer_addr));
 
-                            tokio::spawn(http_handler);
+                            crate::runtime::spawn(http_handler);
                         }
                         Err(e) => {
                             warn!("incoming connection encountered an error: {}", e);

@@ -3,7 +3,7 @@ id: start2
 title: Basic Server Setup
 ---
 
-### Configuring the server
+## Configuring the server
 Saphir bundles everything you need to start inside the prelude module:
 
 ```rust title="src/main.rs"
@@ -22,7 +22,7 @@ async fn main() -> Result<(), SaphirError> {
     server.run().await
 }
 ```
-### Adding a request handler
+## Adding a request handler
 
 ```rust title="src/main.rs"
 use saphir::prelude::*;
@@ -50,7 +50,7 @@ async fn main() -> Result<(), SaphirError> {
 ```
 Now, if you make a GET request on http://localhost:3000/ you should see: `Hello, Wolrd`.
 
-### Adding Your First Controller
+## Adding Your First Controller
 
 To define a controller, simply use the `#[controller]` attribute macro on a Rust type `impl` block:
 
@@ -85,7 +85,7 @@ impl PetsController {
 ```
 This means that a request at http://localhost:3000/pets/count, will generate a response with status code 200 OK, and a body of `0`.
 
-### Putting it All Together
+## Putting it All Together
 
 To add our controller to our server, we will need the `controller` method on the `route_builder` from the `configure_router` method:
 
@@ -116,7 +116,7 @@ async fn hello_world(req: Request) -> &'static str {
   "Hello, World!"
 }
 
-#[tokio::main]
+#[saphir::main]
 async fn main() -> Result<(), SaphirError> {
     let server = Server::builder()
         .configure_listener(|listener_builder| {

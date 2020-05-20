@@ -254,7 +254,7 @@ impl FileCacher {
         let key = std::mem::take(&mut self.key);
         let buff = std::mem::take(&mut self.buff);
         let mut cache = self.cache.clone();
-        tokio::spawn(async move {
+        crate::runtime::spawn(async move {
             cache.insert(key, buff).await;
         });
     }

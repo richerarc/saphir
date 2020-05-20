@@ -1,5 +1,5 @@
 ---
 id: handlers
-title: Request Handlers
+title: Handlers
 ---
 

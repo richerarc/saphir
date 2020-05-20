@@ -105,7 +105,7 @@ impl ApiKeyMiddleware {
     }
 }
 
-#[tokio::main]
+#[saphir::main]
 async fn main() -> Result<(), SaphirError> {
     env_logger::init();
 

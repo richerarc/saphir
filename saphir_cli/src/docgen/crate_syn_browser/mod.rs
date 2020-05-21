@@ -214,9 +214,10 @@ impl<'b> Target<'b> {
     }
 
     pub fn file_by_use_path(&'b self, path: &str) -> Result<Option<&'b File<'b>>, Error> {
-        // if let Some(file) = self.files.borrow().get(path) {
-        //     return Ok(Some(file));
-        // }
+        println!("Looking for file {:?}", path);
+        if let Some(file) = self.files.borrow().get(path) {
+            return Ok(Some(file));
+        }
         let mut path_split = path.split("::");
         if let Some(mut root) = path_split.next() {
             if root == "crate" {
@@ -271,6 +272,7 @@ pub struct File<'b> {
     items: LazyCell<Vec<Item<'b>>>,
     modules: LazyCell<Vec<Module<'b>>>,
     dir: PathBuf,
+    uses: LazyCell<Vec<Use>>,
 }
 
 impl<'b> File<'b> {
@@ -291,7 +293,8 @@ impl<'b> File<'b> {
             use_path,
             items: LazyCell::new(),
             modules: LazyCell::new(),
-            dir: path.parent().expect("Valid file path should have valid parent folder").to_path_buf()
+            dir: path.parent().expect("Valid file path should have valid parent folder").to_path_buf(),
+            uses: LazyCell::new()
         };
 
         Ok(file)
@@ -355,18 +358,14 @@ impl<'b> File<'b> {
             return Ok(Some(item));
         }
 
-        for u in self.items().iter().filter_map(|i| match i.item {
-            SynItem::Use(u) => Some(u),
-            _ => None
-        }) {
-            for (path, use_name, alias) in self.expand_use_tree(&u.tree, None) {
-                if alias.as_str() == name {
-                    if let Some(file) = self.target.file_by_use_path(path.as_str())? {
-                        return file.find_impl_inline(use_name.as_str());
-                    }
+        for u in self.uses() {
+            if u.alias.as_str() == name {
+                if let Some(file) = self.target.file_by_use_path(u.path.as_str())? {
+                    return file.find_impl_inline(u.name.as_str());
                 }
             }
         }
+
         //At this point, this is most likely a primitive.
         Ok(None)
     }
@@ -384,25 +383,39 @@ impl<'b> File<'b> {
         Ok(None)
     }
 
-    fn expand_use_tree(&'b self, u: &'b UseTree, prefix: Option<String>) -> Vec<(String, String, String)> {
+    fn uses(&'b self) -> &'b Vec<Use> {
+        if !self.uses.filled() {
+            let mut uses: Vec<Use> = Vec::new();
+            for u in self.items().iter().filter_map(|i| match i.item {
+                SynItem::Use(u) => Some(u),
+                _ => None
+            }) {
+                uses.extend(self.expand_use_tree(&u.tree, None));
+            }
+            self.uses.fill(uses);
+        }
+        self.uses.borrow().expect("Should have been initialized by the previous statement")
+    }
+
+    fn expand_use_tree(&'b self, u: &'b UseTree, prefix: Option<String>) -> Vec<Use> {
         match u {
             UseTree::Name(n) => {
                 let name = n.ident.to_string();
                 let path = prefix.unwrap_or_else(|| self.use_path.clone());
-                vec![(path, name.clone(), name)]
+                vec![Use { path, alias: name.clone(), name }]
             },
             UseTree::Rename(n) => {
                 let name = n.ident.to_string();
-                let rename = n.rename.to_string();
+                let alias = n.rename.to_string();
                 let path = prefix.unwrap_or_else(|| self.use_path.clone());
-                vec![(path, name, rename)]
+                vec![Use { path, name, alias }]
             },
             UseTree::Group(g) => {
-                let mut vec = Vec::new();
-                for u in &g.items {
-                    vec.extend(self.expand_use_tree(u, prefix.clone()))
-                }
-                vec
+                g.items
+                    .iter()
+                    .map(|u| self.expand_use_tree(u, prefix.clone()))
+                    .flatten()
+                    .collect()
             },
             UseTree::Path(p) => {
                 let path_segment = p.ident.to_string();
@@ -424,11 +437,25 @@ impl<'b> File<'b> {
                 self.expand_use_tree(p.tree.as_ref(), Some(prefix))
             }
             UseTree::Glob(g) => {
-                // TODO: Implement glob pattern resolution
-                vec![]
+                let path = prefix.expect("Glob pattern should have a path prefix");
+                println!("glob (*) for {:?}", &path);
+                if let Ok(Some(file)) = self.target.file_by_use_path(path.as_str()) {
+                    println!("Found the file for our glob pattern : {:?}", file.dir);
+                    let uses = file.uses().iter().cloned().collect();
+                    uses
+                } else {
+                    vec![]
+                }
             }
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct Use {
+    pub path: String,
+    pub name: String,
+    pub alias: String,
 }
 
 #[derive(Debug)]

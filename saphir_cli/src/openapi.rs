@@ -232,5 +232,6 @@ impl Default for OpenApiSchema {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct OpenApiResponse {
     pub(crate) description: String,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub(crate) content: HashMap<OpenApiMimeTypes, OpenApiContent>,
 }

@@ -17,10 +17,11 @@ use crate::docgen::controller_info::ControllerInfo;
 use crate::docgen::utils::{get_serde_field, find_macro_attribute_flag, find_macro_attribute_named_value};
 
 mod crate_syn_browser;
-mod handler_info;
 mod controller_info;
-mod type_info;
+mod handler_info;
+mod response_info;
 mod route_info;
+mod type_info;
 mod utils;
 
 macro_rules! print_project_path_error {

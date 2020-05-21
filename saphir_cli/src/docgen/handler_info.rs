@@ -4,6 +4,7 @@ use crate::openapi::{OpenApiParameter, OpenApiMimeTypes, OpenApiSchema, OpenApiP
 use crate::docgen::route_info::RouteInfo;
 use crate::docgen::crate_syn_browser::File;
 use crate::docgen::type_info::TypeInfo;
+use crate::docgen::response_info::ResponseInfo;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct HandlerInfo {
@@ -11,6 +12,7 @@ pub(crate) struct HandlerInfo {
     pub(crate) parameters: Vec<OpenApiParameter>,
     pub(crate) body_info: Option<BodyParamInfo>,
     pub(crate) routes: Vec<RouteInfo>,
+    pub(crate) responses: Vec<ResponseInfo>,
 }
 
 impl DocGen {
@@ -31,11 +33,15 @@ impl DocGen {
             consume_cookies = true;
         }
 
+        let responses = self.extract_response_info(file, &impl_method)?;
+
+
         Ok(Some(HandlerInfo {
             use_cookies: consume_cookies,
             parameters: parameters_info.parameters.clone(),
             body_info: parameters_info.body_info.clone(),
-            routes
+            routes,
+            responses
         }))
     }
 
@@ -50,6 +56,9 @@ impl DocGen {
         false
     }
 
+    /// TODO: better typing for parameters.
+    ///       implement a ParameterInfo struct with typing for param, fill HandlerInfo with this,
+    ///       separate the discovery of BodyInfo and cookies usage from parameters.
     fn parse_handler_parameters<'b>(&self, file: &'b File<'b>, m: &ImplItemMethod, uri_params: &[String]) -> RouteParametersInfo {
         let mut parameters = Vec::new();
         let mut has_cookies_param = false;
@@ -65,7 +74,7 @@ impl DocGen {
 
             let (param_type, optional) = match param.ty.as_ref() {
                 Type::Path(p) => {
-                    if let Some(s1) = p.path.segments.first() {
+                    if let Some(s1) = p.path.segments.last() {
                         let mut param_type = s1.ident.to_string();
                         if param_type.as_str() == "CookieJar" {
                             has_cookies_param = true;

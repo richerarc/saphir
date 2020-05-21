@@ -1,7 +1,5 @@
 use crate::openapi::{OpenApi, OpenApiContent, OpenApiMimeTypes, OpenApiParameter, OpenApiParameterLocation, OpenApiPath, OpenApiPathMethod, OpenApiRequestBody, OpenApiResponse, OpenApiSchema, OpenApiType, OpenApiObjectType};
 use crate::{Command, CommandResult};
-use convert_case::{Case, Casing};
-use serde::export::TryFrom;
 use serde_derive::Deserialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File as FsFile;
@@ -10,19 +8,20 @@ use std::path::PathBuf;
 use std::time::Instant;
 use structopt::StructOpt;
 use syn::{
-    Attribute, Fields, FnArg, GenericArgument, ImplItem, ImplItemMethod, Item as SynItem, ItemEnum, ItemImpl, ItemStruct, Lit, Meta, NestedMeta,
-    Pat, PathArguments, Signature, Type,
+    Attribute, Fields, Item as SynItem, ItemEnum, ItemStruct, Lit, Meta, NestedMeta, Signature,
 };
 use crate::docgen::type_info::{TypeInfo};
 use std::cell::{RefCell};
-use crate::docgen::route_info::RouteInfo;
-// use crate::docgen::rust_module::{CargoDependancy};
-use crate::docgen::crate_syn_browser::{Browser, File, Module, Item};
+use crate::docgen::crate_syn_browser::{Browser, File, Item};
+use crate::docgen::controller_info::ControllerInfo;
+use crate::docgen::utils::{get_serde_field, find_macro_attribute_flag, find_macro_attribute_named_value};
 
+mod crate_syn_browser;
+mod handler_info;
+mod controller_info;
 mod type_info;
 mod route_info;
-// mod rust_module;
-mod crate_syn_browser;
+mod utils;
 
 macro_rules! print_project_path_error {
     ($file:expr, $project_path:expr) => {{
@@ -78,7 +77,8 @@ pub(crate) struct DocGen {
     pub args: <DocGen as Command>::Args,
     pub doc: OpenApi,
     pub operation_ids: RefCell<HashSet<String>>,
-    pub handlers: RefCell<Vec<HandlerInfo>>,
+    // pub handlers: RefCell<Vec<HandlerInfo>>,
+    // pub controller: LazyCell<Vec<ControllerInfo>>,
 }
 
 impl Command for DocGen {
@@ -91,7 +91,7 @@ impl Command for DocGen {
             args,
             doc,
             operation_ids: RefCell::new(Default::default()),
-            handlers: RefCell::new(Vec::new()),
+            // controller: LazyCell::new(),
         }
     }
 
@@ -101,9 +101,9 @@ impl Command for DocGen {
         let browser = Browser::new(self.args.project_path.clone()).map_err(|e| format!("{}", e))?;
         let browser = unsafe { &*(&browser as *const Browser) }; // FIXME: Definitely find a better way to handle the lifetime issue here
         let entrypoint = Self::get_crate_entrypoint(self.args.package_name.as_ref(), browser).map_err(|e| format!("{}", e))?;
-        self.parse_controllers_ast(entrypoint)?;
-        let handlers = std::mem::take(&mut *self.handlers.borrow_mut());
-        self.add_all_paths(entrypoint, handlers)?;
+        let controllers = self.load_controllers(entrypoint)?;
+        // let handlers = std::mem::take(&mut *self.handlers.borrow_mut());
+        self.fill_openapi_with_controllers(entrypoint, controllers)?;
         let file = self.write_doc_file()?;
         println!("Succesfully created `{}` in {}ms", file, now.elapsed().as_millis());
         Ok(())
@@ -167,252 +167,65 @@ by using the --package flag.".to_string());
         Ok(())
     }
 
-    fn parse_controllers_ast<'b>(&self, entrypoint: &'b File<'b>) -> CommandResult {
-        for (item, im) in entrypoint.all_items().map_err(|e| format!("{}", e))?
+    fn load_controllers<'b>(&self, entrypoint: &'b File<'b>) -> Result<Vec<ControllerInfo>, String> {
+        let controllers: Vec<ControllerInfo> = entrypoint
+            .all_items()
+            .map_err(|e| format!("{}", e))?
             .iter()
             .filter_map(|i| match i.item {
-                SynItem::Impl(im) => Some((i, im)),
+                SynItem::Impl(im) => self.extract_controller_info(i.file, im).transpose(),
                 _ => None,
-            }) {
-            if let Some(controller) = self.get_controller_info(item, im) {
-                self.parse_handlers_ast(item.file, controller, &im.items)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn get_controller_info(&self, item: &Item, im: &ItemImpl) -> Option<ControllerInfo> {
-        for attr in &im.attrs {
-            if let Some(first_seg) = attr.path.segments.first() {
-                let t = im.self_ty.as_ref();
-                if let Type::Path(p) = t {
-                    if let Some(struct_first_seg) = p.path.segments.first() {
-                        if first_seg.ident.eq("controller") {
-                            let controller_name = struct_first_seg.ident.to_string();
-                            let name = controller_name.to_ascii_lowercase();
-                            let name = &name[0..name.rfind("controller").unwrap_or_else(|| name.len())];
-                            let mut name = name.to_string();
-                            let mut prefix = None;
-                            let mut version = None;
-                            if let Ok(Meta::List(meta)) = attr.parse_meta() {
-                                for nested in meta.nested {
-                                    if let NestedMeta::Meta(Meta::NameValue(nv)) = nested {
-                                        if let Some(p) = nv.path.segments.first() {
-                                            let value = match nv.lit {
-                                                Lit::Str(s) => s.value(),
-                                                Lit::Int(i) => i.to_string(),
-                                                _ => continue,
-                                            };
-                                            match p.ident.to_string().as_str() {
-                                                "name" => name = value,
-                                                "prefix" => prefix = Some(value),
-                                                "version" => version = Some(value),
-                                                _ => {}
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            return Some(ControllerInfo {
-                                controller_name,
-                                name,
-                                prefix,
-                                version,
-                            });
-                        }
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    fn parse_handlers_ast<'b>(&self, file : &'b File<'b>, controller: ControllerInfo, items: &[ImplItem]) -> CommandResult {
-        for m in items.iter().filter_map(|i| match i {
-            ImplItem::Method(m) => Some(m),
-            _ => None,
-        }) {
-            let mut consume_cookies: bool = self.handler_has_cookies(&m);
-            let routes = self.route_info_from_method_macro(&controller, &m);
-            if routes.is_empty() {
-                continue;
-            }
-            let parameters_info = self.parse_handler_parameters(file, &m, &routes[0].uri_params);
-            if parameters_info.has_cookies_param {
-                consume_cookies = true;
-            }
-
-            for route in routes {
-                let operation_id = self.handler_operation_id_from_sig(&m.sig);
-                self.handlers.borrow_mut().push(HandlerInfo {
-                    controller: controller.clone(),
-                    route,
-                    parameters: parameters_info.parameters.clone(),
-                    operation_id,
-                    use_cookies: consume_cookies,
-                    body_info: parameters_info.body_info.clone(),
-                });
-            }
-        }
-        Ok(())
-    }
-
-    fn parse_handler_parameters<'b>(&self, file: &'b File<'b>, m: &ImplItemMethod, uri_params: &[String]) -> RouteParametersInfo {
-        let mut parameters = Vec::new();
-        let mut has_cookies_param = false;
-        let mut body_type = None;
-        for param in m.sig.inputs.iter().filter_map(|i| match i {
-            FnArg::Typed(p) => Some(p),
-            _ => None,
-        }) {
-            let param_name = match param.pat.as_ref() {
-                Pat::Ident(i) => i.ident.to_string(),
-                _ => continue,
-            };
-
-            let (param_type, optional) = match param.ty.as_ref() {
-                Type::Path(p) => {
-                    if let Some(s1) = p.path.segments.first() {
-                        let mut param_type = s1.ident.to_string();
-                        if param_type.as_str() == "CookieJar" {
-                            has_cookies_param = true;
-                            continue;
-                        }
-                        if param_type.as_str() == "Request" {
-                            if let PathArguments::AngleBracketed(ab) = &s1.arguments {
-                                if let Some(GenericArgument::Type(Type::Path(body_path))) = ab.args.first() {
-                                    if let Some(seg) = body_path.path.segments.first() {
-                                        body_type = Some(seg);
-                                    }
-                                }
-                            }
-                            continue;
-                        }
-                        if param_type.as_str() == "Json" || param_type.as_str() == "Form" {
-                            body_type = Some(&s1);
-                            continue;
-                        }
-                        let optional = param_type.as_str() == "Option";
-                        if optional {
-                            param_type = "String".to_string();
-                            if let PathArguments::AngleBracketed(ab) = &s1.arguments {
-                                if let Some(GenericArgument::Type(Type::Path(p))) = ab.args.first() {
-                                    if let Some(i) = p.path.get_ident() {
-                                        param_type = i.to_string();
-                                    }
-                                }
-                            }
-                        }
-
-                        let api_type = OpenApiType::from_rust_type_str(param_type.as_str());
-                        (api_type, optional)
-                    } else {
-                        (OpenApiType::string(), false)
-                    }
-                }
-                _ => (OpenApiType::string(), false),
-            };
-
-            let location = if uri_params.contains(&param_name) {
-                OpenApiParameterLocation::Path
-            } else {
-                OpenApiParameterLocation::Query
-            };
-            parameters.push(OpenApiParameter {
-                name: param_name,
-                required: !optional,
-                location,
-                schema: OpenApiSchema::Inline(param_type),
-                ..Default::default()
             })
-        }
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(controllers)
+    }
 
-        let mut body_info: Option<BodyParamInfo> = None;
-        if let Some(body) = body_type {
-            let body_type = body.ident.to_string();
-            let openapi_type = match body_type.as_str() {
-                "Json" => OpenApiMimeTypes::Json,
-                "Form" => OpenApiMimeTypes::Form,
-                _ => OpenApiMimeTypes::Any,
-            };
-            match body_type.as_str() {
-                "Json" | "Form" => {
-                    if let PathArguments::AngleBracketed(ag) = &body.arguments {
-                        if let Some(GenericArgument::Type(t)) = ag.args.first() {
-                            if let Some(type_info) = self.find_type_info(
-                                file,
-                                t
-                            ) {
-                                body_info = Some(BodyParamInfo { openapi_type, type_info });
-                            }
+    fn fill_openapi_with_controllers<'b>(&mut self, entrypoint: &'b File, controllers: Vec<ControllerInfo>) -> CommandResult {
+        for controller in controllers {
+            for mut handler in controller.handlers {
+                let routes = std::mem::take(&mut handler.routes);
+                for route in routes {
+                    let path = route.uri;
+                    let method = route.method;
+                    let description = if handler.use_cookies {
+                        Some("NOTE: This request consume cookies.".to_string())
+                    } else {
+                        None
+                    };
+                    let mut data = OpenApiPath {
+                        parameters: handler.parameters.clone(),
+                        description,
+                        operation_id: route.operation_id,
+                        ..Default::default()
+                    };
+
+                    if let Some(body_info) = &handler.body_info {
+                        if method == OpenApiPathMethod::Get {
+                            let parameters = self.get_open_api_parameters_from_body_info(entrypoint, body_info);
+                            data.parameters.extend(parameters);
+                        } else {
+                            data.request_body = self.get_open_api_body_param(entrypoint, body_info);
                         }
                     }
+
+                    if !self.doc.paths.contains_key(path.as_str()) {
+                        self.doc.paths.insert(path.clone(), BTreeMap::new());
+                    }
+                    let path_map = self.doc.paths.get_mut(path.as_str()).expect("Should work because of previous statement");
+
+                    if data.responses.is_empty() {
+                        data.responses.insert(
+                            200,
+                            OpenApiResponse {
+                                description: "successful operation".to_string(),
+                                content: Default::default(),
+                            },
+                        );
+                    }
+                    path_map.insert(method, data);
                 }
-                _ => {}
-            };
-        }
-
-        RouteParametersInfo {
-            parameters,
-            has_cookies_param,
-            body_info,
-        }
-    }
-
-    fn add_all_paths<'b>(&mut self, entrypoint: &'b File, handlers: Vec<HandlerInfo>) -> CommandResult {
-        let (_, errors): (Vec<_>, Vec<_>) = handlers.into_iter().map(|handler| self.add_path(entrypoint, handler)).partition(Result::is_ok);
-        let errors: Vec<_> = errors.into_iter().map(Result::unwrap_err).collect();
-        if !errors.is_empty() {
-            let mut error_message = format!("Some errors ({}) occured while processing the routes : ", errors.len());
-            for error in errors {
-                error_message = format!("{}\n- {}", error_message, error);
-            }
-            Err(error_message)
-        } else {
-            Ok(())
-        }
-    }
-
-    fn add_path<'b>(&mut self, entrypoint: &'b File, info: HandlerInfo) -> CommandResult {
-        let path = info.route.uri;
-        let method = info.route.method;
-        let description = if info.use_cookies {
-            Some("NOTE: This request consume cookies.".to_string())
-        } else {
-            None
-        };
-        let mut data = OpenApiPath {
-            parameters: info.parameters,
-            description,
-            operation_id: info.operation_id,
-            ..Default::default()
-        };
-
-        if let Some(body_info) = info.body_info {
-            if method == OpenApiPathMethod::Get {
-                let parameters = self.get_open_api_parameters_from_body_info(entrypoint, &body_info);
-                data.parameters.extend(parameters);
-            } else {
-                data.request_body = self.get_open_api_body_param(entrypoint, &body_info);
             }
         }
-
-        if !self.doc.paths.contains_key(path.as_str()) {
-            self.doc.paths.insert(path.clone(), BTreeMap::new());
-        }
-        let path_map = self.doc.paths.get_mut(path.as_str()).expect("Should work because of previous statement");
-
-        if data.responses.is_empty() {
-            data.responses.insert(
-                200,
-                OpenApiResponse {
-                    description: "successful operation".to_string(),
-                    content: Default::default(),
-                },
-            );
-        }
-        path_map.insert(method, data);
         Ok(())
     }
 
@@ -454,7 +267,6 @@ by using the --package flag.".to_string());
         parameters
     }
 
-    // TODO: Support HashMap
     fn get_open_api_type_from_type_info<'b>(&self, entrypoint: &'b File, type_info: &TypeInfo) -> Option<OpenApiType> {
         let type_path = type_info.type_path.as_ref()?;
         let type_file = entrypoint.target.file_by_use_path(type_path).ok().flatten()?;
@@ -470,96 +282,6 @@ by using the --package flag.".to_string());
         }
     }
 
-    fn get_serde_field(&self, mut field_name: String, field_attributes: &[Attribute], container_attributes: &[Attribute]) -> Option<String> {
-        if self.find_macro_attribute_flag(field_attributes, "serde", "skip") || self.find_macro_attribute_flag(field_attributes, "serde", "skip_serializing") {
-            return None;
-        }
-        if let Some(Lit::Str(rename)) = self.find_macro_attribute_named_value(field_attributes, "serde", "rename") {
-            field_name = rename.value();
-        } else if let Some(Lit::Str(rename)) = self.find_macro_attribute_named_value(container_attributes, "serde", "rename_all") {
-            if let Ok(case) = Case::try_from(rename.value().as_str()) {
-                field_name = field_name.to_case(case);
-            }
-        }
-        Some(field_name)
-    }
-
-    fn find_macro_attribute_flag(&self, attrs: &[Attribute], macro_name: &str, value_name: &str) -> bool {
-        for attr in attrs
-            .iter()
-            .filter(|a| a.path.get_ident().filter(|i| i.to_string().as_str() == macro_name).is_some())
-        {
-            if let Ok(meta) = attr.parse_meta() {
-                if self.find_macro_attribute_flag_from_meta(&meta, value_name) {
-                    return true;
-                }
-            }
-        }
-        false
-    }
-    fn find_macro_attribute_flag_from_meta(&self, meta: &Meta, value_name: &str) -> bool {
-        match meta {
-            Meta::List(l) => {
-                for n in &l.nested {
-                    match n {
-                        NestedMeta::Meta(nm) => {
-                            if self.find_macro_attribute_flag_from_meta(&nm, value_name) {
-                                return true;
-                            }
-                        }
-                        NestedMeta::Lit(_) => {}
-                    }
-                }
-            }
-            Meta::Path(p) => {
-                if p.get_ident().map(|i| i.to_string()).filter(|s| s == value_name).is_some() {
-                    return true;
-                }
-            }
-            _ => {}
-        }
-        false
-    }
-
-    fn find_macro_attribute_named_value(&self, attrs: &[Attribute], macro_name: &str, value_name: &str) -> Option<Lit> {
-        for attr in attrs
-            .iter()
-            .filter(|a| a.path.get_ident().filter(|i| i.to_string().as_str() == macro_name).is_some())
-        {
-            if let Ok(meta) = attr.parse_meta() {
-                if let Some(s) = self.find_macro_attribute_value_from_meta(&meta, value_name) {
-                    return Some(s);
-                }
-            }
-        }
-        None
-    }
-    fn find_macro_attribute_value_from_meta(&self, meta: &Meta, value_name: &str) -> Option<Lit> {
-        match meta {
-            Meta::List(l) => {
-                for n in &l.nested {
-                    match n {
-                        NestedMeta::Meta(nm) => {
-                            if let Some(s) = self.find_macro_attribute_value_from_meta(&nm, value_name) {
-                                return Some(s);
-                            }
-                        }
-                        NestedMeta::Lit(l) => {
-                            println!(" Litteral meta : {:?}", l);
-                        }
-                    }
-                }
-            }
-            Meta::NameValue(nv) => {
-                if nv.path.get_ident().map(|i| i.to_string()).filter(|s| s == value_name).is_some() {
-                    return Some(nv.lit.clone());
-                }
-            }
-            _ => {}
-        }
-        None
-    }
-
     fn get_open_api_type_from_struct<'b>(&self, item: &'b Item, s: &ItemStruct) -> Option<OpenApiType> {
         let mut properties = HashMap::new();
         let mut required = Vec::new();
@@ -567,10 +289,10 @@ by using the --package flag.".to_string());
             if let Some(field_name) = field
                 .ident
                 .as_ref()
-                .map(|i| self.get_serde_field(i.to_string(), &field.attrs, &s.attrs))
+                .map(|i| get_serde_field(i.to_string(), &field.attrs, &s.attrs))
                 .flatten()
             {
-                if let Some(field_type_info) = self.find_type_info(
+                if let Some(field_type_info) = TypeInfo::new(
                     item.file,
                     &field.ty,
                 ) {
@@ -578,8 +300,8 @@ by using the --package flag.".to_string());
                         .get_open_api_type_from_type_info(item.file, &field_type_info)
                         .unwrap_or_else(|| OpenApiType::from_rust_type_str(field_type_info.name.as_str()));
                     if !field_type_info.is_optional
-                        && !self.find_macro_attribute_flag(&field.attrs, "serde", "default")
-                        && self.find_macro_attribute_named_value(&field.attrs, "serde", "default").is_none()
+                        && !find_macro_attribute_flag(&field.attrs, "serde", "default")
+                        && find_macro_attribute_named_value(&field.attrs, "serde", "default").is_none()
                     {
                         required.push(field_name.clone());
                     }
@@ -600,7 +322,7 @@ by using the --package flag.".to_string());
         if e.variants.iter().all(|v| v.fields == Fields::Unit) {
             let mut values: Vec<String> = Vec::new();
             for variant in &e.variants {
-                if let Some(name) = self.get_serde_field(variant.ident.to_string(), &variant.attrs, &e.attrs) {
+                if let Some(name) = get_serde_field(variant.ident.to_string(), &variant.attrs, &e.attrs) {
                     values.push(name);
                 }
             }
@@ -658,48 +380,6 @@ by using the --package flag.".to_string());
         }
         None
     }
-
-    fn handler_has_cookies(&self, m: &ImplItemMethod) -> bool {
-        for attr in &m.attrs {
-            if let Some(i) = attr.path.get_ident() {
-                if i.to_string().as_str() == "cookies" {
-                    return true;
-                }
-            }
-        }
-        false
-    }
-}
-
-#[derive(Clone, Debug, Default)]
-pub(crate) struct ControllerInfo {
-    controller_name: String,
-    name: String,
-    version: Option<String>,
-    prefix: Option<String>,
-}
-
-impl ControllerInfo {
-    pub fn base_path(&self) -> String {
-        let mut path = self.name.clone();
-        if let Some(ver) = &self.version {
-            path = format!("v{}/{}", ver, path);
-        }
-        if let Some(prefix) = &self.prefix {
-            path = format!("{}/{}", prefix, path);
-        }
-        path
-    }
-}
-
-#[derive(Clone, Debug, Default)]
-pub(crate) struct HandlerInfo {
-    controller: ControllerInfo,
-    route: RouteInfo,
-    parameters: Vec<OpenApiParameter>,
-    operation_id: String,
-    use_cookies: bool,
-    body_info: Option<BodyParamInfo>,
 }
 
 #[derive(Clone, Debug)]

@@ -5,7 +5,7 @@ use Error::*;
 use syn::export::fmt::Display;
 use syn::export::Formatter;
 use cargo_metadata::{Package as MetaPackage, Target as MetaTarget, PackageId};
-use syn::{File as SynFile, Item as SynItem, ItemMod as SynMod, ItemUse, UseTree};
+use syn::{File as SynFile, Item as SynItem, ItemMod as SynMod, UseTree};
 use std::fs::File as FsFile;
 use std::fmt::Debug;
 use std::io::Read;
@@ -327,7 +327,7 @@ impl<'b> File<'b> {
         Ok(self.modules.borrow().expect("Should have been initialized by the previous statement"))
     }
 
-    /// Return all syn::File items in this file, including inline modules.
+    /// Return all syn::Item in this file, including inline modules.
     pub fn all_file_items(&'b self) -> Result<Vec<&'b Item<'b>>, Error> {
         let mut vec = Vec::new();
         vec.extend(self.items());

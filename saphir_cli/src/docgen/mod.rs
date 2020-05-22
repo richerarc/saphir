@@ -15,6 +15,7 @@ use std::cell::{RefCell};
 use crate::docgen::crate_syn_browser::{Browser, File, Item};
 use crate::docgen::controller_info::ControllerInfo;
 use crate::docgen::utils::{get_serde_field, find_macro_attribute_flag, find_macro_attribute_named_value};
+use lazycell::LazyCell;
 
 mod crate_syn_browser;
 mod controller_info;
@@ -78,8 +79,6 @@ pub(crate) struct DocGen {
     pub args: <DocGen as Command>::Args,
     pub doc: OpenApi,
     pub operation_ids: RefCell<HashSet<String>>,
-    // pub handlers: RefCell<Vec<HandlerInfo>>,
-    // pub controller: LazyCell<Vec<ControllerInfo>>,
 }
 
 impl Command for DocGen {
@@ -92,18 +91,16 @@ impl Command for DocGen {
             args,
             doc,
             operation_ids: RefCell::new(Default::default()),
-            // controller: LazyCell::new(),
         }
     }
 
-    fn run(mut self) -> CommandResult {
+    fn run<'b>(&mut self) -> CommandResult {
         let now = Instant::now();
         self.read_project_cargo_toml()?;
         let browser = Browser::new(self.args.project_path.clone()).map_err(|e| format!("{}", e))?;
         let browser = unsafe { &*(&browser as *const Browser) }; // FIXME: Definitely find a better way to handle the lifetime issue here
-        let entrypoint = Self::get_crate_entrypoint(self.args.package_name.as_ref(), browser).map_err(|e| format!("{}", e))?;
+        let entrypoint = self.get_crate_entrypoint(self.args.package_name.as_ref(), browser).map_err(|e| format!("{}", e))?;
         let controllers = self.load_controllers(entrypoint)?;
-        // let handlers = std::mem::take(&mut *self.handlers.borrow_mut());
         self.fill_openapi_with_controllers(entrypoint, controllers)?;
         let file = self.write_doc_file()?;
         println!("Succesfully created `{}` in {}ms", file, now.elapsed().as_millis());
@@ -112,9 +109,10 @@ impl Command for DocGen {
 }
 
 impl DocGen {
-    fn get_crate_entrypoint<'b>(package_name: Option<&String>, browser: &'b Browser<'b>) -> Result<&'b File<'b>, String> {
+    fn get_crate_entrypoint<'s, 'r, 'b: 'r>(&'s self, package_name: Option<&'r String>, browser: &'b Browser<'b>) -> Result<&'b File<'b>, String> {
         let main_package = if let Some(main_name) = package_name {
-            browser.package_by_name(main_name).unwrap_or_else(|| panic!("Crate does not include a member named `{}`.", main_name))
+            let package = browser.package_by_name(main_name);
+            package.unwrap_or_else(|| panic!("Crate does not include a member named `{}`.", main_name))
         } else if browser.packages().len() == 1 {
             browser.packages().first().expect("Condition ensure exactly 1 workspace member")
         } else {
@@ -181,11 +179,10 @@ by using the --package flag.".to_string());
         Ok(controllers)
     }
 
-    fn fill_openapi_with_controllers<'b>(&mut self, entrypoint: &'b File, controllers: Vec<ControllerInfo>) -> CommandResult {
+    fn fill_openapi_with_controllers<'s, 'e, 'b>(&'s mut self, entrypoint: &'e File<'b>, controllers: Vec<ControllerInfo>) -> CommandResult {
         for controller in controllers {
             for mut handler in controller.handlers {
-                let routes = std::mem::take(&mut handler.routes);
-                for route in routes {
+                for route in handler.routes {
                     let path = route.uri;
                     let method = route.method;
                     let description = if handler.use_cookies {
@@ -230,7 +227,7 @@ by using the --package flag.".to_string());
         Ok(())
     }
 
-    fn get_open_api_body_param<'b>(&self, entrypoint: &'b File, body_info: &BodyParamInfo) -> Option<OpenApiRequestBody> {
+    fn get_open_api_body_param<'s, 'b, 'e>(&'s self, entrypoint: &'e File<'b>, body_info: &'s BodyParamInfo) -> Option<OpenApiRequestBody> {
         let t = if body_info.type_info.is_type_deserializable {
             self.get_open_api_type_from_type_info(entrypoint, &body_info.type_info)?
         } else {
@@ -250,7 +247,7 @@ by using the --package flag.".to_string());
         });
     }
 
-    fn get_open_api_parameters_from_body_info<'b>(&self, entrypoint: &'b File, body_info: &BodyParamInfo) -> Vec<OpenApiParameter> {
+    fn get_open_api_parameters_from_body_info<'s, 'b, 'e>(&'s self, entrypoint: &'e File<'b>, body_info: &'s BodyParamInfo) -> Vec<OpenApiParameter> {
         let mut parameters = Vec::new();
         if let Some(t) = self.get_open_api_type_from_type_info(entrypoint, &body_info.type_info) {
             if let OpenApiType::Object { object: OpenApiObjectType::Object { properties, required } } = t {
@@ -268,10 +265,10 @@ by using the --package flag.".to_string());
         parameters
     }
 
-    fn get_open_api_type_from_type_info<'b>(&self, entrypoint: &'b File, type_info: &TypeInfo) -> Option<OpenApiType> {
+    fn get_open_api_type_from_type_info<'s, 'b, 'e>(&'s self, entrypoint: &'e File<'b>, type_info: &'s TypeInfo) -> Option<OpenApiType> {
         let type_path = type_info.type_path.as_ref()?;
-        let type_file = entrypoint.target.file_by_use_path(type_path).ok().flatten()?;
-        let type_impl = type_file.find_impl(type_info.name.as_str()).ok().flatten()?;
+        let type_mod = entrypoint.target.module_by_use_path(type_path).ok().flatten()?;
+        let type_impl = type_mod.find_impl_inline(type_info.name.as_str()).ok().flatten()?;
         match type_impl.item {
             SynItem::Struct(s) => {
                 self.get_open_api_type_from_struct(type_impl, s)
@@ -283,7 +280,7 @@ by using the --package flag.".to_string());
         }
     }
 
-    fn get_open_api_type_from_struct<'b>(&self, item: &'b Item, s: &ItemStruct) -> Option<OpenApiType> {
+    fn get_open_api_type_from_struct<'s, 'b, 'i>(&'s self, item: &'i Item<'b>, s: &'b ItemStruct) -> Option<OpenApiType> {
         let mut properties = HashMap::new();
         let mut required = Vec::new();
         for field in &s.fields {
@@ -319,7 +316,7 @@ by using the --package flag.".to_string());
         }
     }
 
-    fn get_open_api_type_from_enum<'b>(&self, item: &'b Item, e: &ItemEnum) -> Option<OpenApiType> {
+    fn get_open_api_type_from_enum<'b>(&self, item: &Item<'b>, e: &'b ItemEnum) -> Option<OpenApiType> {
         if e.variants.iter().all(|v| v.fields == Fields::Unit) {
             let mut values: Vec<String> = Vec::new();
             for variant in &e.variants {

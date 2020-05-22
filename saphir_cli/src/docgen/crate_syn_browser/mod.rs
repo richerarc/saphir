@@ -5,7 +5,7 @@ use Error::*;
 use syn::export::fmt::Display;
 use syn::export::Formatter;
 use cargo_metadata::{Package as MetaPackage, Target as MetaTarget, PackageId};
-use syn::{File as SynFile, Item as SynItem, ItemMod as SynMod, UseTree};
+use syn::{File as SynFile, Item as SynItem, ItemMod as SynMod, UseTree, Visibility};
 use std::fs::File as FsFile;
 use std::fmt::Debug;
 use std::io::Read;
@@ -71,7 +71,7 @@ impl<'b> Browser<'b> {
         Ok(browser)
     }
 
-    pub fn package_by_name(&'b self, name: &str) -> Option<&'b Package> {
+    pub fn package_by_name(&self, name: &str) -> Option<&'b Package> {
         self.packages().iter().find(|p| p.meta.name.as_str() == name)
     }
 
@@ -186,8 +186,9 @@ impl<'b> Package<'b> {
 pub struct Target<'b> {
     package: &'b Package<'b>,
     target: &'b MetaTarget,
-    entrypoint: LazyCell<File<'b>>,
-    files: RefCell<HashMap<String, &'b File<'b>>>,
+    entrypoint_file: LazyCell<File<'b>>,
+    entrypoint_module: LazyCell<Module<'b>>,
+    modules: RefCell<HashMap<String, &'b Module<'b>>>,
 }
 
 impl<'b> Target<'b> {
@@ -198,43 +199,56 @@ impl<'b> Target<'b> {
         Self {
             package,
             target,
-            entrypoint: LazyCell::new(),
-            files: RefCell::default(),
+            entrypoint_file: LazyCell::new(),
+            entrypoint_module: LazyCell::new(),
+            modules: RefCell::default(),
         }
+    }
+
+    #[inline]
+    pub fn init_entrypoint_and_module(&'b self) -> Result<(), Error> {
+        if !self.entrypoint_file.filled() {
+            let file = File::new(self, &self.target.src_path, self.package.name.clone() )?;
+            self.entrypoint_file.fill(file).expect("We should never be filling this twice");
+        }
+        if !self.entrypoint_module.filled() {
+            let entrypoint = self.entrypoint_file.borrow().expect("Should have been initialized by the previous statement");
+            let module = Module::Crate { file: &entrypoint };
+            self.entrypoint_module.fill(module).expect("We should never be filling this twice");
+            let module = self.entrypoint_module.borrow().unwrap();
+            self.modules.borrow_mut().insert(entrypoint.use_path.clone(), module);
+        }
+        Ok(())
     }
 
     pub fn entrypoint(&'b self) -> Result<&'b File<'b>, Error> {
-        if !self.entrypoint.filled() {
-            let file = File::new(self, &self.target.src_path, self.package.name.clone() )?;
-            self.entrypoint.fill(file).expect("We should never be filling this twice");
-            let file = self.entrypoint.borrow().unwrap();
-            self.files.borrow_mut().insert(file.use_path.clone(), file);
-        }
-        Ok(self.entrypoint.borrow().expect("Should have been initialized by the previous statement"))
+        self.init_entrypoint_and_module()?;
+        Ok(self.entrypoint_file.borrow().expect("Should have been initialized by the previous statement"))
     }
 
-    pub fn file_by_use_path(&'b self, path: &str) -> Result<Option<&'b File<'b>>, Error> {
-        println!("Looking for file {:?}", path);
-        if let Some(file) = self.files.borrow().get(path) {
-            return Ok(Some(file));
+    pub fn module(&'b self) -> Result<&'b Module<'b>, Error> {
+        self.init_entrypoint_and_module()?;
+        Ok(self.entrypoint_module.borrow().expect("Should have been initialized by the previous statement"))
+    }
+
+    pub fn module_by_use_path(&'b self, path: &str) -> Result<Option<&'b Module<'b>>, Error> {
+        if let Some(module) = self.modules.borrow().get(path) {
+            return Ok(Some(module));
         }
         let mut path_split = path.split("::");
         if let Some(mut root) = path_split.next() {
             if root == "crate" {
                 root = self.package.name.as_str();
             }
-            let file = if root == self.package.name.as_str() {
-                let mut cur_file = self.entrypoint()?;
+            let module = if root == self.package.name.as_str() {
+                let mut cur_module = self.module()?;
                 for split in path_split {
-                    if let Some(m) = cur_file.modules()?.iter().find(|m| m.name().as_str() == split) {
-                        cur_file = match m {
-                            Module::External { file, .. } => file,
-                            Module::Inline { file, .. } => *file,
-                        };
+                    if let Some(m) = cur_module.file().modules()?.iter().find(|m| m.name().as_str() == split) {
+                        cur_module = m;
                     }
                 }
-                if cur_file.use_path == path {
-                    Some(cur_file)
+                if cur_module.use_path() == path {
+                    Some(cur_module)
                 } else {
                     None
                 }
@@ -251,13 +265,13 @@ impl<'b> Target<'b> {
                 let mut remaining_path: Vec<&str> = vec![root];
                 remaining_path.extend(path_split);
                 let use_path = remaining_path.join("::");
-                let file = lib.file_by_use_path(use_path.as_str())?;
-                file
+                let module = lib.module_by_use_path(use_path.as_str())?;
+                module
             };
-            if let Some(file) = file {
-                self.files.borrow_mut().insert(path.to_string(), file);
+            if let Some(module) = module {
+                self.modules.borrow_mut().insert(path.to_string(), module);
             }
-            Ok(file)
+            Ok(module)
         } else {
             Ok(None)
         }
@@ -323,7 +337,7 @@ impl<'b> File<'b> {
             self.modules.fill(modules).expect("We should never be filling this twice");
             for m in self.modules.borrow().unwrap() {
                 if let Module::External { file, .. } = &m {
-                    self.target.files.borrow_mut().insert(file.use_path.clone(), &file);
+                    self.target.modules.borrow_mut().insert(file.use_path.clone(), &m);
                 }
             }
         }
@@ -331,19 +345,6 @@ impl<'b> File<'b> {
     }
 
     /// Return all syn::Item in this file, including inline modules.
-    pub fn all_file_items(&'b self) -> Result<Vec<&'b Item<'b>>, Error> {
-        let mut vec = Vec::new();
-        vec.extend(self.items());
-        for m in self.modules()? {
-            match m {
-                Module::Inline { items, .. } => vec.extend(items),
-                _ => {}
-            }
-        }
-        Ok(vec)
-    }
-
-    /// Return all syn::Item nested within this file, including included modules.
     pub fn all_items(&'b self) -> Result<Vec<&'b Item<'b>>, Error> {
         let mut vec = Vec::new();
         vec.extend(self.items());
@@ -360,8 +361,8 @@ impl<'b> File<'b> {
 
         for u in self.uses() {
             if u.alias.as_str() == name {
-                if let Some(file) = self.target.file_by_use_path(u.path.as_str())? {
-                    return file.find_impl_inline(u.name.as_str());
+                if let Some(module) = self.target.module_by_use_path(u.path.as_str())? {
+                    return module.find_impl_inline(u.name.as_str());
                 }
             }
         }
@@ -371,7 +372,7 @@ impl<'b> File<'b> {
     }
 
     fn find_impl_inline(&'b self, name: &str) -> Result<Option<&'b Item<'b>>, Error> {
-        for (item, item_name) in self.all_file_items()?.iter().filter_map(|i| match &i.item {
+        for (item, item_name) in self.items().iter().filter_map(|i| match &i.item {
             SynItem::Enum(e) => Some((i, e.ident.to_string())),
             SynItem::Struct(s) => Some((i, s.ident.to_string())),
             _ => None
@@ -390,30 +391,34 @@ impl<'b> File<'b> {
                 SynItem::Use(u) => Some(u),
                 _ => None
             }) {
-                uses.extend(self.expand_use_tree(&u.tree, None));
+                let is_pub = match u.vis {
+                    Visibility::Public(_) => true,
+                    _ => false,
+                };
+                uses.extend(self.expand_use_tree(&u.tree, None, is_pub));
             }
-            self.uses.fill(uses);
+            self.uses.fill(uses).expect("We should never be filling this twice");
         }
         self.uses.borrow().expect("Should have been initialized by the previous statement")
     }
 
-    fn expand_use_tree(&'b self, u: &'b UseTree, prefix: Option<String>) -> Vec<Use> {
+    fn expand_use_tree(&'b self, u: &'b UseTree, prefix: Option<String>, is_pub: bool) -> Vec<Use> {
         match u {
             UseTree::Name(n) => {
                 let name = n.ident.to_string();
                 let path = prefix.unwrap_or_else(|| self.use_path.clone());
-                vec![Use { path, alias: name.clone(), name }]
+                vec![Use { path, alias: name.clone(), name, is_pub }]
             },
             UseTree::Rename(n) => {
                 let name = n.ident.to_string();
                 let alias = n.rename.to_string();
                 let path = prefix.unwrap_or_else(|| self.use_path.clone());
-                vec![Use { path, name, alias }]
+                vec![Use { path, name, alias, is_pub }]
             },
             UseTree::Group(g) => {
                 g.items
                     .iter()
-                    .map(|u| self.expand_use_tree(u, prefix.clone()))
+                    .map(|u| self.expand_use_tree(u, prefix.clone(), is_pub))
                     .flatten()
                     .collect()
             },
@@ -434,16 +439,28 @@ impl<'b> File<'b> {
                         format!("{}::{}", self.use_path, path_segment)
                     }
                 };
-                self.expand_use_tree(p.tree.as_ref(), Some(prefix))
+                self.expand_use_tree(p.tree.as_ref(), Some(prefix), is_pub)
             }
             UseTree::Glob(g) => {
                 let path = prefix.expect("Glob pattern should have a path prefix");
                 println!("glob (*) for {:?}", &path);
-                if let Ok(Some(file)) = self.target.file_by_use_path(path.as_str()) {
-                    println!("Found the file for our glob pattern : {:?}", file.dir);
-                    let uses = file.uses().iter().cloned().collect();
-                    uses
+                if let Ok(Some(module)) = self.target.module_by_use_path(path.as_str()) {
+                    println!("Found the module for our glob pattern : {:?}", module.name());
+                    // let uses = module.uses().iter().cloned().collect();
+                    vec![]
                 } else {
+                    // let split: Vec<&str> = path.split("::").collect();
+                    // if !split.is_empty() {
+                    //     let last = split.last().unwrap();
+                    //     let path = &split[0..(split.len()-1)].join("::");
+                    //     println!("Will look for {}::* in {:?}", last, path);
+                    //     if let Ok(Some(module)) = self.target.module_by_use_path(path) {
+                    //         if let Ok(Some(i)) = module.find_impl_inline(last) {
+                    //             println!("Found impl {:?}", i.item);
+                    //         }
+                    //
+                    //     }
+                    // }
                     vec![]
                 }
             }
@@ -456,6 +473,7 @@ pub struct Use {
     pub path: String,
     pub name: String,
     pub alias: String,
+    pub is_pub: bool,
 }
 
 #[derive(Debug)]
@@ -478,6 +496,9 @@ impl<'b> Item<'b> {
 
 #[derive(Debug)]
 pub enum Module<'b> {
+    Crate {
+        file: &'b File<'b>,
+    },
     Inline {
         file: &'b File<'b>,
         module: &'b SynMod,
@@ -510,17 +531,31 @@ impl<'b> Module<'b> {
             module
         })
     }
+
     pub fn name(&self) -> String {
-        let module = match self {
-            Module::Inline { module, .. } => module,
-            Module::External { module, .. } => module,
-        };
-        module.ident.to_string()
+        match self {
+            Module::Crate { file, .. } => file.target.package.name.clone(),
+            Module::Inline { module, .. } => module.ident.to_string(),
+            Module::External { module, .. } => module.ident.to_string(),
+        }
+    }
+
+    pub fn file(&self) -> &'b File {
+        match self {
+            Module::Crate { file, .. } => file,
+            Module::Inline { file, .. } => file,
+            Module::External { file, .. } => file,
+        }
+    }
+
+    pub fn use_path(&'b self) -> String {
+        format!("{}::{}", self.file().use_path.as_str(), self.name())
     }
 
     #[allow(dead_code)]
     pub fn items(&'b self) -> &'b Vec<Item<'b>> {
         match self {
+            Module::Crate { file, .. } => file.items(),
             Module::Inline { items, .. } => items,
             Module::External { file, .. } => file.items(),
         }
@@ -528,8 +563,23 @@ impl<'b> Module<'b> {
 
     pub fn all_items(&'b self) -> Result<Vec<&'b Item<'b>>, Error> {
         match self {
+            Module::Crate { file, .. } => file.all_items(),
             Module::Inline { items, .. } => Ok(items.iter().collect()),
             Module::External { file, .. } => file.all_items(),
         }
     }
+
+    pub fn find_impl_inline(&'b self, name: &str) -> Result<Option<&'b Item<'b>>, Error> {
+        for (item, item_name) in self.items().iter().filter_map(|i| match &i.item {
+            SynItem::Enum(e) => Some((i, e.ident.to_string())),
+            SynItem::Struct(s) => Some((i, s.ident.to_string())),
+            _ => None
+        }) {
+            if item_name.as_str() == name {
+                return Ok(Some(item));
+            }
+        }
+        Ok(None)
+    }
+
 }

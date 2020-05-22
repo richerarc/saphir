@@ -10,7 +10,7 @@ type CommandResult = std::result::Result<(), String>;
 trait Command: Sized {
     type Args;
     fn new(args: Self::Args) -> Self;
-    fn run(self) -> CommandResult;
+    fn run(&mut self) -> CommandResult;
 }
 
 /// Saphir web framework's CLI utility.
@@ -29,7 +29,7 @@ fn main() {
     let cli = SaphirCli::from_args();
     if let Err(e) = match cli.cmd {
         SaphirCliCommand::DocGen(a) => {
-            let doc = DocGen::new(a);
+            let mut doc = DocGen::new(a);
             doc.run()
         }
     } {

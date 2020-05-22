@@ -21,7 +21,6 @@ impl DocGen {
         match &im.sig.output {
             ReturnType::Default => Ok(vec![ResponseInfo { code: 200, type_info: None }]),
             ReturnType::Type(_tokens, t) => {
-                // let parsed: Punctuated<PathSegment, Token![::]> = syn::parse(tokens)?;
                 self.response_info_from_type(file, im, t)
             }
         }

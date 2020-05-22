@@ -385,6 +385,18 @@ impl<'b> File<'b> {
     }
 
     fn uses(&'b self) -> &'b Vec<Use> {
+        self.fill_uses();
+        self.uses.borrow().expect("Should have been initialized by the previous statement")
+    }
+
+    fn pub_uses(&'b self) -> impl Iterator<Item = &Use> {
+        self.fill_uses();
+        self.uses.borrow().expect("Should have been initialized by the previous statement")
+            .iter()
+            .filter(|u| u.is_pub)
+    }
+
+    fn fill_uses(&'b self) {
         if !self.uses.filled() {
             let mut uses: Vec<Use> = Vec::new();
             for u in self.items().iter().filter_map(|i| match i.item {
@@ -399,7 +411,6 @@ impl<'b> File<'b> {
             }
             self.uses.fill(uses).expect("We should never be filling this twice");
         }
-        self.uses.borrow().expect("Should have been initialized by the previous statement")
     }
 
     fn expand_use_tree(&'b self, u: &'b UseTree, prefix: Option<String>, is_pub: bool) -> Vec<Use> {
@@ -443,24 +454,9 @@ impl<'b> File<'b> {
             }
             UseTree::Glob(g) => {
                 let path = prefix.expect("Glob pattern should have a path prefix");
-                println!("glob (*) for {:?}", &path);
                 if let Ok(Some(module)) = self.target.module_by_use_path(path.as_str()) {
-                    println!("Found the module for our glob pattern : {:?}", module.name());
-                    // let uses = module.uses().iter().cloned().collect();
-                    vec![]
+                    module.pub_uses().iter().cloned().cloned().collect()
                 } else {
-                    // let split: Vec<&str> = path.split("::").collect();
-                    // if !split.is_empty() {
-                    //     let last = split.last().unwrap();
-                    //     let path = &split[0..(split.len()-1)].join("::");
-                    //     println!("Will look for {}::* in {:?}", last, path);
-                    //     if let Ok(Some(module)) = self.target.module_by_use_path(path) {
-                    //         if let Ok(Some(i)) = module.find_impl_inline(last) {
-                    //             println!("Found impl {:?}", i.item);
-                    //         }
-                    //
-                    //     }
-                    // }
                     vec![]
                 }
             }
@@ -503,6 +499,7 @@ pub enum Module<'b> {
         file: &'b File<'b>,
         module: &'b SynMod,
         items: Vec<Item<'b>>,
+        uses: LazyCell<Vec<Use>>,
     },
     External {
         module: &'b SynMod,
@@ -516,7 +513,12 @@ impl<'b> Module<'b> {
         module: &'b SynMod,
     ) -> Result<Self, Error> {
         Ok(if module.content.is_some() {
-            Module::Inline { file, module, items: module.content.as_ref().unwrap().1.iter().map(|i| Item::new(file, i)).collect() }
+            Module::Inline {
+                file,
+                module,
+                items: module.content.as_ref().unwrap().1.iter().map(|i| Item::new(file, i)).collect(),
+                uses: LazyCell::new(),
+            }
         } else {
             let name = module.ident.to_string();
             let use_path =  format!("{}::{}", file.use_path, &name);
@@ -535,14 +537,13 @@ impl<'b> Module<'b> {
     pub fn name(&self) -> String {
         match self {
             Module::Crate { file, .. } => file.target.package.name.clone(),
-            Module::Inline { module, .. } => module.ident.to_string(),
-            Module::External { module, .. } => module.ident.to_string(),
+            Module::Inline { module, .. } | Module::External { module, .. } => module.ident.to_string(),
         }
     }
 
     pub fn file(&self) -> &'b File {
         match self {
-            Module::Crate { file, .. } => file,
+            Module::Crate { file, .. } |
             Module::Inline { file, .. } => file,
             Module::External { file, .. } => file,
         }
@@ -556,16 +557,16 @@ impl<'b> Module<'b> {
     pub fn items(&'b self) -> &'b Vec<Item<'b>> {
         match self {
             Module::Crate { file, .. } => file.items(),
-            Module::Inline { items, .. } => items,
             Module::External { file, .. } => file.items(),
+            Module::Inline { items, .. } => items,
         }
     }
 
     pub fn all_items(&'b self) -> Result<Vec<&'b Item<'b>>, Error> {
         match self {
             Module::Crate { file, .. } => file.all_items(),
-            Module::Inline { items, .. } => Ok(items.iter().collect()),
             Module::External { file, .. } => file.all_items(),
+            Module::Inline { items, .. } => Ok(items.iter().collect()),
         }
     }
 
@@ -582,4 +583,86 @@ impl<'b> Module<'b> {
         Ok(None)
     }
 
+    fn pub_uses(&'b self) -> Vec<&'b Use> {
+        match self {
+            Module::Crate { file, .. } => file.pub_uses().collect(),
+            Module::External { file, .. } => file.pub_uses().collect(),
+            Module::Inline { items, uses, .. } => {
+                if !uses.filled() {
+                    uses.fill(items
+                        .iter()
+                        .filter_map(|i| match &i.item {
+                            SynItem::Use(u) => {
+                                let is_pub = match u.vis {
+                                    Visibility::Public(_) => true,
+                                    _ => false,
+                                };
+                                // TODO: This can technically be prefixed by uses in the file containing this inline module
+                                Some(self.expand_use_tree(&u.tree, None, is_pub))
+                             }
+                            _ => None,
+                        })
+                        .flatten()
+                        .collect()
+                    ).expect("We shouldn't be filling twice");
+                }
+                uses
+                    .borrow()
+                    .expect("Initialized above")
+                    .iter()
+                    .filter(|u| u.is_pub)
+                    .collect()
+            },
+        }
+    }
+
+    fn expand_use_tree(&'b self, u: &'b UseTree, prefix: Option<String>, is_pub: bool) -> Vec<Use> {
+        match u {
+            UseTree::Name(n) => {
+                let name = n.ident.to_string();
+                let path = prefix.unwrap_or_else(|| self.use_path());
+                vec![Use { path, alias: name.clone(), name, is_pub }]
+            },
+            UseTree::Rename(n) => {
+                let name = n.ident.to_string();
+                let alias = n.rename.to_string();
+                let path = prefix.unwrap_or_else(|| self.use_path());
+                vec![Use { path, name, alias, is_pub }]
+            },
+            UseTree::Group(g) => {
+                g.items
+                    .iter()
+                    .map(|u| self.expand_use_tree(u, prefix.clone(), is_pub))
+                    .flatten()
+                    .collect()
+            },
+            UseTree::Path(p) => {
+                let path_segment = p.ident.to_string();
+                let prefix = if prefix.is_none() {
+                    if path_segment.as_str() == "self" {
+                        self.use_path()
+                    } else if path_segment.as_str() == "crate" {
+                        self.file().target.package.name.clone()
+                    } else {
+                        path_segment
+                    }
+                } else {
+                    if let Some(p) = prefix {
+                        format!("{}::{}", p, path_segment)
+                    } else {
+                        format!("{}::{}", self.use_path(), path_segment)
+                    }
+                };
+                self.expand_use_tree(p.tree.as_ref(), Some(prefix), is_pub)
+            }
+            UseTree::Glob(g) => {
+                let path = prefix.expect("Glob pattern should have a path prefix");
+                if let Ok(Some(module)) = self.file().target.module_by_use_path(path.as_str()) {
+                    module.pub_uses().iter().cloned().cloned().collect()
+                } else {
+                    vec![]
+                }
+            }
+        }
+    }
 }

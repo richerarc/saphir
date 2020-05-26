@@ -208,6 +208,7 @@ by using the --package flag.".to_string());
 
                     for response in &handler.responses {
                         let openapi_type = response.type_info.as_ref()
+                            .filter(|t| t.is_type_serializable)
                             .map(|t| self.get_open_api_type_from_type_info(entrypoint, &t))
                             .flatten()
                             .unwrap_or_else(|| OpenApiType::anonymous_object());
@@ -266,7 +267,11 @@ by using the --package flag.".to_string());
 
     fn get_open_api_parameters_from_body_info<'s, 'b, 'e>(&'s self, entrypoint: &'e File<'b>, body_info: &'s BodyParamInfo) -> Vec<OpenApiParameter> {
         let mut parameters = Vec::new();
-        if let Some(t) = self.get_open_api_type_from_type_info(entrypoint, &body_info.type_info) {
+        if let Some(t) = if body_info.type_info.is_type_deserializable {
+            self.get_open_api_type_from_type_info(entrypoint, &body_info.type_info)
+        } else {
+            None
+        } {
             if let OpenApiType::Object { object: OpenApiObjectType::Object { properties, required } } = t {
                 for (name, openapi_type) in &properties {
                     parameters.push(OpenApiParameter {

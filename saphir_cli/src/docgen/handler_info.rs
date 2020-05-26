@@ -16,7 +16,7 @@ pub(crate) struct HandlerInfo {
 }
 
 impl DocGen {
-    pub(crate) fn extract_handler_info<'b>(&self, base_path: &str, file: &'b File<'b>, impl_method: &ImplItemMethod) -> Result<Option<HandlerInfo>, String> {
+    pub(crate) fn extract_handler_info<'b>(&self, base_path: &str, file: &'b File<'b>, impl_method: &'b ImplItemMethod) -> Result<Option<HandlerInfo>, String> {
         let mut consume_cookies: bool = self.handler_has_cookies(&impl_method);
 
         let routes: Vec<RouteInfo> = impl_method.attrs
@@ -33,7 +33,7 @@ impl DocGen {
             consume_cookies = true;
         }
 
-        let responses = self.extract_response_info(file, &impl_method)?;
+        let responses = self.extract_response_info(file, &impl_method);
 
 
         Ok(Some(HandlerInfo {

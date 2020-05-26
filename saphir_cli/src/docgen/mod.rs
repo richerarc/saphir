@@ -206,20 +206,37 @@ by using the --package flag.".to_string());
                         }
                     }
 
+                    for response in &handler.responses {
+                        let openapi_type = response.type_info.as_ref()
+                            .map(|t| self.get_open_api_type_from_type_info(entrypoint, &t))
+                            .flatten()
+                            .unwrap_or_else(|| OpenApiType::anonymous_object());
+                        let mut content = HashMap::new();
+                        content.insert(response.mime.clone(), OpenApiContent { schema: OpenApiSchema::Inline(openapi_type) });
+                        data.responses.insert(
+                            response.code,
+                            OpenApiResponse {
+                                // TODO: Status code name from StatusCode in http
+                                description: response.type_info.as_ref().map(|t| t.name.clone()).unwrap_or_default(),
+                                content
+                            },
+                        );
+                    }
+
                     if !self.doc.paths.contains_key(path.as_str()) {
                         self.doc.paths.insert(path.clone(), BTreeMap::new());
                     }
                     let path_map = self.doc.paths.get_mut(path.as_str()).expect("Should work because of previous statement");
 
-                    if data.responses.is_empty() {
-                        data.responses.insert(
-                            200,
-                            OpenApiResponse {
-                                description: "successful operation".to_string(),
-                                content: Default::default(),
-                            },
-                        );
-                    }
+                    // if data.responses.is_empty() {
+                    //     data.responses.insert(
+                    //         200,
+                    //         OpenApiResponse {
+                    //             description: "successful operation".to_string(),
+                    //             content: Default::default(),
+                    //         },
+                    //     );
+                    // }
                     path_map.insert(method, data);
                 }
             }

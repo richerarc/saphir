@@ -28,7 +28,7 @@ impl ControllerInfo {
 impl DocGen {
     /// Retrieve ControllerInfo from an implementation block.
     /// Saphir does not currently support multiple implementation blocks for the same controller.
-    pub(crate) fn extract_controller_info<'b>(&self, file: &'b File<'b>, im: &ItemImpl) -> Result<Option<ControllerInfo>, String> {
+    pub(crate) fn extract_controller_info<'b>(&self, file: &'b File<'b>, im: &'b ItemImpl) -> Result<Option<ControllerInfo>, String> {
         for attr in &im.attrs {
             if let Some(first_seg) = attr.path.segments.first() {
                 let t = im.self_ty.as_ref();

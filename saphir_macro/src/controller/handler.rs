@@ -419,6 +419,7 @@ impl HandlerAttrs {
                                                     Some("return") => {
                                                         let mut nb_code = 0;
                                                         let mut nb_type = 0;
+                                                        let mut nb_mime = 0;
                                                         if nl.nested.is_empty() {
                                                             return Err(Error::new_spanned(nl, "openapi return attribute cannot be empty"))
                                                         }
@@ -446,6 +447,13 @@ impl HandlerAttrs {
                                                                                         return Err(Error::new_spanned(m, "Invalid type : expected a type name/path wrapped in double-quotes"))
                                                                                     }
                                                                                 },
+                                                                                Some("mime") => {
+                                                                                    if let Lit::Str(_) = &nv.lit {
+                                                                                        nb_mime += 1;
+                                                                                    } else {
+                                                                                        return Err(Error::new_spanned(m, "Expected a mimetype string"))
+                                                                                    }
+                                                                                },
                                                                                 _ => return Err(Error::new_spanned(&nv.path, "Invalid openapi return attribute")),
                                                                             }
                                                                         },
@@ -462,6 +470,10 @@ impl HandlerAttrs {
 
                                                         if nb_type == 0 {
                                                             return Err(Error::new_spanned(nl, "openapi return missing `type` value"))
+                                                        }
+
+                                                        if nb_mime > 1 {
+                                                            return Err(Error::new_spanned(nl, "openapi cannot have more than 1 `mime` for the same return"))
                                                         }
 
                                                         if nb_code > 1 && nb_type > 1 {

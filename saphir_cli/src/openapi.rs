@@ -24,6 +24,17 @@ pub enum OpenApiMimeType {
     Other(String),
 }
 
+impl From<String> for OpenApiMimeType {
+    fn from(s: String) -> Self {
+        match s.as_str() {
+            "json" | "application/json" => OpenApiMimeType::Json,
+            "form" | "application/x-www-form-urlencoded" => OpenApiMimeType::Form,
+            "any" | "*/*" => OpenApiMimeType::Any,
+            _ => OpenApiMimeType::Other(s),
+        }
+    }
+}
+
 impl Serialize for OpenApiMimeType {
     fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error> where
         S: Serializer {

@@ -58,6 +58,7 @@ impl DocGen {
                                 Some("return") => {
                                     let mut codes: Vec<u16> = Vec::new();
                                     let mut types: Vec<String> = Vec::new();
+                                    let mut mime: Option<String> = None;
                                     if nl.nested.is_empty() {
                                         continue;
                                     }
@@ -83,6 +84,11 @@ impl DocGen {
                                                             types.push(s.value());
                                                         }
                                                     },
+                                                    Some("mime") => {
+                                                        if let Lit::Str(s) = &nv.lit {
+                                                            mime = Some(s.value());
+                                                        }
+                                                    }
                                                     _ => {},
                                                 }
                                             },
@@ -107,13 +113,16 @@ impl DocGen {
                                         }
                                     }
 
+                                    let mime = mime
+                                        .map(|m| OpenApiMimeType::from(m));
+
                                     for (code, type_name) in pairs {
                                         let path = match syn::parse_str::<Path>(type_name.as_str()) {
                                             Ok(path) => path,
                                             _ => {
                                                 vec.push((Some(code), ResponseInfo {
                                                     code,
-                                                    mime: OpenApiMimeType::Any,
+                                                    mime: mime.clone().unwrap_or(OpenApiMimeType::Any),
                                                     type_info: None,
                                                 }));
                                                 continue;
@@ -124,6 +133,9 @@ impl DocGen {
                                                 .into_iter()
                                                 .map(|(_, mut r)| {
                                                     r.code = code;
+                                                    if let Some(m) = &mime {
+                                                        r.mime = m.clone();
+                                                    }
                                                     (Some(code), r)
                                                 })
                                         );

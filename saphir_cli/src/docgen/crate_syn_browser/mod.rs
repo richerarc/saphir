@@ -389,13 +389,6 @@ impl<'b> File<'b> {
         self.uses.borrow().expect("Should have been initialized by the previous statement")
     }
 
-    fn pub_uses(&'b self) -> impl Iterator<Item = &Use> {
-        self.fill_uses();
-        self.uses.borrow().expect("Should have been initialized by the previous statement")
-            .iter()
-            .filter(|u| u.is_pub)
-    }
-
     fn fill_uses(&'b self) {
         if !self.uses.filled() {
             let mut uses: Vec<Use> = Vec::new();
@@ -455,7 +448,7 @@ impl<'b> File<'b> {
             UseTree::Glob(g) => {
                 let path = prefix.expect("Glob pattern should have a path prefix");
                 if let Ok(Some(module)) = self.target.module_by_use_path(path.as_str()) {
-                    module.pub_uses().iter().cloned().cloned().collect()
+                    module.uses().iter().cloned().cloned().collect()
                 } else {
                     vec![]
                 }
@@ -583,10 +576,10 @@ impl<'b> Module<'b> {
         Ok(None)
     }
 
-    fn pub_uses(&'b self) -> Vec<&'b Use> {
+    fn uses(&'b self) -> Vec<&'b Use> {
         match self {
-            Module::Crate { file, .. } => file.pub_uses().collect(),
-            Module::External { file, .. } => file.pub_uses().collect(),
+            Module::Crate { file, .. } => file.uses().iter().collect(),
+            Module::External { file, .. } => file.uses().iter().collect(),
             Module::Inline { items, uses, .. } => {
                 if !uses.filled() {
                     uses.fill(items
@@ -658,7 +651,7 @@ impl<'b> Module<'b> {
             UseTree::Glob(g) => {
                 let path = prefix.expect("Glob pattern should have a path prefix");
                 if let Ok(Some(module)) = self.file().target.module_by_use_path(path.as_str()) {
-                    module.pub_uses().iter().cloned().cloned().collect()
+                    module.uses().iter().cloned().cloned().collect()
                 } else {
                     vec![]
                 }

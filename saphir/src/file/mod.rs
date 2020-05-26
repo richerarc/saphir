@@ -21,12 +21,12 @@ use nom::lib::std::str::FromStr;
 use std::io::Write;
 
 mod cache;
-mod conditional_request;
-mod content_range;
-mod etag;
+pub mod conditional_request;
+pub mod content_range;
+pub mod etag;
 pub mod middleware;
-mod range;
-mod range_requests;
+pub mod range;
+pub mod range_requests;
 
 pub const MAX_BUFFER: usize = 65534;
 

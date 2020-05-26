@@ -1,6 +1,6 @@
 [package]
 name = "saphir"
-version = "2.6.4"
+version = "2.6.7"
 edition = "2018"
 authors = ["Richer Archambault <richer.arc@gmail.com>"]
 description = "Fully async-await http server framework"
@@ -15,7 +15,7 @@ license = "MIT"
 default = ["macro"]
 full = ["macro", "json", "form", "https", "multipart", "operation", "post-redirect", "file"]
 post-redirect = ["redirect", "json"]
-redirect = ["mime", "form", "url"]
+redirect = ["mime", "form"]
 https = ["base64", "rustls", "tokio-rustls"]
 json = ["serde", "serde_json"]
 form = ["serde", "serde_urlencoded"]
@@ -37,7 +37,6 @@ http-body = "0.3"
 parking_lot = "0.10"
 regex = "1.3"
 uuid = { version = "0.8", features = ["serde", "v4"], optional = true }
-url = { version = "2.1.1", optional = true }
 rustls = { version = "0.17", optional = true }
 tokio-rustls = { version = "0.13", optional = true }
 base64 = { version = "0.12", optional = true }

@@ -1,13 +1,9 @@
 use crate::{body::TransmuteBody, http_context::HttpContext, responder::Responder, response::Builder as ResponseBuilder};
-use http::header::HeaderName;
-use http::{HeaderMap, HeaderValue, StatusCode};
+use http::{header::HeaderName, HeaderMap, HeaderValue, StatusCode, Uri};
 use hyper::body::Body as RawBody;
 use mime::Mime;
 use serde::Serialize;
-use std::collections::HashMap;
-use std::convert::TryInto;
-use std::fmt::Debug;
-use url::Url;
+use std::{collections::HashMap, convert::TryInto, fmt::Debug};
 
 #[derive(Debug)]
 pub enum BuilderError {
@@ -88,9 +84,7 @@ impl Builder {
     where
         E: Into<http::Error>,
         K: TryInto<HeaderName, Error = E>,
-        // <K as TryInto<HeaderName>>::Error: Into<http::Error>,
         V: TryInto<HeaderValue, Error = E>,
-        // <V as TryInto<HeaderValue>>::Error: Into<http::Error>
     {
         let name = match name.try_into() {
             Ok(name) => Some(name),
@@ -145,8 +139,7 @@ impl Builder {
         #[cfg(feature = "post-redirect")]
         {
             if let StatusCode::OK = self.status {
-                let loc = location.take();
-                self.format_form_data(loc.as_ref().map(|u| u.as_str()).unwrap_or("/"))?;
+                self.format_form_data(location.take().as_deref().unwrap_or("/"))?;
             }
         }
 
@@ -167,22 +160,23 @@ impl Builder {
         })
     }
 
-    fn format_location(&mut self) -> Result<Option<Url>, BuilderError> {
-        let query = self.query.take().transpose()?;
-        let fragment = self.fragment.take().transpose()?;
+    fn format_location(&mut self) -> Result<Option<String>, BuilderError> {
+        let mut url = match self.location.take() {
+            Some(url) => url.parse::<Uri>().map_err(|_| BuilderError::InvalidLocation)?.to_string(),
+            None => return Ok(None),
+        };
 
-        self.location
-            .take()
-            .map(|u| {
-                u.parse::<Url>()
-                    .map(|mut u| {
-                        u.set_query(query.as_deref());
-                        u.set_fragment(fragment.as_deref());
-                        u
-                    })
-                    .map_err(|_e| BuilderError::InvalidLocation)
-            })
-            .transpose()
+        if let Some(query) = self.query.take().transpose()? {
+            url.push('?');
+            url.push_str(query.as_str());
+        }
+
+        if let Some(fragment) = self.fragment.take().transpose()? {
+            url.push('#');
+            url.push_str(fragment.as_str());
+        }
+
+        Ok(Some(url))
     }
 
     #[inline]
@@ -239,7 +233,7 @@ impl Builder {
 
 pub struct Redirect {
     status: StatusCode,
-    location: Option<Url>,
+    location: Option<String>,
     content: Option<Box<dyn TransmuteBody + Send + Sync>>,
     content_type: Option<Mime>,
     extra_headers: HeaderMap<HeaderValue>,
@@ -252,8 +246,8 @@ impl Redirect {
     }
 
     #[inline]
-    pub fn location(&self) -> Option<&Url> {
-        self.location.as_ref()
+    pub fn location(&self) -> Option<&str> {
+        self.location.as_deref()
     }
 
     #[inline]

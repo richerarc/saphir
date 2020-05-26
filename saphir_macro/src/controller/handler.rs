@@ -405,6 +405,86 @@ impl HandlerAttrs {
                             };
 
                             guards.push(guard);
+                        } else if ident.to_string().eq("openapi") {
+                            if l.nested.is_empty() {
+                                return Err(Error::new_spanned(ident, "openapi attribute cannot be empty"));
+                            }
+                            for meta in &l.nested {
+                                match meta {
+                                    NestedMeta::Meta(m) => {
+                                        match m {
+                                            Meta::List(nl) => {
+                                                let i = nl.path.get_ident().map(|i| i.to_string());
+                                                match i.as_ref().map(|i| i.as_str()) {
+                                                    Some("return") => {
+                                                        let mut nb_code = 0;
+                                                        let mut nb_type = 0;
+                                                        if nl.nested.is_empty() {
+                                                            return Err(Error::new_spanned(nl, "openapi return attribute cannot be empty"))
+                                                        }
+                                                        for n in &nl.nested {
+                                                            match n {
+                                                                NestedMeta::Meta(m) => {
+                                                                    match m {
+                                                                        Meta::NameValue(nv) => {
+                                                                            let r = nv.path.get_ident().map(|i| i.to_string());
+                                                                            match r.as_ref().map(|i| i.as_str()) {
+                                                                                Some("code") => {
+                                                                                    if let Lit::Int(i) = &nv.lit {
+                                                                                        let c: u16 = i.base10_parse()
+                                                                                            .map_err(|_| Error::new_spanned(i, "Invalid status code"))?;
+                                                                                        if c < 100 || c >= 600 {
+                                                                                            return Err(Error::new_spanned(i, "Invalid status code"));
+                                                                                        }
+                                                                                        nb_code += 1;
+                                                                                    }
+                                                                                },
+                                                                                Some("type") => {
+                                                                                    if let Lit::Str(_) = &nv.lit {
+                                                                                        nb_type += 1;
+                                                                                    } else {
+                                                                                        return Err(Error::new_spanned(m, "Invalid type : expected a type name/path wrapped in double-quotes"))
+                                                                                    }
+                                                                                },
+                                                                                _ => return Err(Error::new_spanned(&nv.path, "Invalid openapi return attribute")),
+                                                                            }
+                                                                        },
+                                                                        _ => return Err(Error::new_spanned(m, "Invalid openapi return attribute")),
+                                                                    }
+                                                                },
+                                                                _ => return Err(Error::new_spanned(nl, "Invalid openapi return attribute")),
+                                                            }
+                                                        }
+
+                                                        if nb_code == 0 {
+                                                            return Err(Error::new_spanned(nl, "openapi return missing `code` value"))
+                                                        }
+
+                                                        if nb_type == 0 {
+                                                            return Err(Error::new_spanned(nl, "openapi return missing `type` value"))
+                                                        }
+
+                                                        if nb_code > 1 && nb_type > 1 {
+                                                            return Err(Error::new_spanned(nl, "openapi return cannot have both multiple codes and multiple types.\
+                                                                \nPlease add a return() group for each code-type pair.
+                                                            "))
+                                                        }
+                                                    },
+                                                    Some("param") => {
+                                                        if nl.nested.is_empty() {
+                                                            return Err(Error::new_spanned(m, "openapi param attribute cannot be empty"))
+                                                        }
+                                                    },
+                                                    _ => return Err(Error::new_spanned(m, "Invalid openapi attribute")),
+                                                }
+                                            },
+                                            _ => return Err(Error::new_spanned(m, "Invalid openapi attribute")),
+                                        }
+                                    },
+                                    NestedMeta::Lit(l) => return Err(Error::new_spanned(l, "Invalid openapi attribute")),
+                                }
+                            }
+
                         } else {
                             let method =
                                 Method::from_str(ident.to_string().to_uppercase().as_str()).map_err(|_e| Error::new_spanned(ident, "Invalid HTTP method"))?;

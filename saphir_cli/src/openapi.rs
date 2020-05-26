@@ -1,5 +1,8 @@
 use serde_derive::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
+use serde::{Serialize, Serializer, Deserialize, Deserializer};
+use std::fmt;
+use serde::de::{self, Visitor};
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -13,18 +16,72 @@ impl Default for OpenApiParameterLocation {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Hash)]
-pub enum OpenApiMimeTypes {
-    #[serde(rename = "application/json")]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub enum OpenApiMimeType {
     Json,
-    #[serde(rename = "application/x-www-form-urlencoded")]
     Form,
-    #[serde(rename = "*/*")]
     Any,
+    Other(String),
 }
-impl Default for OpenApiMimeTypes {
+
+impl Serialize for OpenApiMimeType {
+    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error> where
+        S: Serializer {
+        serializer.serialize_str(match self {
+            OpenApiMimeType::Json => "application/json",
+            OpenApiMimeType::Form => "application/x-www-form-urlencoded",
+            OpenApiMimeType::Any => "*/*",
+            OpenApiMimeType::Other(s) => s.as_str(),
+        })
+    }
+}
+
+struct OpenApiMimeTypeVisitor;
+
+impl<'de> Visitor<'de> for OpenApiMimeTypeVisitor {
+    type Value = OpenApiMimeType;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a string or str representing a mimetype")
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+    {
+        Ok(match value {
+            "application/json" => OpenApiMimeType::Json,
+            "application/x-www-form-urlencoded" => OpenApiMimeType::Form,
+            "*/*" => OpenApiMimeType::Any,
+            s => OpenApiMimeType::Other(s.to_owned()),
+        })
+    }
+
+    fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+    {
+        Ok(match value.as_str() {
+            "application/json" => OpenApiMimeType::Json,
+            "application/x-www-form-urlencoded" => OpenApiMimeType::Form,
+            "*/*" => OpenApiMimeType::Any,
+            _ => OpenApiMimeType::Other(value),
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for OpenApiMimeType {
+    fn deserialize<D>(deserializer: D) -> Result<OpenApiMimeType, D::Error>
+        where
+            D: Deserializer<'de>,
+    {
+        deserializer.deserialize_string(OpenApiMimeTypeVisitor)
+    }
+}
+
+impl Default for OpenApiMimeType {
     fn default() -> Self {
-        OpenApiMimeTypes::Any
+        OpenApiMimeType::Any
     }
 }
 
@@ -75,14 +132,15 @@ pub enum OpenApiObjectType {
         #[serde(rename = "additionalProperties")]
         additional_properties: HashMap<String, Box<OpenApiType>>,
     },
-    AnonymousObject {
+    AnonymousInputObject {
         #[serde(rename = "additionalProperties", default = "serde_true")]
         additional_properties: bool,
     },
+    AnonymousOutputObject,
 }
 impl Default for OpenApiObjectType {
     fn default() -> Self {
-        OpenApiObjectType::AnonymousObject { additional_properties: true }
+        OpenApiObjectType::AnonymousInputObject { additional_properties: true }
     }
 }
 
@@ -127,9 +185,14 @@ impl OpenApiType {
             object: OpenApiObjectType::Object { properties, required },
         }
     }
-    pub fn anonymous_object() -> Self {
+    pub fn anonymous_input_object() -> Self {
         OpenApiType::Object {
-            object: OpenApiObjectType::AnonymousObject { additional_properties: true },
+            object: OpenApiObjectType::AnonymousInputObject { additional_properties: true },
+        }
+    }
+    pub fn anonymous_output_object() -> Self {
+        OpenApiType::Object {
+            object: OpenApiObjectType::AnonymousOutputObject,
         }
     }
     pub fn from_rust_type_str(s: &str) -> OpenApiType {
@@ -206,7 +269,7 @@ pub struct OpenApiParameter {
 pub struct OpenApiRequestBody {
     pub(crate) description: String,
     pub(crate) required: bool,
-    pub(crate) content: HashMap<OpenApiMimeTypes, OpenApiContent>,
+    pub(crate) content: HashMap<OpenApiMimeType, OpenApiContent>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -233,5 +296,5 @@ impl Default for OpenApiSchema {
 pub struct OpenApiResponse {
     pub(crate) description: String,
     #[serde(skip_serializing_if = "HashMap::is_empty")]
-    pub(crate) content: HashMap<OpenApiMimeTypes, OpenApiContent>,
+    pub(crate) content: HashMap<OpenApiMimeType, OpenApiContent>,
 }

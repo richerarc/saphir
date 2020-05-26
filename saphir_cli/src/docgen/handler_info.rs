@@ -1,6 +1,6 @@
 use crate::docgen::{BodyParamInfo, DocGen, RouteParametersInfo};
 use syn::{ImplItemMethod, PathArguments, GenericArgument, Type, Pat, FnArg};
-use crate::openapi::{OpenApiParameter, OpenApiMimeTypes, OpenApiSchema, OpenApiParameterLocation, OpenApiType};
+use crate::openapi::{OpenApiParameter, OpenApiMimeType, OpenApiSchema, OpenApiParameterLocation, OpenApiType};
 use crate::docgen::route_info::RouteInfo;
 use crate::docgen::crate_syn_browser::File;
 use crate::docgen::type_info::TypeInfo;
@@ -133,9 +133,9 @@ impl DocGen {
         if let Some(body) = body_type {
             let body_type = body.ident.to_string();
             let openapi_type = match body_type.as_str() {
-                "Json" => OpenApiMimeTypes::Json,
-                "Form" => OpenApiMimeTypes::Form,
-                _ => OpenApiMimeTypes::Any,
+                "Json" => OpenApiMimeType::Json,
+                "Form" => OpenApiMimeType::Form,
+                _ => OpenApiMimeType::Any,
             };
             match body_type.as_str() {
                 "Json" | "Form" => {

@@ -1,4 +1,4 @@
-use crate::openapi::{OpenApi, OpenApiContent, OpenApiMimeTypes, OpenApiParameter, OpenApiParameterLocation, OpenApiPath, OpenApiPathMethod, OpenApiRequestBody, OpenApiResponse, OpenApiSchema, OpenApiType, OpenApiObjectType};
+use crate::openapi::{OpenApi, OpenApiContent, OpenApiMimeType, OpenApiParameter, OpenApiParameterLocation, OpenApiPath, OpenApiPathMethod, OpenApiRequestBody, OpenApiResponse, OpenApiSchema, OpenApiType, OpenApiObjectType};
 use crate::{Command, CommandResult};
 use serde_derive::Deserialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -181,7 +181,7 @@ by using the --package flag.".to_string());
 
     fn fill_openapi_with_controllers<'s, 'e, 'b>(&'s mut self, entrypoint: &'e File<'b>, controllers: Vec<ControllerInfo>) -> CommandResult {
         for controller in controllers {
-            for mut handler in controller.handlers {
+            for handler in controller.handlers {
                 for route in handler.routes {
                     let path = route.uri;
                     let method = route.method;
@@ -207,13 +207,13 @@ by using the --package flag.".to_string());
                     }
 
                     for response in &handler.responses {
-                        let openapi_type = response.type_info.as_ref()
+                        let mut content = HashMap::new();
+                        if let Some(openapi_type) = response.type_info.as_ref()
                             .filter(|t| t.is_type_serializable)
                             .map(|t| self.get_open_api_type_from_type_info(entrypoint, &t))
-                            .flatten()
-                            .unwrap_or_else(|| OpenApiType::anonymous_object());
-                        let mut content = HashMap::new();
-                        content.insert(response.mime.clone(), OpenApiContent { schema: OpenApiSchema::Inline(openapi_type) });
+                            .flatten() {
+                            content.insert(response.mime.clone(), OpenApiContent { schema: OpenApiSchema::Inline(openapi_type) });
+                        }
                         data.responses.insert(
                             response.code,
                             OpenApiResponse {
@@ -229,15 +229,6 @@ by using the --package flag.".to_string());
                     }
                     let path_map = self.doc.paths.get_mut(path.as_str()).expect("Should work because of previous statement");
 
-                    // if data.responses.is_empty() {
-                    //     data.responses.insert(
-                    //         200,
-                    //         OpenApiResponse {
-                    //             description: "successful operation".to_string(),
-                    //             content: Default::default(),
-                    //         },
-                    //     );
-                    // }
                     path_map.insert(method, data);
                 }
             }
@@ -249,9 +240,9 @@ by using the --package flag.".to_string());
         let t = if body_info.type_info.is_type_deserializable {
             self.get_open_api_type_from_type_info(entrypoint, &body_info.type_info)?
         } else {
-            OpenApiType::anonymous_object()
+            OpenApiType::anonymous_input_object()
         };
-        let mut content: HashMap<OpenApiMimeTypes, OpenApiContent> = HashMap::new();
+        let mut content: HashMap<OpenApiMimeType, OpenApiContent> = HashMap::new();
         content.insert(
             body_info.openapi_type.clone(),
             OpenApiContent {
@@ -334,7 +325,7 @@ by using the --package flag.".to_string());
         if !properties.is_empty() {
             Some(OpenApiType::object(properties, required))
         } else {
-            Some(OpenApiType::anonymous_object())
+            Some(OpenApiType::anonymous_input_object())
         }
     }
 
@@ -351,7 +342,7 @@ by using the --package flag.".to_string());
 
         // TODO: properly support tuple and struct enum variants.
         //       this will require the item param
-        Some(OpenApiType::anonymous_object())
+        Some(OpenApiType::anonymous_input_object())
     }
 
     fn handler_operation_id_from_sig(&self, sig: &Signature) -> String {
@@ -404,7 +395,7 @@ by using the --package flag.".to_string());
 
 #[derive(Clone, Debug)]
 pub(crate) struct BodyParamInfo {
-    openapi_type: OpenApiMimeTypes,
+    openapi_type: OpenApiMimeType,
     type_info: TypeInfo,
 }
 

@@ -1,8 +1,8 @@
+use serde::de::{self, Visitor};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_derive::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
-use serde::{Serialize, Serializer, Deserialize, Deserializer};
 use std::fmt;
-use serde::de::{self, Visitor};
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -36,8 +36,10 @@ impl From<String> for OpenApiMimeType {
 }
 
 impl Serialize for OpenApiMimeType {
-    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error> where
-        S: Serializer {
+    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
+    where
+        S: Serializer,
+    {
         serializer.serialize_str(match self {
             OpenApiMimeType::Json => "application/json",
             OpenApiMimeType::Form => "application/x-www-form-urlencoded",
@@ -57,8 +59,8 @@ impl<'de> Visitor<'de> for OpenApiMimeTypeVisitor {
     }
 
     fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-        where
-            E: de::Error,
+    where
+        E: de::Error,
     {
         Ok(match value {
             "application/json" => OpenApiMimeType::Json,
@@ -69,8 +71,8 @@ impl<'de> Visitor<'de> for OpenApiMimeTypeVisitor {
     }
 
     fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
-        where
-            E: de::Error,
+    where
+        E: de::Error,
     {
         Ok(match value.as_str() {
             "application/json" => OpenApiMimeType::Json,
@@ -83,8 +85,8 @@ impl<'de> Visitor<'de> for OpenApiMimeTypeVisitor {
 
 impl<'de> Deserialize<'de> for OpenApiMimeType {
     fn deserialize<D>(deserializer: D) -> Result<OpenApiMimeType, D::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         deserializer.deserialize_string(OpenApiMimeTypeVisitor)
     }
@@ -191,21 +193,26 @@ impl OpenApiType {
     pub fn enums(values: Vec<String>) -> Self {
         OpenApiType::String { enum_values: values }
     }
+
     pub fn object(properties: HashMap<String, Box<OpenApiType>>, required: Vec<String>) -> Self {
         OpenApiType::Object {
             object: OpenApiObjectType::Object { properties, required },
         }
     }
+
     pub fn anonymous_input_object() -> Self {
         OpenApiType::Object {
             object: OpenApiObjectType::AnonymousInputObject { additional_properties: true },
         }
     }
+
+    #[allow(dead_code)]
     pub fn anonymous_output_object() -> Self {
         OpenApiType::Object {
             object: OpenApiObjectType::AnonymousOutputObject,
         }
     }
+
     pub fn from_rust_type_str(s: &str) -> OpenApiType {
         match s {
             "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "i8" | "i16" | "i32" | "i64" | "i128" | "isize" => OpenApiType::Integer,

@@ -1,6 +1,6 @@
-use syn::{ImplItemMethod, Attribute};
 use crate::docgen::DocGen;
 use crate::openapi::OpenApiPathMethod;
+use syn::{Attribute, ImplItemMethod};
 
 #[derive(Clone, Debug)]
 pub(crate) struct RouteInfo {

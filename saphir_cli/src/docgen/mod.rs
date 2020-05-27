@@ -1,24 +1,24 @@
-use crate::openapi::{OpenApi, OpenApiContent, OpenApiMimeType, OpenApiParameter, OpenApiParameterLocation, OpenApiPath, OpenApiPathMethod, OpenApiRequestBody, OpenApiResponse, OpenApiSchema, OpenApiType, OpenApiObjectType};
+use crate::docgen::controller_info::ControllerInfo;
+use crate::docgen::crate_syn_browser::{Browser, File, Item};
+use crate::docgen::type_info::TypeInfo;
+use crate::docgen::utils::{find_macro_attribute_flag, find_macro_attribute_named_value, get_serde_field};
+use crate::openapi::{
+    OpenApi, OpenApiContent, OpenApiMimeType, OpenApiObjectType, OpenApiParameter, OpenApiParameterLocation, OpenApiPath, OpenApiPathMethod,
+    OpenApiRequestBody, OpenApiResponse, OpenApiSchema, OpenApiType,
+};
 use crate::{Command, CommandResult};
 use serde_derive::Deserialize;
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File as FsFile;
 use std::io::Read;
 use std::path::PathBuf;
 use std::time::Instant;
 use structopt::StructOpt;
-use syn::{
-    Attribute, Fields, Item as SynItem, ItemEnum, ItemStruct, Lit, Meta, NestedMeta, Signature,
-};
-use crate::docgen::type_info::{TypeInfo};
-use std::cell::{RefCell};
-use crate::docgen::crate_syn_browser::{Browser, File, Item};
-use crate::docgen::controller_info::ControllerInfo;
-use crate::docgen::utils::{get_serde_field, find_macro_attribute_flag, find_macro_attribute_named_value};
-use lazycell::LazyCell;
+use syn::{Attribute, Fields, Item as SynItem, ItemEnum, ItemStruct, Lit, Meta, NestedMeta, Signature};
 
-mod crate_syn_browser;
 mod controller_info;
+mod crate_syn_browser;
 mod handler_info;
 mod response_info;
 mod route_info;
@@ -99,7 +99,7 @@ impl Command for DocGen {
         self.read_project_cargo_toml()?;
         let browser = Browser::new(self.args.project_path.clone()).map_err(|e| format!("{}", e))?;
         let browser = unsafe { &*(&browser as *const Browser) }; // FIXME: Definitely find a better way to handle the lifetime issue here
-        let entrypoint = self.get_crate_entrypoint(self.args.package_name.as_ref(), browser).map_err(|e| format!("{}", e))?;
+        let entrypoint = self.get_crate_entrypoint(self.args.package_name.as_ref(), browser)?;
         let controllers = self.load_controllers(entrypoint)?;
         self.fill_openapi_with_controllers(entrypoint, controllers)?;
         let file = self.write_doc_file()?;
@@ -118,7 +118,8 @@ impl DocGen {
         } else {
             return Err("This crate is a workspace with multiple packages!
 Please select the package for which you want to generate the openapi documentation
-by using the --package flag.".to_string());
+by using the --package flag."
+                .to_string());
         };
         let bin_target = main_package.bin_target().expect("Crate does not have a Binary target.");
         let entrypoint = bin_target.entrypoint().map_err(|e| e.to_string())?;
@@ -179,7 +180,7 @@ by using the --package flag.".to_string());
         Ok(controllers)
     }
 
-    fn fill_openapi_with_controllers<'s, 'e, 'b>(&'s mut self, entrypoint: &'e File<'b>, controllers: Vec<ControllerInfo>) -> CommandResult {
+    fn fill_openapi_with_controllers(&mut self, entrypoint: &File, controllers: Vec<ControllerInfo>) -> CommandResult {
         for controller in controllers {
             for handler in controller.handlers {
                 for route in handler.routes {
@@ -208,18 +209,26 @@ by using the --package flag.".to_string());
 
                     for response in &handler.responses {
                         let mut content = HashMap::new();
-                        if let Some(openapi_type) = response.type_info.as_ref()
+                        if let Some(openapi_type) = response
+                            .type_info
+                            .as_ref()
                             .filter(|t| t.is_type_serializable)
                             .map(|t| self.get_open_api_type_from_type_info(entrypoint, &t))
-                            .flatten() {
-                            content.insert(response.mime.clone(), OpenApiContent { schema: OpenApiSchema::Inline(openapi_type) });
+                            .flatten()
+                        {
+                            content.insert(
+                                response.mime.clone(),
+                                OpenApiContent {
+                                    schema: OpenApiSchema::Inline(openapi_type),
+                                },
+                            );
                         }
                         data.responses.insert(
                             response.code,
                             OpenApiResponse {
                                 // TODO: Status code name from StatusCode in http
                                 description: response.type_info.as_ref().map(|t| t.name.clone()).unwrap_or_default(),
-                                content
+                                content,
                             },
                         );
                     }
@@ -249,11 +258,11 @@ by using the --package flag.".to_string());
                 schema: OpenApiSchema::Inline(t),
             },
         );
-        return Some(OpenApiRequestBody {
+        Some(OpenApiRequestBody {
             description: body_info.type_info.name.clone(),
             required: !body_info.type_info.is_optional,
             content,
-        });
+        })
     }
 
     fn get_open_api_parameters_from_body_info<'s, 'b, 'e>(&'s self, entrypoint: &'e File<'b>, body_info: &'s BodyParamInfo) -> Vec<OpenApiParameter> {
@@ -263,7 +272,10 @@ by using the --package flag.".to_string());
         } else {
             None
         } {
-            if let OpenApiType::Object { object: OpenApiObjectType::Object { properties, required } } = t {
+            if let OpenApiType::Object {
+                object: OpenApiObjectType::Object { properties, required },
+            } = t
+            {
                 for (name, openapi_type) in &properties {
                     parameters.push(OpenApiParameter {
                         name: name.clone(),
@@ -283,12 +295,8 @@ by using the --package flag.".to_string());
         let type_mod = entrypoint.target.module_by_use_path(type_path).ok().flatten()?;
         let type_impl = type_mod.find_impl_inline(type_info.name.as_str()).ok().flatten()?;
         match type_impl.item {
-            SynItem::Struct(s) => {
-                self.get_open_api_type_from_struct(type_impl, s)
-            },
-            SynItem::Enum(e) => {
-                self.get_open_api_type_from_enum(type_impl, e)
-            },
+            SynItem::Struct(s) => self.get_open_api_type_from_struct(type_impl, s),
+            SynItem::Enum(e) => self.get_open_api_type_from_enum(type_impl, e),
             _ => unreachable!(),
         }
     }
@@ -297,16 +305,8 @@ by using the --package flag.".to_string());
         let mut properties = HashMap::new();
         let mut required = Vec::new();
         for field in &s.fields {
-            if let Some(field_name) = field
-                .ident
-                .as_ref()
-                .map(|i| get_serde_field(i.to_string(), &field.attrs, &s.attrs))
-                .flatten()
-            {
-                if let Some(field_type_info) = TypeInfo::new(
-                    item.file,
-                    &field.ty,
-                ) {
+            if let Some(field_name) = field.ident.as_ref().map(|i| get_serde_field(i.to_string(), &field.attrs, &s.attrs)).flatten() {
+                if let Some(field_type_info) = TypeInfo::new(item.file, &field.ty) {
                     let field_type = self
                         .get_open_api_type_from_type_info(item.file, &field_type_info)
                         .unwrap_or_else(|| OpenApiType::from_rust_type_str(field_type_info.name.as_str()));
@@ -329,7 +329,7 @@ by using the --package flag.".to_string());
         }
     }
 
-    fn get_open_api_type_from_enum<'b>(&self, item: &Item<'b>, e: &'b ItemEnum) -> Option<OpenApiType> {
+    fn get_open_api_type_from_enum<'b>(&self, _item: &Item<'b>, e: &'b ItemEnum) -> Option<OpenApiType> {
         if e.variants.iter().all(|v| v.fields == Fields::Unit) {
             let mut values: Vec<String> = Vec::new();
             for variant in &e.variants {

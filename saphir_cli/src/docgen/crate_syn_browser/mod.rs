@@ -1,15 +1,15 @@
-use std::cell::{RefCell};
+use cargo_metadata::{Package as MetaPackage, PackageId, Target as MetaTarget};
+use lazycell::LazyCell;
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fmt::Debug;
+use std::fs::File as FsFile;
+use std::io::Read;
 use std::path::PathBuf;
-use Error::*;
 use syn::export::fmt::Display;
 use syn::export::Formatter;
-use cargo_metadata::{Package as MetaPackage, Target as MetaTarget, PackageId};
 use syn::{File as SynFile, Item as SynItem, ItemMod as SynMod, UseTree, Visibility};
-use std::fs::File as FsFile;
-use std::fmt::Debug;
-use std::io::Read;
-use lazycell::LazyCell;
+use Error::*;
 
 #[derive(Debug)]
 pub enum Error {
@@ -59,13 +59,11 @@ pub struct Browser<'b> {
 
 impl<'b> Browser<'b> {
     pub fn new(crate_path: PathBuf) -> Result<Self, Error> {
-        let crate_metadata = cargo_metadata::MetadataCommand::new()
-            .manifest_path(crate_path.join("Cargo.toml"))
-            .exec()?;
+        let crate_metadata = cargo_metadata::MetadataCommand::new().manifest_path(crate_path.join("Cargo.toml")).exec()?;
 
         let browser = Self {
             crate_metadata,
-            packages: LazyCell::new()
+            packages: LazyCell::new(),
         };
 
         Ok(browser)
@@ -77,7 +75,9 @@ impl<'b> Browser<'b> {
 
     fn init_packages(&'b self) {
         if !self.packages.filled() {
-            let members: Vec<Package> = self.crate_metadata.workspace_members
+            let members: Vec<Package> = self
+                .crate_metadata
+                .workspace_members
                 .iter()
                 .map(|id| Package::new(self, id).expect("Should exist since we provided a proper PackageId"))
                 .collect();
@@ -112,10 +112,7 @@ impl Drop for Package<'_> {
 }
 
 impl<'b> Package<'b> {
-    pub fn new(
-        browser: &'b Browser<'b>,
-        id: &'b PackageId,
-    ) -> Option<Self> {
+    pub fn new(browser: &'b Browser<'b>, id: &'b PackageId) -> Option<Self> {
         let package = browser.crate_metadata.packages.iter().find(|p| p.id == *id)?;
         let name = package.name.clone();
 
@@ -131,11 +128,15 @@ impl<'b> Package<'b> {
 
     pub fn dependancy(&'b self, name: &str) -> Option<&'b Package> {
         if !self.dependancies.borrow().contains_key(name) {
-            let package = self.meta.dependencies
+            let package = self
+                .meta
+                .dependencies
                 .iter()
                 .find(|dep| dep.rename.as_ref().unwrap_or(&dep.name) == name)
                 .map(|dep| {
-                    self.browser.crate_metadata.packages
+                    self.browser
+                        .crate_metadata
+                        .packages
                         .iter()
                         .find(|package| package.name == dep.name && dep.req.matches(&package.version))
                         .map(|p| Package::new(self.browser, &p.id))
@@ -155,19 +156,14 @@ impl<'b> Package<'b> {
             .borrow()
             .get(name)
             .map(|d| d.as_ref())
-            .map(|d| d.map(|rc| rc.clone()))
+            .map(|d| d.copied())
             .flatten()
-            .map(|b| {
-                unsafe { &*b }
-            })
+            .map(|b| unsafe { &*b })
     }
 
     fn targets(&'b self) -> &'b Vec<Target> {
         if !self.targets.filled() {
-            let targets = self.meta.targets
-                .iter()
-                .map(|t| Target::new(self, t))
-                .collect();
+            let targets = self.meta.targets.iter().map(|t| Target::new(self, t)).collect();
             self.targets.fill(targets).expect("We should never be filling this twice");
         }
         self.targets.borrow().expect("Should have been initialized by the previous statement")
@@ -192,10 +188,7 @@ pub struct Target<'b> {
 }
 
 impl<'b> Target<'b> {
-    pub fn new(
-        package: &'b Package<'b>,
-        target: &'b MetaTarget,
-    ) -> Self {
+    pub fn new(package: &'b Package<'b>, target: &'b MetaTarget) -> Self {
         Self {
             package,
             target,
@@ -208,7 +201,7 @@ impl<'b> Target<'b> {
     #[inline]
     pub fn init_entrypoint_and_module(&'b self) -> Result<(), Error> {
         if !self.entrypoint_file.filled() {
-            let file = File::new(self, &self.target.src_path, self.package.name.clone() )?;
+            let file = File::new(self, &self.target.src_path, self.package.name.clone())?;
             self.entrypoint_file.fill(file).expect("We should never be filling this twice");
         }
         if !self.entrypoint_module.filled() {
@@ -266,8 +259,7 @@ impl<'b> Target<'b> {
                 let mut remaining_path: Vec<&str> = vec![root];
                 remaining_path.extend(path_split);
                 let use_path = remaining_path.join("::");
-                let module = lib.module_by_use_path(use_path.as_str())?;
-                module
+                lib.module_by_use_path(use_path.as_str())?
             };
             if let Some(module) = module {
                 self.modules.borrow_mut().insert(path.to_string(), module);
@@ -291,11 +283,7 @@ pub struct File<'b> {
 }
 
 impl<'b> File<'b> {
-    pub fn new(
-        target: &'b Target<'b>,
-        path: &PathBuf,
-        use_path: String,
-    ) -> Result<File<'b>, Error> {
+    pub fn new(target: &'b Target<'b>, path: &PathBuf, use_path: String) -> Result<File<'b>, Error> {
         let mut f = FsFile::open(path).map_err(|e| FileIoError(Box::new(path.clone()), Box::new(e)))?;
         let mut buffer = String::new();
         f.read_to_string(&mut buffer).map_err(|e| FileIoError(Box::new(path.clone()), Box::new(e)))?;
@@ -309,7 +297,7 @@ impl<'b> File<'b> {
             items: LazyCell::new(),
             modules: LazyCell::new(),
             dir: path.parent().expect("Valid file path should have valid parent folder").to_path_buf(),
-            uses: LazyCell::new()
+            uses: LazyCell::new(),
         };
 
         Ok(file)
@@ -317,10 +305,7 @@ impl<'b> File<'b> {
 
     pub fn items(&'b self) -> &'b Vec<Item<'b>> {
         if !self.items.filled() {
-            let items = self.file.items
-                .iter()
-                .map(|i| Item::new(self, i))
-                .collect();
+            let items = self.file.items.iter().map(|i| Item::new(self, i)).collect();
             self.items.fill(items).expect("We should never be filling this twice");
         }
         self.items.borrow().expect("Should have been initialized by the previous statement")
@@ -328,7 +313,9 @@ impl<'b> File<'b> {
 
     pub fn modules(&'b self) -> Result<&'b Vec<Module>, Error> {
         if !self.modules.filled() {
-            let modules = self.items().iter()
+            let modules = self
+                .items()
+                .iter()
                 .filter_map(|i| match i.item {
                     SynItem::Mod(m) => Some(m),
                     _ => None,
@@ -368,8 +355,6 @@ impl<'b> File<'b> {
             }
         }
 
-
-
         //At this point, this is most likely a primitive.
         Ok(None)
     }
@@ -378,7 +363,7 @@ impl<'b> File<'b> {
         for (item, item_name) in self.items().iter().filter_map(|i| match &i.item {
             SynItem::Enum(e) => Some((i, e.ident.to_string())),
             SynItem::Struct(s) => Some((i, s.ident.to_string())),
-            _ => None
+            _ => None,
         }) {
             if item_name.as_str() == name {
                 return Ok(Some(item));
@@ -397,7 +382,7 @@ impl<'b> File<'b> {
             let mut uses: Vec<Use> = Vec::new();
             for u in self.items().iter().filter_map(|i| match i.item {
                 SynItem::Use(u) => Some(u),
-                _ => None
+                _ => None,
             }) {
                 let is_pub = match u.vis {
                     Visibility::Public(_) => true,
@@ -414,21 +399,20 @@ impl<'b> File<'b> {
             UseTree::Name(n) => {
                 let name = n.ident.to_string();
                 let path = prefix.unwrap_or_else(|| self.use_path.clone());
-                vec![Use { path, alias: name.clone(), name, is_pub }]
-            },
+                vec![Use {
+                    path,
+                    alias: name.clone(),
+                    name,
+                    is_pub,
+                }]
+            }
             UseTree::Rename(n) => {
                 let name = n.ident.to_string();
                 let alias = n.rename.to_string();
                 let path = prefix.unwrap_or_else(|| self.use_path.clone());
                 vec![Use { path, name, alias, is_pub }]
-            },
-            UseTree::Group(g) => {
-                g.items
-                    .iter()
-                    .map(|u| self.expand_use_tree(u, prefix.clone(), is_pub))
-                    .flatten()
-                    .collect()
-            },
+            }
+            UseTree::Group(g) => g.items.iter().map(|u| self.expand_use_tree(u, prefix.clone(), is_pub)).flatten().collect(),
             UseTree::Path(p) => {
                 let path_segment = p.ident.to_string();
                 let prefix = if prefix.is_none() {
@@ -439,16 +423,14 @@ impl<'b> File<'b> {
                     } else {
                         path_segment
                     }
+                } else if let Some(p) = prefix {
+                    format!("{}::{}", p, path_segment)
                 } else {
-                    if let Some(p) = prefix {
-                        format!("{}::{}", p, path_segment)
-                    } else {
-                        format!("{}::{}", self.use_path, path_segment)
-                    }
+                    format!("{}::{}", self.use_path, path_segment)
                 };
                 self.expand_use_tree(p.tree.as_ref(), Some(prefix), is_pub)
             }
-            UseTree::Glob(g) => {
+            UseTree::Glob(_) => {
                 let path = prefix.expect("Glob pattern should have a path prefix");
                 if let Ok(Some(module)) = self.target.module_by_use_path(path.as_str()) {
                     module.uses().iter().cloned().cloned().collect()
@@ -475,14 +457,8 @@ pub struct Item<'b> {
 }
 
 impl<'b> Item<'b> {
-    pub fn new(
-        file: &'b File<'b>,
-        item: &'b SynItem
-    ) -> Self {
-        Self {
-            file,
-            item
-        }
+    pub fn new(file: &'b File<'b>, item: &'b SynItem) -> Self {
+        Self { file, item }
     }
 }
 
@@ -500,14 +476,11 @@ pub enum Module<'b> {
     External {
         module: &'b SynMod,
         file: File<'b>,
-    }
+    },
 }
 
 impl<'b> Module<'b> {
-    pub fn new(
-        file: &'b File<'b>,
-        module: &'b SynMod,
-    ) -> Result<Self, Error> {
+    pub fn new(file: &'b File<'b>, module: &'b SynMod) -> Result<Self, Error> {
         Ok(if module.content.is_some() {
             Module::Inline {
                 file,
@@ -517,16 +490,15 @@ impl<'b> Module<'b> {
             }
         } else {
             let name = module.ident.to_string();
-            let use_path =  format!("{}::{}", file.use_path, &name);
+            let use_path = format!("{}::{}", file.use_path, &name);
             let mut path = file.dir.join(&name).join("mod.rs");
             if !path.exists() {
                 path = file.dir.join(format!("{}.rs", name));
             }
-            let module = Module::External {
+            Module::External {
                 module,
-                file: File::new(file.target, &path, use_path.clone())?
-            };
-            module
+                file: File::new(file.target, &path, use_path)?,
+            }
         })
     }
 
@@ -539,8 +511,7 @@ impl<'b> Module<'b> {
 
     pub fn file(&self) -> &'b File {
         match self {
-            Module::Crate { file, .. } |
-            Module::Inline { file, .. } => file,
+            Module::Crate { file, .. } | Module::Inline { file, .. } => file,
             Module::External { file, .. } => file,
         }
     }
@@ -570,7 +541,7 @@ impl<'b> Module<'b> {
         for (item, item_name) in self.items().iter().filter_map(|i| match &i.item {
             SynItem::Enum(e) => Some((i, e.ident.to_string())),
             SynItem::Struct(s) => Some((i, s.ident.to_string())),
-            _ => None
+            _ => None,
         }) {
             if item_name.as_str() == name {
                 return Ok(Some(item));
@@ -585,30 +556,27 @@ impl<'b> Module<'b> {
             Module::External { file, .. } => file.uses().iter().collect(),
             Module::Inline { items, uses, .. } => {
                 if !uses.filled() {
-                    uses.fill(items
-                        .iter()
-                        .filter_map(|i| match &i.item {
-                            SynItem::Use(u) => {
-                                let is_pub = match u.vis {
-                                    Visibility::Public(_) => true,
-                                    _ => false,
-                                };
-                                // TODO: This can technically be prefixed by uses in the file containing this inline module
-                                Some(self.expand_use_tree(&u.tree, None, is_pub))
-                             }
-                            _ => None,
-                        })
-                        .flatten()
-                        .collect()
-                    ).expect("We shouldn't be filling twice");
+                    uses.fill(
+                        items
+                            .iter()
+                            .filter_map(|i| match &i.item {
+                                SynItem::Use(u) => {
+                                    let is_pub = match u.vis {
+                                        Visibility::Public(_) => true,
+                                        _ => false,
+                                    };
+                                    // TODO: This can technically be prefixed by uses in the file containing this inline module
+                                    Some(self.expand_use_tree(&u.tree, None, is_pub))
+                                }
+                                _ => None,
+                            })
+                            .flatten()
+                            .collect(),
+                    )
+                    .expect("We shouldn't be filling twice");
                 }
-                uses
-                    .borrow()
-                    .expect("Initialized above")
-                    .iter()
-                    .filter(|u| u.is_pub)
-                    .collect()
-            },
+                uses.borrow().expect("Initialized above").iter().filter(|u| u.is_pub).collect()
+            }
         }
     }
 
@@ -617,21 +585,20 @@ impl<'b> Module<'b> {
             UseTree::Name(n) => {
                 let name = n.ident.to_string();
                 let path = prefix.unwrap_or_else(|| self.use_path());
-                vec![Use { path, alias: name.clone(), name, is_pub }]
-            },
+                vec![Use {
+                    path,
+                    alias: name.clone(),
+                    name,
+                    is_pub,
+                }]
+            }
             UseTree::Rename(n) => {
                 let name = n.ident.to_string();
                 let alias = n.rename.to_string();
                 let path = prefix.unwrap_or_else(|| self.use_path());
                 vec![Use { path, name, alias, is_pub }]
-            },
-            UseTree::Group(g) => {
-                g.items
-                    .iter()
-                    .map(|u| self.expand_use_tree(u, prefix.clone(), is_pub))
-                    .flatten()
-                    .collect()
-            },
+            }
+            UseTree::Group(g) => g.items.iter().map(|u| self.expand_use_tree(u, prefix.clone(), is_pub)).flatten().collect(),
             UseTree::Path(p) => {
                 let path_segment = p.ident.to_string();
                 let prefix = if prefix.is_none() {
@@ -642,16 +609,14 @@ impl<'b> Module<'b> {
                     } else {
                         path_segment
                     }
+                } else if let Some(p) = prefix {
+                    format!("{}::{}", p, path_segment)
                 } else {
-                    if let Some(p) = prefix {
-                        format!("{}::{}", p, path_segment)
-                    } else {
-                        format!("{}::{}", self.use_path(), path_segment)
-                    }
+                    format!("{}::{}", self.use_path(), path_segment)
                 };
                 self.expand_use_tree(p.tree.as_ref(), Some(prefix), is_pub)
             }
-            UseTree::Glob(g) => {
+            UseTree::Glob(_) => {
                 let path = prefix.expect("Glob pattern should have a path prefix");
                 if let Ok(Some(module)) = self.file().target.module_by_use_path(path.as_str()) {
                     module.uses().iter().cloned().cloned().collect()

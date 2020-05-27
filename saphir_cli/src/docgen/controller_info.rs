@@ -1,7 +1,7 @@
-use crate::docgen::DocGen;
-use syn::{Meta, NestedMeta, Type, ItemImpl, ImplItem, Lit};
 use crate::docgen::crate_syn_browser::File;
 use crate::docgen::handler_info::HandlerInfo;
+use crate::docgen::DocGen;
+use syn::{ImplItem, ItemImpl, Lit, Meta, NestedMeta, Type};
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ControllerInfo {
@@ -68,7 +68,8 @@ impl DocGen {
                                 version,
                                 handlers: Vec::new(),
                             };
-                            let mut handlers = im.items
+                            let mut handlers = im
+                                .items
                                 .iter()
                                 .filter_map(|i| match i {
                                     ImplItem::Method(m) => self.extract_handler_info(controller.base_path().as_str(), file, m).transpose(),

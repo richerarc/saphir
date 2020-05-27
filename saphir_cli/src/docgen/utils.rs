@@ -1,6 +1,6 @@
-use syn::{Meta, NestedMeta, Attribute, Lit};
 use convert_case::{Case, Casing};
 use serde::export::TryFrom;
+use syn::{Attribute, Lit, Meta, NestedMeta};
 
 pub(crate) fn get_serde_field(mut field_name: String, field_attributes: &[Attribute], container_attributes: &[Attribute]) -> Option<String> {
     if find_macro_attribute_flag(field_attributes, "serde", "skip") || find_macro_attribute_flag(field_attributes, "serde", "skip_serializing") {

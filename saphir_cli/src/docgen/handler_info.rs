@@ -1,10 +1,10 @@
-use crate::docgen::{BodyParamInfo, DocGen, RouteParametersInfo};
-use syn::{ImplItemMethod, PathArguments, GenericArgument, Type, Pat, FnArg};
-use crate::openapi::{OpenApiParameter, OpenApiMimeType, OpenApiSchema, OpenApiParameterLocation, OpenApiType};
-use crate::docgen::route_info::RouteInfo;
 use crate::docgen::crate_syn_browser::File;
-use crate::docgen::type_info::TypeInfo;
 use crate::docgen::response_info::ResponseInfo;
+use crate::docgen::route_info::RouteInfo;
+use crate::docgen::type_info::TypeInfo;
+use crate::docgen::{BodyParamInfo, DocGen, RouteParametersInfo};
+use crate::openapi::{OpenApiMimeType, OpenApiParameter, OpenApiParameterLocation, OpenApiSchema, OpenApiType};
+use syn::{FnArg, GenericArgument, ImplItemMethod, Pat, PathArguments, Type};
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct HandlerInfo {
@@ -19,7 +19,8 @@ impl DocGen {
     pub(crate) fn extract_handler_info<'b>(&self, base_path: &str, file: &'b File<'b>, impl_method: &'b ImplItemMethod) -> Result<Option<HandlerInfo>, String> {
         let mut consume_cookies: bool = self.handler_has_cookies(&impl_method);
 
-        let routes: Vec<RouteInfo> = impl_method.attrs
+        let routes: Vec<RouteInfo> = impl_method
+            .attrs
             .iter()
             .filter_map(|attr| self.extract_route_info_from_method_macro(base_path, attr, impl_method))
             .collect();
@@ -38,9 +39,9 @@ impl DocGen {
         Ok(Some(HandlerInfo {
             use_cookies: consume_cookies,
             parameters: parameters_info.parameters.clone(),
-            body_info: parameters_info.body_info.clone(),
+            body_info: parameters_info.body_info,
             routes,
-            responses
+            responses,
         }))
     }
 
@@ -140,10 +141,7 @@ impl DocGen {
                 "Json" | "Form" => {
                     if let PathArguments::AngleBracketed(ag) = &body.arguments {
                         if let Some(GenericArgument::Type(t)) = ag.args.first() {
-                            if let Some(type_info) = TypeInfo::new(
-                                file,
-                                t
-                            ) {
+                            if let Some(type_info) = TypeInfo::new(file, t) {
                                 body_info = Some(BodyParamInfo { openapi_type, type_info });
                             }
                         }

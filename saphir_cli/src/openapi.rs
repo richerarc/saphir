@@ -1,5 +1,5 @@
 use serde::de::{self, Visitor};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize as ImplDeserialize, Deserializer, Serialize as ImplSerialize, Serializer};
 use serde_derive::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
@@ -35,7 +35,7 @@ impl From<String> for OpenApiMimeType {
     }
 }
 
-impl Serialize for OpenApiMimeType {
+impl ImplSerialize for OpenApiMimeType {
     fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
     where
         S: Serializer,
@@ -83,7 +83,7 @@ impl<'de> Visitor<'de> for OpenApiMimeTypeVisitor {
     }
 }
 
-impl<'de> Deserialize<'de> for OpenApiMimeType {
+impl<'de> ImplDeserialize<'de> for OpenApiMimeType {
     fn deserialize<D>(deserializer: D) -> Result<OpenApiMimeType, D::Error>
     where
         D: Deserializer<'de>,

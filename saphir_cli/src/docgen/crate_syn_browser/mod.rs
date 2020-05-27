@@ -235,6 +235,7 @@ impl<'b> Target<'b> {
         if let Some(module) = self.modules.borrow().get(path) {
             return Ok(Some(module));
         }
+
         let mut path_split = path.split("::");
         if let Some(mut root) = path_split.next() {
             if root == "crate" {
@@ -366,6 +367,8 @@ impl<'b> File<'b> {
                 }
             }
         }
+
+
 
         //At this point, this is most likely a primitive.
         Ok(None)

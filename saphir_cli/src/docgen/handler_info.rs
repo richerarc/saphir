@@ -35,7 +35,6 @@ impl DocGen {
 
         let responses = self.extract_response_info(file, &impl_method);
 
-
         Ok(Some(HandlerInfo {
             use_cookies: consume_cookies,
             parameters: parameters_info.parameters.clone(),

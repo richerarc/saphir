@@ -1,5 +1,4 @@
-use super::Error;
-use super::Package;
+use super::{Error, Package};
 use lazycell::LazyCell;
 use std::{fmt::Debug, path::PathBuf};
 

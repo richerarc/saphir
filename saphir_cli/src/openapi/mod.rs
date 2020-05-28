@@ -1,5 +1,4 @@
-use crate::{CommandResult, Command};
-use crate::openapi::generate::Gen;
+use crate::{openapi::generate::Gen, Command, CommandResult};
 use structopt::StructOpt;
 
 mod generate;
@@ -26,12 +25,14 @@ pub(crate) struct Openapi {
 impl Command for Openapi {
     type Args = OpenapiArgs;
 
-    fn new(args: Self::Args) -> Self { Self { args } }
+    fn new(args: Self::Args) -> Self {
+        Self { args }
+    }
 
     fn run<'b>(self) -> CommandResult {
         match self.args.cmd {
             OpenapiCommand::Gen(args) => {
-                let mut gen = Gen::new(args);
+                let gen = Gen::new(args);
                 gen.run()?;
             }
         }

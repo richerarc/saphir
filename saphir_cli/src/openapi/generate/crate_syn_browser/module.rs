@@ -1,5 +1,4 @@
-use super::Error;
-use super::{ExpandedUse, File, Item, Target, UseScope};
+use super::{Error, ExpandedUse, File, Item, Target, UseScope};
 use lazycell::LazyCell;
 use std::fmt::Debug;
 use syn::{Item as SynItem, ItemMod as SynItemMod, UseTree, Visibility};

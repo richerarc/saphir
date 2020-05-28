@@ -1,5 +1,4 @@
-use super::Error;
-use super::{Module, Package, UseScope};
+use super::{Error, Module, Package, UseScope};
 use cargo_metadata::Target as MetaTarget;
 use lazycell::LazyCell;
 use std::{cell::RefCell, collections::HashMap, fmt::Debug};

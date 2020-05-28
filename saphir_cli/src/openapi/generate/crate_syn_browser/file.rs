@@ -1,5 +1,4 @@
-use super::Error;
-use super::Target;
+use super::{Error, Target};
 use std::{fmt::Debug, fs::File as FsFile, io::Read, path::PathBuf};
 use syn::File as SynFile;
 use Error::*;

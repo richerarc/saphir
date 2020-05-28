@@ -1,8 +1,8 @@
-use crate::docgen::crate_syn_browser::{File, Method};
-use crate::docgen::type_info::TypeInfo;
-use crate::docgen::DocGen;
-use crate::openapi::OpenApiMimeType;
-use syn::{GenericArgument, ImplItemMethod, Lit, Meta, MetaList, NestedMeta, Path, PathArguments, ReturnType, Type};
+use crate::{
+    docgen::{crate_syn_browser::Method, type_info::TypeInfo, DocGen},
+    openapi::OpenApiMimeType,
+};
+use syn::{GenericArgument, Lit, Meta, MetaList, NestedMeta, Path, PathArguments, ReturnType, Type};
 
 #[derive(Clone, Debug)]
 pub(crate) struct ResponseInfo {
@@ -157,8 +157,10 @@ impl DocGen {
                     vec.extend(self.response_info_from_type_path(method, &tp.path));
                 }
                 Type::Tuple(_tt) => {
-                    // TODO: Tuple with with StatusCode or u16 mean a status code is specified for the associated return type.
-                    //       We cannot possibly cover this case fully but we could at least handle simple cases where
+                    // TODO: Tuple with with StatusCode or u16 mean a status
+                    // code is specified for the associated return type.
+                    //       We cannot possibly cover this case fully but we
+                    // could at least handle simple cases where
                     //       the response is a litteral inside the method's body
                 }
                 _ => {}

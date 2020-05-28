@@ -1,7 +1,5 @@
-use std::fmt::Debug;
-use std::path::PathBuf;
-use syn::export::fmt::Display;
-use syn::export::Formatter;
+use std::{fmt::Debug, path::PathBuf};
+use syn::export::{fmt::Display, Formatter};
 use Error::*;
 
 mod browser;

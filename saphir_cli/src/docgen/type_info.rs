@@ -1,8 +1,8 @@
-use crate::docgen::crate_syn_browser::{File, UseScope};
-use crate::docgen::utils::find_macro_attribute_flag;
+use crate::docgen::{crate_syn_browser::UseScope, utils::find_macro_attribute_flag};
 use syn::{Expr, GenericArgument, Item as SynItem, Lit, Path, PathArguments, Type};
 
-/// Informations about a Rust Type required to create a corresponding OpenApiType
+/// Informations about a Rust Type required to create a corresponding
+/// OpenApiType
 #[derive(Clone, Debug)]
 pub(crate) struct TypeInfo {
     pub(crate) name: String,

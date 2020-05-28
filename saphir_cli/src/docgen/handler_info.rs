@@ -1,9 +1,7 @@
-use crate::docgen::crate_syn_browser::{File, Method};
-use crate::docgen::response_info::ResponseInfo;
-use crate::docgen::route_info::RouteInfo;
-use crate::docgen::type_info::TypeInfo;
-use crate::docgen::{BodyParamInfo, DocGen, RouteParametersInfo};
-use crate::openapi::{OpenApiMimeType, OpenApiParameter, OpenApiParameterLocation, OpenApiSchema, OpenApiType};
+use crate::{
+    docgen::{crate_syn_browser::Method, response_info::ResponseInfo, route_info::RouteInfo, type_info::TypeInfo, BodyParamInfo, DocGen, RouteParametersInfo},
+    openapi::{OpenApiMimeType, OpenApiParameter, OpenApiParameterLocation, OpenApiSchema, OpenApiType},
+};
 use syn::{FnArg, GenericArgument, ImplItemMethod, Pat, PathArguments, Type};
 
 #[derive(Clone, Debug, Default)]
@@ -19,7 +17,8 @@ impl DocGen {
     pub(crate) fn extract_handler_info<'b>(&self, controller_path: &str, method: &'b Method<'b>) -> Result<Option<HandlerInfo>, String> {
         let mut consume_cookies: bool = self.handler_has_cookies(&method.syn);
 
-        let routes: Vec<RouteInfo> = method.syn
+        let routes: Vec<RouteInfo> = method
+            .syn
             .attrs
             .iter()
             .filter_map(|attr| self.extract_route_info_from_method_macro(controller_path, attr, method))
@@ -57,8 +56,9 @@ impl DocGen {
     }
 
     /// TODO: better typing for parameters.
-    ///       implement a ParameterInfo struct with typing for param, fill HandlerInfo with this,
-    ///       separate the discovery of BodyInfo and cookies usage from parameters.
+    ///       implement a ParameterInfo struct with typing for param, fill
+    /// HandlerInfo with this,       separate the discovery of BodyInfo and
+    /// cookies usage from parameters.
     fn parse_handler_parameters<'b>(&self, method: &'b Method<'b>, uri_params: &[String]) -> RouteParametersInfo {
         let mut parameters = Vec::new();
         let mut has_cookies_param = false;

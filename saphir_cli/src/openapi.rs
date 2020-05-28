@@ -1,8 +1,12 @@
-use serde::de::{self, Visitor};
-use serde::{Deserialize as ImplDeserialize, Deserializer, Serialize as ImplSerialize, Serializer};
+use serde::{
+    de::{self, Visitor},
+    Deserialize as ImplDeserialize, Deserializer, Serialize as ImplSerialize, Serializer,
+};
 use serde_derive::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
-use std::fmt;
+use std::{
+    collections::{BTreeMap, HashMap},
+    fmt,
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -190,6 +194,7 @@ impl OpenApiType {
     pub fn string() -> Self {
         OpenApiType::String { enum_values: Vec::default() }
     }
+
     pub fn enums(values: Vec<String>) -> Self {
         OpenApiType::String { enum_values: values }
     }

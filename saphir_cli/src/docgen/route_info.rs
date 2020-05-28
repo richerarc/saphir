@@ -1,7 +1,8 @@
-use crate::docgen::DocGen;
-use crate::openapi::OpenApiPathMethod;
-use syn::{Attribute, ImplItemMethod};
-use crate::docgen::crate_syn_browser::Method;
+use crate::{
+    docgen::{crate_syn_browser::Method, DocGen},
+    openapi::OpenApiPathMethod,
+};
+use syn::Attribute;
 
 #[derive(Clone, Debug)]
 pub(crate) struct RouteInfo {

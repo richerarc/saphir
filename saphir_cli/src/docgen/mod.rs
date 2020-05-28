@@ -1,19 +1,25 @@
-use crate::docgen::controller_info::ControllerInfo;
-use crate::docgen::crate_syn_browser::{Browser, File, Item, Module, UseScope, ItemKind};
-use crate::docgen::type_info::TypeInfo;
-use crate::docgen::utils::{find_macro_attribute_flag, find_macro_attribute_named_value, get_serde_field};
-use crate::openapi::{
-    OpenApi, OpenApiContent, OpenApiMimeType, OpenApiObjectType, OpenApiParameter, OpenApiParameterLocation, OpenApiPath, OpenApiPathMethod,
-    OpenApiRequestBody, OpenApiResponse, OpenApiSchema, OpenApiType,
+use crate::{
+    docgen::{
+        controller_info::ControllerInfo,
+        crate_syn_browser::{Browser, Item, ItemKind, Module, UseScope},
+        type_info::TypeInfo,
+        utils::{find_macro_attribute_flag, find_macro_attribute_named_value, get_serde_field},
+    },
+    openapi::{
+        OpenApi, OpenApiContent, OpenApiMimeType, OpenApiObjectType, OpenApiParameter, OpenApiParameterLocation, OpenApiPath, OpenApiPathMethod,
+        OpenApiRequestBody, OpenApiResponse, OpenApiSchema, OpenApiType,
+    },
+    Command, CommandResult,
 };
-use crate::{Command, CommandResult};
 use serde_derive::Deserialize;
-use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fs::File as FsFile;
-use std::io::Read;
-use std::path::PathBuf;
-use std::time::Instant;
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, HashMap, HashSet},
+    fs::File as FsFile,
+    io::Read,
+    path::PathBuf,
+    time::Instant,
+};
 use structopt::StructOpt;
 use syn::{Attribute, Fields, Item as SynItem, ItemEnum, ItemStruct, Lit, Meta, NestedMeta, Signature};
 
@@ -45,8 +51,8 @@ You can see help with the --help flag.",
 pub(crate) struct DocGenArgs {
     /// (Optional) Limit doc generation to the URIs under this scope.
     ///
-    /// For example, if you pass `/api/v1` and that your Saphir server had handlers
-    /// for the following routes :
+    /// For example, if you pass `/api/v1` and that your Saphir server had
+    /// handlers for the following routes :
     /// - GET  /
     /// - GET  /about
     /// - GET  /api/v1/user
@@ -59,18 +65,19 @@ pub(crate) struct DocGenArgs {
     #[structopt(parse(from_os_str), short = "p", long = "project-path", default_value = ".")]
     project_path: PathBuf,
 
-    /// (Optional) If running on a workspace, name of the package of the lucid server for which we want
-    ///            to build openapi doc
+    /// (Optional) If running on a workspace, name of the package of the lucid
+    /// server for which we want            to build openapi doc
     #[structopt(long = "package")]
     package_name: Option<String>,
 
-    /// (optionnal) Path to the `.cargo` directory. By default, read from the current executable's environment,
-    ///             which work when running this command as a cargo sub-command.
+    /// (optionnal) Path to the `.cargo` directory. By default, read from the
+    /// current executable's environment,             which work when
+    /// running this command as a cargo sub-command.
     #[structopt(parse(from_os_str), long = "cargo-path", default_value = "~/.cargo")]
     cargo_path: PathBuf,
 
-    /// (Optional) Resulting output path. Either the path to the resulting yaml file,
-    ///            or a dir, which would then contain a openapi.yaml
+    /// (Optional) Resulting output path. Either the path to the resulting yaml
+    /// file,            or a dir, which would then contain a openapi.yaml
     #[structopt(parse(from_os_str), default_value = ".")]
     output_file: PathBuf,
 }
@@ -290,7 +297,7 @@ by using the --package flag."
         parameters
     }
 
-    fn get_open_api_type_from_type_info<'b>(&self, entrypoint: &'b Module<'b>, type_info:  &TypeInfo) -> Option<OpenApiType> {
+    fn get_open_api_type_from_type_info<'b>(&self, entrypoint: &'b Module<'b>, type_info: &TypeInfo) -> Option<OpenApiType> {
         let type_path = type_info.type_path.as_ref()?;
         let type_mod = entrypoint.target().module_by_use_path(type_path).ok().flatten()?;
         let type_impl = type_mod.find_type_definition(type_info.name.as_str()).ok().flatten()?;

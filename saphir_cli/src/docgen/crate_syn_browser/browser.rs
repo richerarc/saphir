@@ -1,8 +1,7 @@
 use super::Error;
 use crate::docgen::crate_syn_browser::Package;
 use lazycell::LazyCell;
-use std::fmt::Debug;
-use std::path::PathBuf;
+use std::{fmt::Debug, path::PathBuf};
 
 #[derive(Debug)]
 pub struct Browser<'b> {

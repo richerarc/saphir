@@ -1,4 +1,4 @@
-use crate::docgen::crate_syn_browser::File;
+use crate::docgen::crate_syn_browser::{File, Method};
 use crate::docgen::response_info::ResponseInfo;
 use crate::docgen::route_info::RouteInfo;
 use crate::docgen::type_info::TypeInfo;
@@ -16,25 +16,25 @@ pub(crate) struct HandlerInfo {
 }
 
 impl DocGen {
-    pub(crate) fn extract_handler_info<'b>(&self, base_path: &str, file: &'b File<'b>, impl_method: &'b ImplItemMethod) -> Result<Option<HandlerInfo>, String> {
-        let mut consume_cookies: bool = self.handler_has_cookies(&impl_method);
+    pub(crate) fn extract_handler_info<'b>(&self, controller_path: &str, method: &'b Method<'b>) -> Result<Option<HandlerInfo>, String> {
+        let mut consume_cookies: bool = self.handler_has_cookies(&method.syn);
 
-        let routes: Vec<RouteInfo> = impl_method
+        let routes: Vec<RouteInfo> = method.syn
             .attrs
             .iter()
-            .filter_map(|attr| self.extract_route_info_from_method_macro(base_path, attr, impl_method))
+            .filter_map(|attr| self.extract_route_info_from_method_macro(controller_path, attr, method))
             .collect();
 
         if routes.is_empty() {
             return Ok(None);
         }
 
-        let parameters_info = self.parse_handler_parameters(file, &impl_method, &routes[0].uri_params);
+        let parameters_info = self.parse_handler_parameters(method, &routes[0].uri_params);
         if parameters_info.has_cookies_param {
             consume_cookies = true;
         }
 
-        let responses = self.extract_response_info(file, &impl_method);
+        let responses = self.extract_response_info(method);
 
         Ok(Some(HandlerInfo {
             use_cookies: consume_cookies,
@@ -59,11 +59,11 @@ impl DocGen {
     /// TODO: better typing for parameters.
     ///       implement a ParameterInfo struct with typing for param, fill HandlerInfo with this,
     ///       separate the discovery of BodyInfo and cookies usage from parameters.
-    fn parse_handler_parameters<'b>(&self, file: &'b File<'b>, m: &ImplItemMethod, uri_params: &[String]) -> RouteParametersInfo {
+    fn parse_handler_parameters<'b>(&self, method: &'b Method<'b>, uri_params: &[String]) -> RouteParametersInfo {
         let mut parameters = Vec::new();
         let mut has_cookies_param = false;
         let mut body_type = None;
-        for param in m.sig.inputs.iter().filter_map(|i| match i {
+        for param in method.syn.sig.inputs.iter().filter_map(|i| match i {
             FnArg::Typed(p) => Some(p),
             _ => None,
         }) {
@@ -141,7 +141,7 @@ impl DocGen {
                 "Json" | "Form" => {
                     if let PathArguments::AngleBracketed(ag) = &body.arguments {
                         if let Some(GenericArgument::Type(t)) = ag.args.first() {
-                            if let Some(type_info) = TypeInfo::new(file, t) {
+                            if let Some(type_info) = TypeInfo::new(method.impl_item.im.item.scope, t) {
                                 body_info = Some(BodyParamInfo { openapi_type, type_info });
                             }
                         }

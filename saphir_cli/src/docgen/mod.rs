@@ -1,5 +1,5 @@
 use crate::docgen::controller_info::ControllerInfo;
-use crate::docgen::crate_syn_browser::{Browser, File, Item};
+use crate::docgen::crate_syn_browser::{Browser, File, Item, Module, UseScope, ItemKind};
 use crate::docgen::type_info::TypeInfo;
 use crate::docgen::utils::{find_macro_attribute_flag, find_macro_attribute_named_value, get_serde_field};
 use crate::openapi::{
@@ -109,7 +109,7 @@ impl Command for DocGen {
 }
 
 impl DocGen {
-    fn get_crate_entrypoint<'s, 'r, 'b: 'r>(&'s self, package_name: Option<&'r String>, browser: &'b Browser<'b>) -> Result<&'b File<'b>, String> {
+    fn get_crate_entrypoint<'s, 'r, 'b: 'r>(&'s self, package_name: Option<&'r String>, browser: &'b Browser<'b>) -> Result<&'b Module<'b>, String> {
         let main_package = if let Some(main_name) = package_name {
             let package = browser.package_by_name(main_name);
             package.unwrap_or_else(|| panic!("Crate does not include a member named `{}`.", main_name))
@@ -167,20 +167,20 @@ by using the --package flag."
         Ok(())
     }
 
-    fn load_controllers<'b>(&self, entrypoint: &'b File<'b>) -> Result<Vec<ControllerInfo>, String> {
+    fn load_controllers<'b>(&self, entrypoint: &'b Module<'b>) -> Result<Vec<ControllerInfo>, String> {
         let controllers: Vec<ControllerInfo> = entrypoint
             .all_items()
             .map_err(|e| format!("{}", e))?
             .iter()
-            .filter_map(|i| match i.item {
-                SynItem::Impl(im) => self.extract_controller_info(i.file, im).transpose(),
+            .filter_map(|i| match i.kind() {
+                ItemKind::Impl(im) => self.extract_controller_info(im).transpose(),
                 _ => None,
             })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(controllers)
     }
 
-    fn fill_openapi_with_controllers(&mut self, entrypoint: &File, controllers: Vec<ControllerInfo>) -> CommandResult {
+    fn fill_openapi_with_controllers<'b>(&mut self, entrypoint: &'b Module<'b>, controllers: Vec<ControllerInfo>) -> CommandResult {
         for controller in controllers {
             for handler in controller.handlers {
                 for route in handler.routes {
@@ -245,7 +245,7 @@ by using the --package flag."
         Ok(())
     }
 
-    fn get_open_api_body_param<'s, 'b, 'e>(&'s self, entrypoint: &'e File<'b>, body_info: &'s BodyParamInfo) -> Option<OpenApiRequestBody> {
+    fn get_open_api_body_param<'b>(&self, entrypoint: &'b Module<'b>, body_info: &BodyParamInfo) -> Option<OpenApiRequestBody> {
         let t = if body_info.type_info.is_type_deserializable {
             self.get_open_api_type_from_type_info(entrypoint, &body_info.type_info)?
         } else {
@@ -265,7 +265,7 @@ by using the --package flag."
         })
     }
 
-    fn get_open_api_parameters_from_body_info<'s, 'b, 'e>(&'s self, entrypoint: &'e File<'b>, body_info: &'s BodyParamInfo) -> Vec<OpenApiParameter> {
+    fn get_open_api_parameters_from_body_info<'b>(&self, entrypoint: &'b Module<'b>, body_info: &BodyParamInfo) -> Vec<OpenApiParameter> {
         let mut parameters = Vec::new();
         if let Some(t) = if body_info.type_info.is_type_deserializable {
             self.get_open_api_type_from_type_info(entrypoint, &body_info.type_info)
@@ -290,25 +290,25 @@ by using the --package flag."
         parameters
     }
 
-    fn get_open_api_type_from_type_info<'s, 'b, 'e>(&'s self, entrypoint: &'e File<'b>, type_info: &'s TypeInfo) -> Option<OpenApiType> {
+    fn get_open_api_type_from_type_info<'b>(&self, entrypoint: &'b Module<'b>, type_info:  &TypeInfo) -> Option<OpenApiType> {
         let type_path = type_info.type_path.as_ref()?;
-        let type_mod = entrypoint.target.module_by_use_path(type_path).ok().flatten()?;
-        let type_impl = type_mod.find_impl_inline(type_info.name.as_str()).ok().flatten()?;
+        let type_mod = entrypoint.target().module_by_use_path(type_path).ok().flatten()?;
+        let type_impl = type_mod.find_type_definition(type_info.name.as_str()).ok().flatten()?;
         match type_impl.item {
-            SynItem::Struct(s) => self.get_open_api_type_from_struct(type_impl, s),
+            SynItem::Struct(s) => self.get_open_api_type_from_struct(type_impl, &s),
             SynItem::Enum(e) => self.get_open_api_type_from_enum(type_impl, e),
             _ => unreachable!(),
         }
     }
 
-    fn get_open_api_type_from_struct<'s, 'b, 'i>(&'s self, item: &'i Item<'b>, s: &'b ItemStruct) -> Option<OpenApiType> {
+    fn get_open_api_type_from_struct<'b>(&self, item: &'b Item<'b>, s: &ItemStruct) -> Option<OpenApiType> {
         let mut properties = HashMap::new();
         let mut required = Vec::new();
         for field in &s.fields {
             if let Some(field_name) = field.ident.as_ref().map(|i| get_serde_field(i.to_string(), &field.attrs, &s.attrs)).flatten() {
-                if let Some(field_type_info) = TypeInfo::new(item.file, &field.ty) {
+                if let Some(field_type_info) = TypeInfo::new(item.scope, &field.ty) {
                     let field_type = self
-                        .get_open_api_type_from_type_info(item.file, &field_type_info)
+                        .get_open_api_type_from_type_info(item.scope, &field_type_info)
                         .unwrap_or_else(|| OpenApiType::from_rust_type_str(field_type_info.name.as_str()));
                     if !field_type_info.is_optional
                         && !find_macro_attribute_flag(&field.attrs, "serde", "default")

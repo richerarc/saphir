@@ -1,7 +1,7 @@
-use crate::docgen::crate_syn_browser::File;
+use crate::docgen::crate_syn_browser::{File, Impl, ImplItem, ImplItemKind};
 use crate::docgen::handler_info::HandlerInfo;
 use crate::docgen::DocGen;
-use syn::{ImplItem, ItemImpl, Lit, Meta, NestedMeta, Type};
+use syn::{ItemImpl, Lit, Meta, NestedMeta, Type};
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ControllerInfo {
@@ -28,10 +28,10 @@ impl ControllerInfo {
 impl DocGen {
     /// Retrieve ControllerInfo from an implementation block.
     /// Saphir does not currently support multiple implementation blocks for the same controller.
-    pub(crate) fn extract_controller_info<'b>(&self, file: &'b File<'b>, im: &'b ItemImpl) -> Result<Option<ControllerInfo>, String> {
-        for attr in &im.attrs {
+    pub(crate) fn extract_controller_info<'b>(&self, im: &'b Impl<'b>) -> Result<Option<ControllerInfo>, String> {
+        for attr in &im.syn.attrs {
             if let Some(first_seg) = attr.path.segments.first() {
-                let t = im.self_ty.as_ref();
+                let t = im.syn.self_ty.as_ref();
                 if let Type::Path(p) = t {
                     if let Some(struct_first_seg) = p.path.segments.first() {
                         if first_seg.ident.eq("controller") {
@@ -69,10 +69,10 @@ impl DocGen {
                                 handlers: Vec::new(),
                             };
                             let mut handlers = im
-                                .items
+                                .items()
                                 .iter()
-                                .filter_map(|i| match i {
-                                    ImplItem::Method(m) => self.extract_handler_info(controller.base_path().as_str(), file, m).transpose(),
+                                .filter_map(|i| match i.kind() {
+                                    ImplItemKind::Method(m) => self.extract_handler_info(controller.base_path().as_str(), m).transpose(),
                                     _ => None,
                                 })
                                 .collect::<Result<Vec<_>, _>>()?;

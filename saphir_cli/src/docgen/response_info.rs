@@ -1,4 +1,4 @@
-use crate::docgen::crate_syn_browser::File;
+use crate::docgen::crate_syn_browser::{File, Method};
 use crate::docgen::type_info::TypeInfo;
 use crate::docgen::DocGen;
 use crate::openapi::OpenApiMimeType;
@@ -12,15 +12,15 @@ pub(crate) struct ResponseInfo {
 }
 
 impl DocGen {
-    pub(crate) fn extract_response_info<'b>(&self, file: &'b File<'b>, im: &'b ImplItemMethod) -> Vec<ResponseInfo> {
-        match &im.sig.output {
+    pub(crate) fn extract_response_info<'b>(&self, method: &'b Method<'b>) -> Vec<ResponseInfo> {
+        match &method.syn.sig.output {
             ReturnType::Default => vec![ResponseInfo {
                 code: 200,
                 type_info: None,
                 mime: OpenApiMimeType::Any,
             }],
             ReturnType::Type(_tokens, t) => {
-                let mut vec: Vec<ResponseInfo> = self.response_info_from_type(file, im, t).into_iter().map(|(_, r)| r).collect();
+                let mut vec: Vec<ResponseInfo> = self.response_info_from_type(method, t).into_iter().map(|(_, r)| r).collect();
 
                 if vec.is_empty() {
                     vec.push(ResponseInfo {
@@ -35,7 +35,7 @@ impl DocGen {
         }
     }
 
-    fn response_info_from_openapi_meta<'b>(&self, file: &'b File<'b>, im: &'b ImplItemMethod, meta: &MetaList) -> Vec<(Option<u16>, ResponseInfo)> {
+    fn response_info_from_openapi_meta<'b>(&self, method: &'b Method<'b>, meta: &MetaList) -> Vec<(Option<u16>, ResponseInfo)> {
         let mut vec = Vec::new();
 
         for openapi_paths in &meta.nested {
@@ -116,7 +116,7 @@ impl DocGen {
                                             continue;
                                         }
                                     };
-                                    vec.extend(self.response_info_from_type_path(file, im, &path).into_iter().map(|(_, mut r)| {
+                                    vec.extend(self.response_info_from_type_path(method, &path).into_iter().map(|(_, mut r)| {
                                         r.code = code;
                                         if let Some(m) = &mime {
                                             r.mime = m.clone();
@@ -137,10 +137,10 @@ impl DocGen {
         vec
     }
 
-    fn response_info_from_type<'b>(&self, file: &'b File<'b>, im: &'b ImplItemMethod, t: &Type) -> Vec<(Option<u16>, ResponseInfo)> {
+    fn response_info_from_type<'b>(&self, method: &'b Method<'b>, t: &Type) -> Vec<(Option<u16>, ResponseInfo)> {
         let mut vec: Vec<(Option<u16>, ResponseInfo)> = Vec::new();
 
-        for attr in &im.attrs {
+        for attr in &method.syn.attrs {
             if attr.path.get_ident().map(|i| i.to_string()).filter(|s| s.as_str() == "openapi").is_none() {
                 continue;
             }
@@ -148,13 +148,13 @@ impl DocGen {
                 Ok(Meta::List(m)) => m,
                 _ => continue,
             };
-            vec.extend(self.response_info_from_openapi_meta(file, im, &meta));
+            vec.extend(self.response_info_from_openapi_meta(method, &meta));
         }
 
         if vec.is_empty() {
             match t {
                 Type::Path(tp) => {
-                    vec.extend(self.response_info_from_type_path(file, im, &tp.path));
+                    vec.extend(self.response_info_from_type_path(method, &tp.path));
                 }
                 Type::Tuple(_tt) => {
                     // TODO: Tuple with with StatusCode or u16 mean a status code is specified for the associated return type.
@@ -168,13 +168,13 @@ impl DocGen {
         vec
     }
 
-    fn response_info_from_type_path<'b>(&self, file: &'b File<'b>, im: &'b ImplItemMethod, path: &Path) -> Vec<(Option<u16>, ResponseInfo)> {
+    fn response_info_from_type_path<'b>(&self, method: &'b Method<'b>, path: &Path) -> Vec<(Option<u16>, ResponseInfo)> {
         let mut vec = Vec::new();
         if let Some(last) = path.segments.last() {
             let name = last.ident.to_string();
             match name.as_str() {
                 "Result" => {
-                    let mut results = self.extract_arguments(file, im, &last.arguments);
+                    let mut results = self.extract_arguments(method, &last.arguments);
                     if results.len() == 2 {
                         let (error_code, mut error_response) = results.remove(1);
                         let (success_code, mut success_response) = results.remove(0);
@@ -185,7 +185,7 @@ impl DocGen {
                     }
                 }
                 "Option" => {
-                    let mut result = self.extract_arguments(file, im, &last.arguments);
+                    let mut result = self.extract_arguments(method, &last.arguments);
                     if result.len() == 1 {
                         let (success_code, mut success_response) = result.remove(0);
                         success_response.code = success_code.unwrap_or(200);
@@ -201,7 +201,7 @@ impl DocGen {
                     }
                 }
                 "Json" => {
-                    let mut result = self.extract_arguments(file, im, &last.arguments);
+                    let mut result = self.extract_arguments(method, &last.arguments);
                     if result.len() == 1 {
                         let (_, mut success_response) = result.remove(0);
                         success_response.mime = OpenApiMimeType::Json;
@@ -209,7 +209,7 @@ impl DocGen {
                     }
                 }
                 "Form" => {
-                    let mut result = self.extract_arguments(file, im, &last.arguments);
+                    let mut result = self.extract_arguments(method, &last.arguments);
                     if result.len() == 1 {
                         let (_, mut success_response) = result.remove(0);
                         success_response.mime = OpenApiMimeType::Form;
@@ -218,14 +218,14 @@ impl DocGen {
                 }
                 // TODO: Find a way to handle this. This is a temp workaround for Lucid
                 "JsonContent" | "NoCache" => {
-                    let mut result = self.extract_arguments(file, im, &last.arguments);
+                    let mut result = self.extract_arguments(method, &last.arguments);
                     if result.len() == 1 {
                         let (_, success_response) = result.remove(0);
                         vec.push((None, success_response));
                     }
                 }
                 _ => {
-                    let type_info = TypeInfo::new_from_path(file, path);
+                    let type_info = TypeInfo::new_from_path(method.impl_item.im.item.scope, path);
                     vec.push((
                         None,
                         ResponseInfo {
@@ -240,13 +240,13 @@ impl DocGen {
         vec
     }
 
-    fn extract_arguments<'b>(&self, file: &'b File<'b>, im: &'b ImplItemMethod, args: &PathArguments) -> Vec<(Option<u16>, ResponseInfo)> {
+    fn extract_arguments<'b>(&self, method: &'b Method<'b>, args: &PathArguments) -> Vec<(Option<u16>, ResponseInfo)> {
         match args {
             PathArguments::AngleBracketed(ab) => ab
                 .args
                 .iter()
                 .filter_map(|a| match a {
-                    GenericArgument::Type(Type::Path(tp)) => Some(self.response_info_from_type_path(file, im, &tp.path)),
+                    GenericArgument::Type(Type::Path(tp)) => Some(self.response_info_from_type_path(method, &tp.path)),
                     _ => None,
                 })
                 .flatten()

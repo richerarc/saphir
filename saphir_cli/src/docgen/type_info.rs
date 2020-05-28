@@ -1,4 +1,4 @@
-use crate::docgen::crate_syn_browser::File;
+use crate::docgen::crate_syn_browser::{File, UseScope};
 use crate::docgen::utils::find_macro_attribute_flag;
 use syn::{Expr, GenericArgument, Item as SynItem, Lit, Path, PathArguments, Type};
 
@@ -17,10 +17,10 @@ pub(crate) struct TypeInfo {
 
 impl TypeInfo {
     /// Retrieve TypeInfo for a syn::Type found in a crate_syn_browser::File.
-    pub fn new<'b>(file: &'b File<'b>, t: &Type) -> Option<TypeInfo> {
+    pub fn new<'b>(scope: &'b impl UseScope<'b>, t: &Type) -> Option<TypeInfo> {
         match t {
             Type::Path(p) => {
-                return TypeInfo::new_from_path(file, &p.path);
+                return TypeInfo::new_from_path(scope, &p.path);
             }
             Type::Array(a) => {
                 let len: Option<u32> = match &a.len {
@@ -31,7 +31,7 @@ impl TypeInfo {
                     _ => None,
                 };
 
-                if let Some(mut type_info) = TypeInfo::new(file, a.elem.as_ref()) {
+                if let Some(mut type_info) = TypeInfo::new(scope, a.elem.as_ref()) {
                     type_info.is_array = true;
                     type_info.min_array_len = len;
                     type_info.max_array_len = len;
@@ -43,7 +43,7 @@ impl TypeInfo {
         None
     }
 
-    pub fn new_from_path<'b>(file: &'b File<'b>, path: &Path) -> Option<TypeInfo> {
+    pub fn new_from_path<'b>(scope: &'b impl UseScope<'b>, path: &Path) -> Option<TypeInfo> {
         if let Some(s) = path.segments.last() {
             let name = s.ident.to_string();
             if name == "Vec" || name == "Option" {
@@ -68,7 +68,7 @@ impl TypeInfo {
                     }
                 };
 
-                if let Some(mut type_info) = TypeInfo::new(file, t2) {
+                if let Some(mut type_info) = TypeInfo::new(scope, t2) {
                     match name.as_str() {
                         "Vec" => type_info.is_array = true,
                         "Option" => type_info.is_optional = true,
@@ -77,8 +77,8 @@ impl TypeInfo {
                     return Some(type_info);
                 }
             } else {
-                let type_impl = file.find_impl(name.as_str()).ok().flatten();
-                let type_path = type_impl.map(|i| i.file.use_path.clone());
+                let type_impl = scope.find_type_definition(name.as_str()).ok().flatten();
+                let type_path = type_impl.map(|i| i.scope.path().to_string());
                 let item_attrs = type_impl.map(|i| match i.item {
                     SynItem::Struct(s) => &s.attrs,
                     SynItem::Enum(e) => &e.attrs,

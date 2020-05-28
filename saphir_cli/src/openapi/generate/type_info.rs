@@ -1,4 +1,4 @@
-use crate::docgen::{crate_syn_browser::UseScope, utils::find_macro_attribute_flag};
+use crate::openapi::generate::{crate_syn_browser::UseScope, utils::find_macro_attribute_flag};
 use syn::{Expr, GenericArgument, Item as SynItem, Lit, Path, PathArguments, Type};
 
 /// Informations about a Rust Type required to create a corresponding

@@ -1,6 +1,6 @@
-use crate::{
-    docgen::{crate_syn_browser::Method, response_info::ResponseInfo, route_info::RouteInfo, type_info::TypeInfo, BodyParamInfo, DocGen, RouteParametersInfo},
-    openapi::{OpenApiMimeType, OpenApiParameter, OpenApiParameterLocation, OpenApiSchema, OpenApiType},
+use crate::openapi::{
+    generate::{crate_syn_browser::Method, response_info::ResponseInfo, route_info::RouteInfo, type_info::TypeInfo, BodyParamInfo, Gen, RouteParametersInfo},
+    schema::{OpenApiMimeType, OpenApiParameter, OpenApiParameterLocation, OpenApiSchema, OpenApiType},
 };
 use syn::{FnArg, GenericArgument, ImplItemMethod, Pat, PathArguments, Type};
 
@@ -13,7 +13,7 @@ pub(crate) struct HandlerInfo {
     pub(crate) responses: Vec<ResponseInfo>,
 }
 
-impl DocGen {
+impl Gen {
     pub(crate) fn extract_handler_info<'b>(&self, controller_path: &str, method: &'b Method<'b>) -> Result<Option<HandlerInfo>, String> {
         let mut consume_cookies: bool = self.handler_has_cookies(&method.syn);
 

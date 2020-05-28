@@ -1,16 +1,15 @@
 use structopt::StructOpt;
 
-mod docgen;
 mod openapi;
 
-use crate::docgen::DocGen;
+use crate::openapi::Openapi;
 
 type CommandResult = std::result::Result<(), String>;
 
-trait Command: Sized {
+pub(crate) trait Command: Sized {
     type Args;
     fn new(args: Self::Args) -> Self;
-    fn run(&mut self) -> CommandResult;
+    fn run(self) -> CommandResult;
 }
 
 /// Saphir web framework's CLI utility.
@@ -22,15 +21,15 @@ struct SaphirCli {
 
 #[derive(StructOpt, Debug)]
 enum SaphirCliCommand {
-    DocGen(<DocGen as Command>::Args),
+    Openapi(<Openapi as Command>::Args),
 }
 
 fn main() {
     let cli = SaphirCli::from_args();
     if let Err(e) = match cli.cmd {
-        SaphirCliCommand::DocGen(a) => {
-            let mut doc = DocGen::new(a);
-            doc.run()
+        SaphirCliCommand::Openapi(args) => {
+            let openapi = Openapi::new(args);
+            openapi.run()
         }
     } {
         eprintln!("{}", e);

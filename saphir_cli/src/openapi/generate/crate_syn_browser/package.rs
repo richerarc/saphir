@@ -1,4 +1,4 @@
-use crate::docgen::crate_syn_browser::{Browser, Target};
+use super::{Browser, Target};
 use cargo_metadata::{Package as MetaPackage, PackageId};
 use lazycell::LazyCell;
 use std::{cell::RefCell, collections::HashMap, fmt::Debug};

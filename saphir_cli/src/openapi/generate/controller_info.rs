@@ -1,7 +1,7 @@
-use crate::docgen::{
+use crate::openapi::generate::{
     crate_syn_browser::{Impl, ImplItemKind},
     handler_info::HandlerInfo,
-    DocGen,
+    Gen,
 };
 use syn::{Lit, Meta, NestedMeta, Type};
 
@@ -27,7 +27,7 @@ impl ControllerInfo {
     }
 }
 
-impl DocGen {
+impl Gen {
     /// Retrieve ControllerInfo from an implementation block.
     /// Saphir does not currently support multiple implementation blocks for the
     /// same controller.

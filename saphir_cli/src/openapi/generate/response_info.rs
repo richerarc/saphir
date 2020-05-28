@@ -1,6 +1,6 @@
-use crate::{
-    docgen::{crate_syn_browser::Method, type_info::TypeInfo, DocGen},
-    openapi::OpenApiMimeType,
+use crate::openapi::{
+    generate::{crate_syn_browser::Method, type_info::TypeInfo, Gen},
+    schema::OpenApiMimeType,
 };
 use syn::{GenericArgument, Lit, Meta, MetaList, NestedMeta, Path, PathArguments, ReturnType, Type};
 
@@ -11,7 +11,7 @@ pub(crate) struct ResponseInfo {
     pub(crate) mime: OpenApiMimeType,
 }
 
-impl DocGen {
+impl Gen {
     pub(crate) fn extract_response_info<'b>(&self, method: &'b Method<'b>) -> Vec<ResponseInfo> {
         match &method.syn.sig.output {
             ReturnType::Default => vec![ResponseInfo {

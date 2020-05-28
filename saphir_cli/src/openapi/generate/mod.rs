@@ -1,13 +1,15 @@
 use crate::{
-    docgen::{
-        controller_info::ControllerInfo,
-        crate_syn_browser::{Browser, Item, ItemKind, Module, UseScope},
-        type_info::TypeInfo,
-        utils::{find_macro_attribute_flag, find_macro_attribute_named_value, get_serde_field},
-    },
     openapi::{
-        OpenApi, OpenApiContent, OpenApiMimeType, OpenApiObjectType, OpenApiParameter, OpenApiParameterLocation, OpenApiPath, OpenApiPathMethod,
-        OpenApiRequestBody, OpenApiResponse, OpenApiSchema, OpenApiType,
+        generate::{
+            controller_info::ControllerInfo,
+            crate_syn_browser::{Browser, Item, ItemKind, Module, UseScope},
+            type_info::TypeInfo,
+            utils::{find_macro_attribute_flag, find_macro_attribute_named_value, get_serde_field},
+        },
+        schema::{
+            OpenApi, OpenApiContent, OpenApiMimeType, OpenApiObjectType, OpenApiParameter, OpenApiParameterLocation, OpenApiPath, OpenApiPathMethod,
+            OpenApiRequestBody, OpenApiResponse, OpenApiSchema, OpenApiType,
+        },
     },
     Command, CommandResult,
 };
@@ -48,7 +50,7 @@ You can see help with the --help flag.",
 ///
 /// See: https://github.com/OAI/OpenAPI-Specification/blob/master/versions/3.0.2.md
 #[derive(StructOpt, Debug, Default)]
-pub(crate) struct DocGenArgs {
+pub(crate) struct GenArgs {
     /// (Optional) Limit doc generation to the URIs under this scope.
     ///
     /// For example, if you pass `/api/v1` and that your Saphir server had
@@ -82,14 +84,14 @@ pub(crate) struct DocGenArgs {
     output_file: PathBuf,
 }
 
-pub(crate) struct DocGen {
-    pub args: <DocGen as Command>::Args,
+pub(crate) struct Gen {
+    pub args: <Gen as Command>::Args,
     pub doc: OpenApi,
     pub operation_ids: RefCell<HashSet<String>>,
 }
 
-impl Command for DocGen {
-    type Args = DocGenArgs;
+impl Command for Gen {
+    type Args = GenArgs;
 
     fn new(args: Self::Args) -> Self {
         let mut doc = OpenApi::default();
@@ -101,7 +103,7 @@ impl Command for DocGen {
         }
     }
 
-    fn run<'b>(&mut self) -> CommandResult {
+    fn run<'b>(mut self) -> CommandResult {
         let now = Instant::now();
         self.read_project_cargo_toml()?;
         let browser = Browser::new(self.args.project_path.clone()).map_err(|e| format!("{}", e))?;
@@ -115,7 +117,7 @@ impl Command for DocGen {
     }
 }
 
-impl DocGen {
+impl Gen {
     fn get_crate_entrypoint<'s, 'r, 'b: 'r>(&'s self, package_name: Option<&'r String>, browser: &'b Browser<'b>) -> Result<&'b Module<'b>, String> {
         let main_package = if let Some(main_name) = package_name {
             let package = browser.package_by_name(main_name);

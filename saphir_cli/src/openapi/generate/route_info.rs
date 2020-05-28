@@ -1,6 +1,6 @@
-use crate::{
-    docgen::{crate_syn_browser::Method, DocGen},
-    openapi::OpenApiPathMethod,
+use crate::openapi::{
+    generate::{crate_syn_browser::Method, Gen},
+    schema::OpenApiPathMethod,
 };
 use syn::Attribute;
 
@@ -12,7 +12,7 @@ pub(crate) struct RouteInfo {
     pub(crate) operation_id: String,
 }
 
-impl DocGen {
+impl Gen {
     /// Retrieve RouteInfo from a method with a saphir route macro.
     pub(crate) fn extract_route_info_from_method_macro(&self, controller_path: &str, attr: &Attribute, m: &Method) -> Option<RouteInfo> {
         let method = self.handler_method_from_attr(&attr)?;

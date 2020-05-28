@@ -1,4 +1,4 @@
-use crate::docgen::crate_syn_browser::Module;
+use super::Module;
 use lazycell::LazyCell;
 use std::fmt::Debug;
 use syn::{

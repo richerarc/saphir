@@ -1,5 +1,5 @@
 use super::Error;
-use crate::docgen::crate_syn_browser::Package;
+use super::Package;
 use lazycell::LazyCell;
 use std::{fmt::Debug, path::PathBuf};
 

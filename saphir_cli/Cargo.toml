@@ -1,9 +1,9 @@
 [package]
-name = "saphir_cli"
+name = "saphir-cli"
 version = "0.1.0"
 authors = ["Samuel Bergeron-Drouin <kazelone@gmail.com>"]
 edition = "2018"
-description = "Macro generation for http server framework"
+description = "CLI utility for the Saphir web framework"
 documentation = "https://docs.rs/saphir"
 homepage = "https://github.com/richerarc/saphir"
 repository = "https://github.com/richerarc/saphir"
@@ -11,6 +11,10 @@ readme = "../README.md"
 keywords = ["hyper", "http", "server", "web", "async"]
 license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "saphir"
+path = "src/main.rs"
 
 [dependencies]
 syn = { version = "1.0.16", features = ["full", "extra-traits"] }

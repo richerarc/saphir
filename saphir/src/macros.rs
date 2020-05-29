@@ -18,7 +18,6 @@
 //! controller function (endpoint)
 //!
 //! ## The `#[<method>("/<path>")] Attribute`
-//!
 //! This one is the attribute to add a endpoint to your controller, simply add a
 //! method and a path above your endpoint function, and there ya go.
 //! E.g. `#[get("/users/<user_id>")]` would route its function to
@@ -28,7 +27,6 @@
 //! will be treated as : _any method_ being accepted.
 //!
 //! ## The `#[openapi(...)] Attribute`
-//!
 //! This attribute can be added to a controller function (endpoint) to add
 //! informations about the endpoint for OpenAPI generation through saphir's
 //! CLI.

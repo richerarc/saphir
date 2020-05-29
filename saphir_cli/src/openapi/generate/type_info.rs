@@ -1,4 +1,7 @@
-use crate::openapi::generate::{crate_syn_browser::UseScope, utils::find_macro_attribute_flag};
+use crate::openapi::generate::{
+    crate_syn_browser::UseScope,
+    utils::{find_macro_attribute_flag, find_macro_attribute_named_value},
+};
 use syn::{Expr, GenericArgument, Item as SynItem, Lit, Path, PathArguments, Type};
 
 /// Informations about a Rust Type required to create a corresponding
@@ -13,6 +16,7 @@ pub(crate) struct TypeInfo {
     pub(crate) is_optional: bool,
     pub(crate) min_array_len: Option<u32>,
     pub(crate) max_array_len: Option<u32>,
+    pub(crate) mime: Option<String>,
 }
 
 impl TypeInfo {
@@ -90,6 +94,14 @@ impl TypeInfo {
                 let is_type_deserializable = item_attrs
                     .map(|attrs| find_macro_attribute_flag(attrs, "derive", "Deserialize"))
                     .unwrap_or_default();
+                let mime = item_attrs
+                    .map(|attrs| find_macro_attribute_named_value(attrs, "openapi", "mime"))
+                    .flatten()
+                    .map(|m| match m {
+                        Lit::Str(s) => Some(s.value()),
+                        _ => None,
+                    })
+                    .flatten();
                 return Some(TypeInfo {
                     name,
                     type_path,
@@ -99,6 +111,7 @@ impl TypeInfo {
                     is_optional: false,
                     min_array_len: None,
                     max_array_len: None,
+                    mime,
                 });
             }
         }

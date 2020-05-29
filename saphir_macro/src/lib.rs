@@ -4,11 +4,12 @@
 extern crate proc_macro;
 
 use proc_macro::TokenStream as TokenStream1;
-use syn::{parse_macro_input, AttributeArgs, ItemImpl};
+use syn::{parse_macro_input, AttributeArgs, Item, ItemImpl};
 
 mod controller;
 mod guard;
 mod middleware;
+mod openapi;
 mod utils;
 
 /// Saphir macro for auto trait implementation on controllers
@@ -78,4 +79,28 @@ pub fn guard(_args: TokenStream1, input: TokenStream1) -> TokenStream1 {
     let expanded = guard::expand_guard(input).unwrap_or_else(|e| e.to_compile_error());
 
     TokenStream1::from(expanded)
+}
+
+/// Saphir OpenAPI macro which can be put on top of a struct or enum definition.
+/// Allow specifying informations for the corresponding type when generating
+/// OpenAPI documentation through saphir's CLI.
+///
+/// The syntax looks like this : `#[openapi(mime = "application/json")]`.
+/// `mime` can either be a full mimetype, or one of the following keywords:
+/// - json (application/json)
+/// - form (application/x-www-form-urlencoded)
+/// - any  (*/*)
+#[proc_macro_attribute]
+pub fn openapi(args: TokenStream1, input: TokenStream1) -> TokenStream1 {
+    let args = parse_macro_input!(args as AttributeArgs);
+    let parsed_input = input.clone();
+    let parsed_input = parse_macro_input!(parsed_input as Item);
+    match openapi::validate_openapi(args, parsed_input) {
+        Ok(s) => TokenStream1::from(s),
+        Err(e) => {
+            let mut stream = TokenStream1::from(e.to_compile_error());
+            stream.extend(input);
+            stream
+        }
+    }
 }

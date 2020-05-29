@@ -231,9 +231,13 @@ impl Gen {
                     vec.push((
                         None,
                         ResponseInfo {
+                            mime: type_info
+                                .as_ref()
+                                .map(|t| t.mime.as_ref().map(|m| OpenApiMimeType::from(m.clone())))
+                                .flatten()
+                                .unwrap_or(OpenApiMimeType::Any),
                             type_info,
                             code: 200,
-                            mime: OpenApiMimeType::Any,
                         },
                     ));
                 }

@@ -1,6 +1,6 @@
 use crate::openapi::{
     generate::{crate_syn_browser::Method, type_info::TypeInfo, Gen},
-    schema::OpenApiMimeType,
+    schema::{OpenApiMimeType, OpenApiType},
 };
 use syn::{GenericArgument, Lit, Meta, MetaList, NestedMeta, Path, PathArguments, ReturnType, Type};
 
@@ -9,6 +9,7 @@ pub(crate) struct ResponseInfo {
     pub(crate) code: u16,
     pub(crate) type_info: Option<TypeInfo>,
     pub(crate) mime: OpenApiMimeType,
+    pub(crate) openapi_type: Option<OpenApiType>,
 }
 
 impl Gen {
@@ -18,6 +19,7 @@ impl Gen {
                 code: 200,
                 type_info: None,
                 mime: OpenApiMimeType::Any,
+                openapi_type: None,
             }],
             ReturnType::Type(_tokens, t) => {
                 let mut vec: Vec<ResponseInfo> = self.response_info_from_type(method, t).into_iter().map(|(_, r)| r).collect();
@@ -27,6 +29,7 @@ impl Gen {
                         type_info: None,
                         code: 200,
                         mime: OpenApiMimeType::Any,
+                        openapi_type: None,
                     });
                 }
 
@@ -102,6 +105,19 @@ impl Gen {
                                 let mime = mime.map(OpenApiMimeType::from);
 
                                 for (code, type_name) in pairs {
+                                    if let Some(openapi_type) = self.openapitype_from_raw(type_name.as_str()) {
+                                        vec.push((
+                                            Some(code),
+                                            ResponseInfo {
+                                                code,
+                                                mime: mime.clone().unwrap_or(OpenApiMimeType::Any),
+                                                type_info: None,
+                                                openapi_type: Some(openapi_type),
+                                            },
+                                        ));
+                                        continue;
+                                    }
+
                                     let path = match syn::parse_str::<Path>(type_name.as_str()) {
                                         Ok(path) => path,
                                         _ => {
@@ -111,11 +127,13 @@ impl Gen {
                                                     code,
                                                     mime: mime.clone().unwrap_or(OpenApiMimeType::Any),
                                                     type_info: None,
+                                                    openapi_type: None,
                                                 },
                                             ));
                                             continue;
                                         }
                                     };
+
                                     vec.extend(self.response_info_from_type_path(method, &path).into_iter().map(|(_, mut r)| {
                                         r.code = code;
                                         if let Some(m) = &mime {
@@ -198,6 +216,7 @@ impl Gen {
                                 code: 404,
                                 type_info: None,
                                 mime: OpenApiMimeType::Any,
+                                openapi_type: None,
                             },
                         ));
                     }
@@ -238,6 +257,7 @@ impl Gen {
                                 .unwrap_or(OpenApiMimeType::Any),
                             type_info,
                             code: 200,
+                            openapi_type: None,
                         },
                     ));
                 }

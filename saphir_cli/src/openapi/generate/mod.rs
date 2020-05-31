@@ -13,6 +13,7 @@ use crate::{
     },
     Command, CommandResult,
 };
+use http::StatusCode;
 use serde_derive::Deserialize;
 use std::{
     cell::RefCell,
@@ -218,13 +219,14 @@ by using the --package flag."
 
                     for response in &handler.responses {
                         let mut content = HashMap::new();
-                        if let Some(openapi_type) = response
-                            .type_info
-                            .as_ref()
-                            .filter(|t| t.is_type_serializable)
-                            .map(|t| self.get_open_api_type_from_type_info(entrypoint, &t))
-                            .flatten()
-                        {
+                        if let Some(openapi_type) = response.openapi_type.clone().or_else(|| {
+                            response
+                                .type_info
+                                .as_ref()
+                                .filter(|t| t.is_type_serializable)
+                                .map(|t| self.get_open_api_type_from_type_info(entrypoint, &t))
+                                .flatten()
+                        }) {
                             content.insert(
                                 response.mime.clone(),
                                 OpenApiContent {
@@ -232,11 +234,16 @@ by using the --package flag."
                                 },
                             );
                         }
+                        let status = StatusCode::from_u16(response.code);
                         data.responses.insert(
                             response.code,
                             OpenApiResponse {
                                 // TODO: Status code name from StatusCode in http
-                                description: response.type_info.as_ref().map(|t| t.name.clone()).unwrap_or_default(),
+                                description: response
+                                    .type_info
+                                    .as_ref()
+                                    .map(|t| t.name.clone())
+                                    .unwrap_or_else(|| status.map(|s| s.canonical_reason()).ok().flatten().map(|s| s.to_owned()).unwrap_or_default()),
                                 content,
                             },
                         );
@@ -399,6 +406,78 @@ by using the --package flag."
             }
         }
         None
+    }
+
+    // TODO: Rework this to support arbitrary type resolution like with TypeInfo
+    pub(crate) fn openapitype_from_raw(&self, raw: &str) -> Option<OpenApiType> {
+        Self::_openapitype_from_raw(raw).map(|(t, _)| t)
+    }
+
+    fn _openapitype_from_raw(raw: &str) -> Option<(OpenApiType, usize)> {
+        let raw = raw.trim();
+        let len = raw.len();
+        let mut chars = raw.chars();
+        let first_char = chars.next()?;
+        match first_char {
+            '{' => {
+                let mut cur_key: Option<&str> = None;
+                let mut properties = HashMap::new();
+                let mut required = Vec::new();
+
+                let mut s = 1;
+                let mut e = 1;
+                for i in 1..len {
+                    let char = chars.next()?;
+                    if e > i {
+                        continue;
+                    } else {
+                        e = i;
+                    }
+                    match char {
+                        ':' => {
+                            let key = &raw[s..e].trim();
+                            cur_key = Some(key);
+                            s = e + 1;
+                        }
+                        '{' | '[' => {
+                            let (t, end) = Self::_openapitype_from_raw(&raw[s..(len - 1)])?;
+                            e += end + 1;
+                            if let Some(key) = cur_key {
+                                properties.insert(key.to_string(), Box::new(t));
+                                required.push(key.to_string());
+                                s = e + 1;
+                                cur_key = None;
+                            }
+                        }
+                        ',' | '}' => {
+                            if let Some(key) = cur_key {
+                                let value = &raw[s..e].trim();
+                                let (t, _) = Self::_openapitype_from_raw(value)?;
+                                properties.insert(key.to_string(), Box::new(t));
+                                required.push(key.to_string());
+                            }
+                            s = e + 1;
+                            if char == '}' {
+                                return if !properties.is_empty() {
+                                    Some((OpenApiType::object(properties, required), e))
+                                } else {
+                                    None
+                                };
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                None
+            }
+            '[' => {
+                if chars.last()? != ']' {
+                    return None;
+                }
+                Self::_openapitype_from_raw(&raw[1..(len - 1)])
+            }
+            _ => Some((OpenApiType::from_rust_type_str(raw), len)),
+        }
     }
 }
 

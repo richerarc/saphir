@@ -57,8 +57,8 @@ impl Gen {
 
     /// TODO: better typing for parameters.
     ///       implement a ParameterInfo struct with typing for param, fill
-    /// HandlerInfo with this,       separate the discovery of BodyInfo and
-    /// cookies usage from parameters.
+    ///       HandlerInfo with this, separate the discovery of BodyInfo and
+    ///       cookies usage from parameters.
     fn parse_handler_parameters<'b>(&self, method: &'b Method<'b>, uri_params: &[String]) -> RouteParametersInfo {
         let mut parameters = Vec::new();
         let mut has_cookies_param = false;

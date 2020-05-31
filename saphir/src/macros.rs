@@ -32,16 +32,22 @@
 //! CLI.
 //! This attribute can be present multiple times and can include any number of
 //! `return` and `params` parameters:
+//!
 //! ### return(code = <code>, type = "<type_path>"[, mime = <mime>])
 //! Specify a possible return code & type, and optionally a mime type.
 //! The type must be a valid type path included (`use`) in the file.
 //! E.g. `#[openapi(return(code = 200, type = "Json<MyType>")]`
+//!
 //! `type` support infering the mimetype of built-in responders such as
 //! `Json<T>` and `Form<T>`, so the following are ecquivalent :
 //! - `#[openapi(return(code = 200, type = "Json<MyType>")]`
 //! - `#[openapi(return(code = 200, type = "self::MyType", mime = "json")]`
 //! - `#[openapi(return(code = 200, type = "MyType", mime =
 //!   "application/json")]`
+//!
+//! `type` can also be a string describing a raw object, for example :
+//! `#[openapi(return(code = 200, type = "[{code: String, name: String}]", mime
+//! = "json"))]`
 //!
 //! ## The `#[cookies] Attribute`
 //! This will ensure cookies are parsed in the request before the endpoint

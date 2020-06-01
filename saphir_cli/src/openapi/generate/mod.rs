@@ -474,20 +474,18 @@ by using the --package flag."
                 }
                 self._openapitype_from_raw(scope, &raw[1..(len - 1)])
             }
-            _ => {
-                Some((
-                    syn::parse_str::<syn::Path>(raw)
-                        .ok()
-                        .map(|p| TypeInfo::new_from_path(scope, &p))
-                        .flatten()
-                        .as_ref()
-                        .filter(|t| t.is_type_serializable)
-                        .map(|t| self.get_open_api_type_from_type_info(scope, t))
-                        .flatten()
-                        .unwrap_or_else(|| OpenApiType::from_rust_type_str(raw)),
-                    len,
-                ))
-            }
+            _ => Some((
+                syn::parse_str::<syn::Path>(raw)
+                    .ok()
+                    .map(|p| TypeInfo::new_from_path(scope, &p))
+                    .flatten()
+                    .as_ref()
+                    .filter(|t| t.is_type_serializable)
+                    .map(|t| self.get_open_api_type_from_type_info(scope, t))
+                    .flatten()
+                    .unwrap_or_else(|| OpenApiType::from_rust_type_str(raw)),
+                len,
+            )),
         }
     }
 }

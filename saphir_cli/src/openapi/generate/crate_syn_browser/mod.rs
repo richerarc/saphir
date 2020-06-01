@@ -74,12 +74,8 @@ pub trait UseScope<'b> {
             return first.to_string();
         }
         let first = match first {
-            "self" => {
-                self.path().to_string()
-            },
-            "crate" => {
-                self.target().package.name.clone()
-            },
+            "self" => self.path().to_string(),
+            "crate" => self.target().package.name.clone(),
             "super" => {
                 let split: Vec<&str> = self.path().split("::").collect();
                 split[..(split.len() - 1)].join("::")

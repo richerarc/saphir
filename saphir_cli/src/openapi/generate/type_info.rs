@@ -82,10 +82,7 @@ impl TypeInfo {
                     return Some(type_info);
                 }
             } else {
-                let path = path.segments.iter()
-                    .map(|s| s.ident.to_string())
-                    .collect::<Vec<String>>()
-                    .join("::");
+                let path = path.segments.iter().map(|s| s.ident.to_string()).collect::<Vec<String>>().join("::");
                 let type_impl = scope.find_type_definition(path.as_str()).ok().flatten();
                 let type_path = type_impl.map(|i| i.scope.path().to_string());
                 let item_attrs = type_impl.map(|i| match i.item {

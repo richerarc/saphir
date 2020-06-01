@@ -440,10 +440,11 @@ impl HandlerAttrs {
                                                                     Some("type") => {
                                                                         if let Lit::Str(_) = &nv.lit {
                                                                             nb_type += 1;
+                                                                            // TODO: Validate raw object syntax
                                                                         } else {
                                                                             return Err(Error::new_spanned(
                                                                                 m,
-                                                                                "Invalid type : expected a type name/path wrapped in double-quotes",
+                                                                                "Invalid type : expected a type name/path/raw object wrapped in double-quotes",
                                                                             ));
                                                                         }
                                                                     }

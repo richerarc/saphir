@@ -176,9 +176,9 @@ impl Gen {
                 }
                 Type::Tuple(_tt) => {
                     // TODO: Tuple with with StatusCode or u16 mean a status
-                    // code is specified for the associated return type.
+                    //       code is specified for the associated return type.
                     //       We cannot possibly cover this case fully but we
-                    // could at least handle simple cases where
+                    //       could at least handle simple cases where
                     //       the response is a litteral inside the method's body
                 }
                 _ => {}
@@ -241,7 +241,10 @@ impl Gen {
                 "JsonContent" | "NoCache" => {
                     let mut result = self.extract_arguments(method, &last.arguments);
                     if result.len() == 1 {
-                        let (_, success_response) = result.remove(0);
+                        let (_, mut success_response) = result.remove(0);
+                        if name.as_str() == "JsonContent" {
+                            success_response.mime = OpenApiMimeType::Json;
+                        }
                         vec.push((None, success_response));
                     }
                 }

@@ -1,12 +1,11 @@
 use super::Module;
+use crate::openapi::generate::crate_syn_browser::UseScope;
 use lazycell::LazyCell;
 use std::fmt::Debug;
 use syn::{
-    ImplItem as SynImplItem, ImplItemMethod as SynImplItemMethod, Item as SynItem, ItemEnum as SynItemEnum, ItemImpl as SynItemImpl,
+    export::Formatter, ImplItem as SynImplItem, ImplItemMethod as SynImplItemMethod, Item as SynItem, ItemEnum as SynItemEnum, ItemImpl as SynItemImpl,
     ItemStruct as SynItemStruct, ItemUse as SynItemUse,
 };
-use crate::openapi::generate::crate_syn_browser::UseScope;
-use syn::export::Formatter;
 
 pub struct Item<'b> {
     pub scope: &'b dyn UseScope<'b>,

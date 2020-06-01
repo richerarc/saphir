@@ -238,7 +238,6 @@ by using the --package flag."
                         data.responses.insert(
                             response.code,
                             OpenApiResponse {
-                                // TODO: Status code name from StatusCode in http
                                 description: response
                                     .type_info
                                     .as_ref()

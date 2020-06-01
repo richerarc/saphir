@@ -423,43 +423,46 @@ impl HandlerAttrs {
                                                 }
                                                 for openapi_return_attribute in &openapi_attribute.nested {
                                                     match openapi_return_attribute {
-                                                        NestedMeta::Meta(m) => match m {
-                                                            Meta::NameValue(nv) => {
-                                                                let r = nv.path.get_ident().map(|i| i.to_string());
-                                                                match r.as_deref() {
-                                                                    Some("code") => {
-                                                                        if let Lit::Int(i) = &nv.lit {
-                                                                            let c: u16 =
-                                                                                i.base10_parse().map_err(|_| Error::new_spanned(i, "Invalid status code"))?;
-                                                                            if c < 100 || c >= 600 {
-                                                                                return Err(Error::new_spanned(i, "Invalid status code"));
+                                                        NestedMeta::Meta(m) => {
+                                                            match m {
+                                                                Meta::NameValue(nv) => {
+                                                                    let r = nv.path.get_ident().map(|i| i.to_string());
+                                                                    match r.as_deref() {
+                                                                        Some("code") => {
+                                                                            if let Lit::Int(i) = &nv.lit {
+                                                                                let c: u16 = i
+                                                                                    .base10_parse()
+                                                                                    .map_err(|_| Error::new_spanned(i, "Invalid status code"))?;
+                                                                                if c < 100 || c >= 600 {
+                                                                                    return Err(Error::new_spanned(i, "Invalid status code"));
+                                                                                }
+                                                                                nb_code += 1;
                                                                             }
-                                                                            nb_code += 1;
                                                                         }
-                                                                    }
-                                                                    Some("type") => {
-                                                                        if let Lit::Str(_) = &nv.lit {
-                                                                            nb_type += 1;
+                                                                        Some("type") => {
+                                                                            if let Lit::Str(_) = &nv.lit {
+                                                                                nb_type += 1;
                                                                             // TODO: Validate raw object syntax
-                                                                        } else {
-                                                                            return Err(Error::new_spanned(
+                                                                            } else {
+                                                                                return Err(Error::new_spanned(
                                                                                 m,
                                                                                 "Invalid type : expected a type name/path/raw object wrapped in double-quotes",
                                                                             ));
+                                                                            }
                                                                         }
-                                                                    }
-                                                                    Some("mime") => {
-                                                                        if let Lit::Str(_) = &nv.lit {
-                                                                            nb_mime += 1;
-                                                                        } else {
-                                                                            return Err(Error::new_spanned(m, "Expected a mimetype string"));
+                                                                        Some("mime") => {
+                                                                            if let Lit::Str(_) = &nv.lit {
+                                                                                nb_mime += 1;
+                                                                            } else {
+                                                                                return Err(Error::new_spanned(m, "Expected a mimetype string"));
+                                                                            }
                                                                         }
+                                                                        _ => return Err(Error::new_spanned(&nv.path, "Invalid openapi return attribute")),
                                                                     }
-                                                                    _ => return Err(Error::new_spanned(&nv.path, "Invalid openapi return attribute")),
                                                                 }
+                                                                _ => return Err(Error::new_spanned(m, "Invalid openapi return attribute")),
                                                             }
-                                                            _ => return Err(Error::new_spanned(m, "Invalid openapi return attribute")),
-                                                        },
+                                                        }
                                                         _ => return Err(Error::new_spanned(openapi_attribute, "Invalid openapi return attribute")),
                                                     }
                                                 }

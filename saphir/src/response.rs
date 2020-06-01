@@ -371,7 +371,8 @@ mod file {
 
     impl Builder {
         pub fn file<F: Into<FileStream>>(self, file: F) -> Builder {
-            self.body(Box::new(file.into())
+            let file_stream: FileStream = file.into();
+            self.body(Box::new(file_stream)
                 as Box<
                     dyn Stream<Item = Result<Bytes, Box<dyn std::error::Error + 'static + Sync + Send>>> + 'static + Sync + Send,
                 >)

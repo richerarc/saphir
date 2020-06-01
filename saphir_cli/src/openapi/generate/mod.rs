@@ -407,12 +407,11 @@ by using the --package flag."
         None
     }
 
-    // TODO: Rework this to support arbitrary type resolution like with TypeInfo
-    pub(crate) fn openapitype_from_raw(&self, raw: &str) -> Option<OpenApiType> {
-        Self::_openapitype_from_raw(raw).map(|(t, _)| t)
+    pub(crate) fn openapitype_from_raw<'b>(&self, scope: &'b dyn UseScope<'b>, raw: &str) -> Option<OpenApiType> {
+        self._openapitype_from_raw(scope, raw).map(|(t, _)| t)
     }
 
-    fn _openapitype_from_raw(raw: &str) -> Option<(OpenApiType, usize)> {
+    fn _openapitype_from_raw<'b>(&self, scope: &'b dyn UseScope<'b>, raw: &str) -> Option<(OpenApiType, usize)> {
         let raw = raw.trim();
         let len = raw.len();
         let mut chars = raw.chars();
@@ -439,7 +438,7 @@ by using the --package flag."
                             s = e + 1;
                         }
                         '{' | '[' => {
-                            let (t, end) = Self::_openapitype_from_raw(&raw[s..(len - 1)])?;
+                            let (t, end) = self._openapitype_from_raw(scope, &raw[s..(len - 1)])?;
                             e += end + 1;
                             if let Some(key) = cur_key {
                                 properties.insert(key.to_string(), Box::new(t));
@@ -451,7 +450,7 @@ by using the --package flag."
                         ',' | '}' => {
                             if let Some(key) = cur_key {
                                 let value = &raw[s..e].trim();
-                                let (t, _) = Self::_openapitype_from_raw(value)?;
+                                let (t, _) = self._openapitype_from_raw(scope, value)?;
                                 properties.insert(key.to_string(), Box::new(t));
                                 required.push(key.to_string());
                             }
@@ -473,9 +472,22 @@ by using the --package flag."
                 if chars.last()? != ']' {
                     return None;
                 }
-                Self::_openapitype_from_raw(&raw[1..(len - 1)])
+                self._openapitype_from_raw(scope, &raw[1..(len - 1)])
             }
-            _ => Some((OpenApiType::from_rust_type_str(raw), len)),
+            _ => {
+                Some((
+                    syn::parse_str::<syn::Path>(raw)
+                        .ok()
+                        .map(|p| TypeInfo::new_from_path(scope, &p))
+                        .flatten()
+                        .as_ref()
+                        .filter(|t| t.is_type_serializable)
+                        .map(|t| self.get_open_api_type_from_type_info(scope, t))
+                        .flatten()
+                        .unwrap_or_else(|| OpenApiType::from_rust_type_str(raw)),
+                    len,
+                ))
+            }
         }
     }
 }

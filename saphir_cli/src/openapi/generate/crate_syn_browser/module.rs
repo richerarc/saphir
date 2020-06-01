@@ -49,6 +49,17 @@ impl<'b> UseScope<'b> for Module<'b> {
             }
         }
 
+        let split: Vec<&str> = name.split("::").collect();
+        let split_len = split.len();
+        if split_len > 1 {
+            let mod_path: String = (&split[..(split_len - 1)]).join("::");
+            let mod_path = self.expand_path(mod_path.as_str());
+            let last = split.last().expect("bound checked above");
+            if let Some(module) = self.target().module_by_use_path(mod_path.as_str())? {
+                return module.find_type_definition(last);
+            }
+        }
+
         //At this point, this is most likely a primitive.
         Ok(None)
     }

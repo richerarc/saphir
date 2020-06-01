@@ -64,6 +64,32 @@ pub trait UseScope<'b> {
     fn pub_uses(&'b self) -> Vec<&'b ExpandedUse>;
     fn find_type_definition(&'b self, name: &str) -> Result<Option<&'b Item<'b>>, Error>;
     fn find_type_definition_inline(&'b self, name: &str) -> Result<Option<&'b Item<'b>>, Error>;
+    fn expand_path(&'b self, path: &str) -> String {
+        let mut splitted: Vec<&str> = path.split("::").collect();
+        let first = match splitted.first() {
+            Some(f) => *f,
+            _ => return "".to_string(),
+        };
+        if splitted.len() == 1 {
+            return first.to_string();
+        }
+        let first = match first {
+            "self" => {
+                self.path().to_string()
+            },
+            "crate" => {
+                self.target().package.name.clone()
+            },
+            "super" => {
+                let split: Vec<&str> = self.path().split("::").collect();
+                split[..(split.len() - 1)].join("::")
+            }
+            _ => first.to_string(),
+        };
+
+        splitted[0] = first.as_str();
+        splitted.join("::")
+    }
 }
 
 #[derive(Debug, Clone)]

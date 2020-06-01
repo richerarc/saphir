@@ -105,7 +105,7 @@ impl Gen {
                                 let mime = mime.map(OpenApiMimeType::from);
 
                                 for (code, type_name) in pairs {
-                                    if let Some(openapi_type) = self.openapitype_from_raw(type_name.as_str()) {
+                                    if let Some(openapi_type) = self.openapitype_from_raw(method.impl_item.im.item.scope, type_name.as_str()) {
                                         vec.push((
                                             Some(code),
                                             ResponseInfo {

@@ -306,9 +306,9 @@ by using the --package flag."
         parameters
     }
 
-    fn get_open_api_type_from_type_info<'b>(&self, entrypoint: &'b Module<'b>, type_info: &TypeInfo) -> Option<OpenApiType> {
+    fn get_open_api_type_from_type_info<'b>(&self, scope: &'b dyn UseScope<'b>, type_info: &TypeInfo) -> Option<OpenApiType> {
         let type_path = type_info.type_path.as_ref()?;
-        let type_mod = entrypoint.target().module_by_use_path(type_path).ok().flatten()?;
+        let type_mod = scope.target().module_by_use_path(type_path).ok().flatten()?;
         let type_impl = type_mod.find_type_definition(type_info.name.as_str()).ok().flatten()?;
         match type_impl.item {
             SynItem::Struct(s) => self.get_open_api_type_from_struct(type_impl, &s),

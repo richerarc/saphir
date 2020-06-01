@@ -21,7 +21,7 @@ pub(crate) struct TypeInfo {
 
 impl TypeInfo {
     /// Retrieve TypeInfo for a syn::Type found in a crate_syn_browser::File.
-    pub fn new<'b>(scope: &'b impl UseScope<'b>, t: &Type) -> Option<TypeInfo> {
+    pub fn new<'b>(scope: &'b dyn UseScope<'b>, t: &Type) -> Option<TypeInfo> {
         match t {
             Type::Path(p) => {
                 return TypeInfo::new_from_path(scope, &p.path);
@@ -47,7 +47,7 @@ impl TypeInfo {
         None
     }
 
-    pub fn new_from_path<'b>(scope: &'b impl UseScope<'b>, path: &Path) -> Option<TypeInfo> {
+    pub fn new_from_path<'b>(scope: &'b dyn UseScope<'b>, path: &Path) -> Option<TypeInfo> {
         if let Some(s) = path.segments.last() {
             let name = s.ident.to_string();
             if name == "Vec" || name == "Option" {

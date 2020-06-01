@@ -37,7 +37,6 @@ impl Into<String> for Error {
     }
 }
 
-// TODO: Pretty error messages
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {

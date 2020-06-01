@@ -237,8 +237,6 @@ impl<'b> Module<'b> {
                                     Visibility::Public(_) => true,
                                     _ => false,
                                 };
-                                // TODO: This can technically be prefixed by uses in the file containing this
-                                // inline module
                                 Some(self.expand_use_tree(&u.tree, None, is_pub))
                             }
                             _ => None,

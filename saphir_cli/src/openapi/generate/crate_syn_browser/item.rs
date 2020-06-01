@@ -5,13 +5,19 @@ use syn::{
     ImplItem as SynImplItem, ImplItemMethod as SynImplItemMethod, Item as SynItem, ItemEnum as SynItemEnum, ItemImpl as SynItemImpl,
     ItemStruct as SynItemStruct, ItemUse as SynItemUse,
 };
+use crate::openapi::generate::crate_syn_browser::UseScope;
+use syn::export::Formatter;
 
-#[derive(Debug)]
 pub struct Item<'b> {
-    // TODO: scope can possibly be a `&'b dyn UseScope<'b>`
-    pub scope: &'b Module<'b>,
+    pub scope: &'b dyn UseScope<'b>,
     pub item: &'b SynItem,
     kind: LazyCell<ItemKind<'b>>,
+}
+
+impl Debug for Item<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{:?}", self.kind)
+    }
 }
 
 impl<'b> Item<'b> {

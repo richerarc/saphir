@@ -97,7 +97,7 @@ pub struct Builder {
     #[doc(hidden)]
     cookies: Option<CookieJar>,
     #[doc(hidden)]
-    body: Box<dyn TransmuteBody + Send + Sync>,
+    body: Box<dyn TransmuteBody + Send>,
     #[doc(hidden)]
     status_set: bool,
 }
@@ -306,7 +306,7 @@ impl Builder {
     }
 
     #[inline]
-    pub fn body<B: 'static + Into<RawBody> + Send + Sync>(mut self, body: B) -> Builder {
+    pub fn body<B: 'static + Into<RawBody> + Send>(mut self, body: B) -> Builder {
         self.body = Box::new(Some(body));
         self
     }
@@ -373,7 +373,7 @@ mod file {
         pub fn file<F: Into<FileStream>>(self, file: F) -> Builder {
             self.body(Box::new(file.into())
                 as Box<
-                    dyn Stream<Item = Result<Bytes, Box<dyn std::error::Error + 'static + Sync + Send>>> + 'static + Sync + Send,
+                    dyn Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>> + Send + 'static,
                 >)
         }
     }

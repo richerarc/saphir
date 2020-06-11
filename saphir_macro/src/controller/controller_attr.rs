@@ -37,13 +37,13 @@ impl ControllerAttr {
                         version = Some(
                             v.value()
                                 .parse::<u16>()
-                                .or_else(|_| Err(Error::new_spanned(v, "Invalid version, expected number between 1 & u16::MAX")))?,
+                                .map_err(|_| Error::new_spanned(v, "Invalid version, expected number between 1 & u16::MAX"))?,
                         );
                     }
                     (Some("version"), Lit::Int(v)) => {
                         version = Some(
                             v.base10_parse::<u16>()
-                                .or_else(|_| Err(Error::new_spanned(v, "Invalid version, expected number between 1 & u16::MAX")))?,
+                                .map_err(|_| Error::new_spanned(v, "Invalid version, expected number between 1 & u16::MAX"))?,
                         );
                     }
                     (Some("prefix"), Lit::Str(p)) => {

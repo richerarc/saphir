@@ -11,7 +11,7 @@ pub(crate) fn case_from_serde_rename_str(case_name: &str) -> Option<Case> {
         "SCREAMING_SNAKE_CASE" => Some(Case::ScreamingSnake),
         "kebab-case" => Some(Case::Kebab),
         "SCREAMING-KEBAB-CASE" => None, // unsupported in convert_case
-        _ => None
+        _ => None,
     }
 }
 

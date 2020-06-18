@@ -2,7 +2,7 @@ use crate::openapi::{
     generate::{crate_syn_browser::Method, type_info::TypeInfo, Gen},
     schema::{OpenApiMimeType, OpenApiType},
 };
-use syn::{GenericArgument, Lit, Meta, MetaList, NestedMeta, Path, PathArguments, ReturnType, Type};
+use syn::{Attribute, GenericArgument, Lit, Meta, MetaList, NestedMeta, Path, PathArguments, ReturnType, Type};
 
 #[derive(Clone, Debug)]
 pub(crate) struct ResponseInfo {
@@ -13,29 +13,50 @@ pub(crate) struct ResponseInfo {
 }
 
 impl Gen {
+    fn get_openapi_metas<'b>(&self, method: &'b Method<'b>) -> Vec<MetaList> {
+        method
+            .syn
+            .attrs
+            .iter()
+            .filter(|attr| !attr.path.get_ident().map(|i| i.to_string()).filter(|s| s.as_str() == "openapi").is_none())
+            .filter_map(|attr| match attr.parse_meta() {
+                Ok(Meta::List(m)) => Some(m),
+                _ => None,
+            })
+            .collect()
+    }
+
     pub(crate) fn extract_response_info<'b>(&self, method: &'b Method<'b>) -> Vec<ResponseInfo> {
-        match &method.syn.sig.output {
-            ReturnType::Default => vec![ResponseInfo {
-                code: 200,
-                type_info: None,
-                mime: OpenApiMimeType::Any,
-                openapi_type: None,
-            }],
-            ReturnType::Type(_tokens, t) => {
-                let mut vec: Vec<ResponseInfo> = self.response_info_from_type(method, t).into_iter().map(|(_, r)| r).collect();
+        let mut vec: Vec<(Option<u16>, ResponseInfo)> = Vec::new();
 
-                if vec.is_empty() {
-                    vec.push(ResponseInfo {
-                        type_info: None,
-                        code: 200,
-                        mime: OpenApiMimeType::Any,
-                        openapi_type: None,
-                    });
-                }
+        let openapi_metas = self.get_openapi_metas(method);
+        for meta in &openapi_metas {
+            vec.extend(self.response_info_from_openapi_meta(method, meta));
+        }
 
-                vec
+        if vec.is_empty() {
+            if let ReturnType::Type(_tokens, t) = &method.syn.sig.output {
+                vec = self.response_info_from_type(method, t);
             }
         }
+
+        if !vec.is_empty() {
+            for meta in &openapi_metas {
+                self.override_response_info_from_openapi_meta(meta, &mut vec);
+            }
+        } else {
+            vec.push((
+                None,
+                ResponseInfo {
+                    type_info: None,
+                    code: 200,
+                    mime: OpenApiMimeType::Any,
+                    openapi_type: None,
+                },
+            ));
+        }
+
+        vec.into_iter().map(|(_, r)| r).collect()
     }
 
     fn response_info_from_openapi_meta<'b>(&self, method: &'b Method<'b>, meta: &MetaList) -> Vec<(Option<u16>, ResponseInfo)> {
@@ -155,37 +176,113 @@ impl Gen {
         vec
     }
 
-    fn response_info_from_type<'b>(&self, method: &'b Method<'b>, t: &Type) -> Vec<(Option<u16>, ResponseInfo)> {
-        let mut vec: Vec<(Option<u16>, ResponseInfo)> = Vec::new();
+    fn override_response_info_from_openapi_meta(&self, meta: &MetaList, responses: &mut Vec<(Option<u16>, ResponseInfo)>) {
+        let mut extra_responses: Vec<(Option<u16>, ResponseInfo)> = Vec::new();
+        for openapi_paths in &meta.nested {
+            match openapi_paths {
+                NestedMeta::Meta(m) => match m {
+                    Meta::List(nl) => {
+                        let i = nl.path.get_ident().map(|i| i.to_string());
+                        match i.as_deref() {
+                            Some("return_override") => {
+                                let mut codes: Vec<u16> = Vec::new();
+                                let mut type_path: Option<String> = None;
+                                let mut mime: Option<String> = None;
+                                if nl.nested.is_empty() {
+                                    continue;
+                                }
+                                for n in &nl.nested {
+                                    if let NestedMeta::Meta(Meta::NameValue(nv)) = n {
+                                        let r = nv.path.get_ident().map(|i| i.to_string());
+                                        match r.as_deref() {
+                                            Some("code") => {
+                                                if let Lit::Int(i) = &nv.lit {
+                                                    let c: u16 = match i.base10_parse() {
+                                                        Ok(c) => c,
+                                                        _ => continue,
+                                                    };
+                                                    if c < 100 || c >= 600 {
+                                                        continue;
+                                                    }
+                                                    codes.push(c);
+                                                }
+                                            }
+                                            Some("type") => {
+                                                if let Lit::Str(s) = &nv.lit {
+                                                    type_path = Some(s.value());
+                                                }
+                                            }
+                                            Some("mime") => {
+                                                if let Lit::Str(s) = &nv.lit {
+                                                    mime = Some(s.value());
+                                                }
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                }
 
-        for attr in &method.syn.attrs {
-            if attr.path.get_ident().map(|i| i.to_string()).filter(|s| s.as_str() == "openapi").is_none() {
-                continue;
-            }
-            let meta = match attr.parse_meta() {
-                Ok(Meta::List(m)) => m,
+                                let type_path = match type_path {
+                                    Some(t) => t,
+                                    None => return,
+                                };
+
+                                let mime = mime.map(OpenApiMimeType::from);
+                                let res = responses.iter_mut().find(|(_, ri)| {
+                                    if let Some(ti) = &ri.type_info {
+                                        // TODO: clever-er match
+                                        return &ti.name == &type_path;
+                                    }
+                                    false
+                                });
+
+                                if let Some(res) = res {
+                                    if let Some(mime) = mime {
+                                        res.1.mime = mime;
+                                    }
+
+                                    if let Some(first_code) = codes.first() {
+                                        res.1.code = first_code.clone();
+                                        res.0 = Some(first_code.clone());
+
+                                        if codes.len() > 1 {
+                                            for code in codes.iter().skip(1) {
+                                                let mut new_res = (Some(code.clone()), res.1.clone());
+                                                new_res.1.code = code.clone();
+                                                extra_responses.push(new_res);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            _ => continue,
+                        }
+                    }
+                    _ => continue,
+                },
                 _ => continue,
-            };
-            vec.extend(self.response_info_from_openapi_meta(method, &meta));
-        }
-
-        if vec.is_empty() {
-            match t {
-                Type::Path(tp) => {
-                    vec.extend(self.response_info_from_type_path(method, &tp.path));
-                }
-                Type::Tuple(_tt) => {
-                    // TODO: Tuple with with StatusCode or u16 mean a status
-                    //       code is specified for the associated return type.
-                    //       We cannot possibly cover this case fully but we
-                    //       could at least handle simple cases where
-                    //       the response is a litteral inside the method's body
-                }
-                _ => {}
             }
         }
 
-        vec
+        responses.extend(extra_responses);
+    }
+
+    fn response_info_from_type<'b>(&self, method: &'b Method<'b>, t: &Type) -> Vec<(Option<u16>, ResponseInfo)> {
+        match t {
+            Type::Path(tp) => {
+                return self.response_info_from_type_path(method, &tp.path);
+            }
+            Type::Tuple(_tt) => {
+                // TODO: Tuple with with StatusCode or u16 mean a status
+                //       code is specified for the associated return type.
+                //       We cannot possibly cover this case fully but we
+                //       could at least handle simple cases where
+                //       the response is a litteral inside the method's body
+            }
+            _ => {}
+        }
+
+        Vec::new()
     }
 
     fn response_info_from_type_path<'b>(&self, method: &'b Method<'b>, path: &Path) -> Vec<(Option<u16>, ResponseInfo)> {

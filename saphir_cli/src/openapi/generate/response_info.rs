@@ -2,7 +2,7 @@ use crate::openapi::{
     generate::{crate_syn_browser::Method, type_info::TypeInfo, Gen},
     schema::{OpenApiMimeType, OpenApiType},
 };
-use syn::{Attribute, GenericArgument, Lit, Meta, MetaList, NestedMeta, Path, PathArguments, ReturnType, Type};
+use syn::{GenericArgument, Lit, Meta, MetaList, NestedMeta, Path, PathArguments, ReturnType, Type};
 
 #[derive(Clone, Debug)]
 pub(crate) struct ResponseInfo {
@@ -18,7 +18,7 @@ impl Gen {
             .syn
             .attrs
             .iter()
-            .filter(|attr| !attr.path.get_ident().map(|i| i.to_string()).filter(|s| s.as_str() == "openapi").is_none())
+            .filter(|attr| attr.path.get_ident().map(|i| i.to_string()).filter(|s| s.as_str() == "openapi").is_some())
             .filter_map(|attr| match attr.parse_meta() {
                 Ok(Meta::List(m)) => Some(m),
                 _ => None,
@@ -231,7 +231,7 @@ impl Gen {
                                 let res = responses.iter_mut().find(|(_, ri)| {
                                     if let Some(ti) = &ri.type_info {
                                         // TODO: clever-er match
-                                        return &ti.name == &type_path;
+                                        return ti.name == type_path;
                                     }
                                     false
                                 });
@@ -242,13 +242,13 @@ impl Gen {
                                     }
 
                                     if let Some(first_code) = codes.first() {
-                                        res.1.code = first_code.clone();
-                                        res.0 = Some(first_code.clone());
+                                        res.1.code = *first_code;
+                                        res.0 = Some(*first_code);
 
                                         if codes.len() > 1 {
                                             for code in codes.iter().skip(1) {
-                                                let mut new_res = (Some(code.clone()), res.1.clone());
-                                                new_res.1.code = code.clone();
+                                                let mut new_res = (Some(*code), res.1.clone());
+                                                new_res.1.code = *code;
                                                 extra_responses.push(new_res);
                                             }
                                         }

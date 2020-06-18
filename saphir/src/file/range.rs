@@ -163,11 +163,11 @@ impl FromStr for ByteRangeSpec {
         match (parts.next(), parts.next()) {
             (Some(""), Some(end)) => end
                 .parse()
-                .or_else(|_| Err(SaphirError::Other("Could not parse bytes".to_owned())))
+                .map_err(|_| SaphirError::Other("Could not parse bytes".to_owned()))
                 .map(ByteRangeSpec::Last),
             (Some(start), Some("")) => start
                 .parse()
-                .or_else(|_| Err(SaphirError::Other("Could not parse bytes".to_owned())))
+                .map_err(|_| SaphirError::Other("Could not parse bytes".to_owned()))
                 .map(ByteRangeSpec::AllFrom),
             (Some(start), Some(end)) => match (start.parse(), end.parse()) {
                 (Ok(start), Ok(end)) if start <= end => Ok(ByteRangeSpec::FromTo(start, end)),

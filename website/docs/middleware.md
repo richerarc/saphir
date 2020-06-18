@@ -1,6 +1,6 @@
 ---
 id: middleware
-title: Middleware
+title: Middlewares
 ---
 
 Middlewares process incoming http request as well as outgoing http response. Each middleware will at some point either call the following one, or produce a response and stop request processing.

@@ -1,4 +1,4 @@
 ---
 id: controller
-title: Controller
+title: Controllers
 ---

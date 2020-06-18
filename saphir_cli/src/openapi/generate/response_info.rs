@@ -196,56 +196,63 @@ impl Gen {
                 "Result" => {
                     let mut results = self.extract_arguments(method, &last.arguments);
                     if results.len() == 2 {
-                        let (error_code, mut error_response) = results.remove(1);
-                        let (success_code, mut success_response) = results.remove(0);
-                        success_response.code = success_code.unwrap_or(200);
-                        error_response.code = error_code.unwrap_or(500);
-                        vec.push((Some(success_response.code), success_response));
-                        vec.push((Some(error_response.code), error_response));
+                        for (error_code, mut error_response) in results.remove(1) {
+                            error_response.code = error_code.unwrap_or(500);
+                            vec.push((Some(error_response.code), error_response));
+                        }
+
+                        for (success_code, mut success_response) in results.remove(0) {
+                            success_response.code = success_code.unwrap_or(200);
+                            vec.push((Some(success_response.code), success_response));
+                        }
                     }
                 }
                 "Option" => {
                     let mut result = self.extract_arguments(method, &last.arguments);
                     if result.len() == 1 {
-                        let (success_code, mut success_response) = result.remove(0);
-                        success_response.code = success_code.unwrap_or(200);
-                        vec.push((success_code, success_response));
-                        vec.push((
-                            Some(404),
-                            ResponseInfo {
-                                code: 404,
-                                type_info: None,
-                                mime: OpenApiMimeType::Any,
-                                openapi_type: None,
-                            },
-                        ));
+                        for (success_code, mut success_response) in result.remove(0) {
+                            success_response.code = success_code.unwrap_or(200);
+                            vec.push((success_code, success_response));
+                            vec.push((
+                                Some(404),
+                                ResponseInfo {
+                                    code: 404,
+                                    type_info: None,
+                                    mime: OpenApiMimeType::Any,
+                                    openapi_type: None,
+                                },
+                            ));
+                        }
                     }
                 }
                 "Json" => {
                     let mut result = self.extract_arguments(method, &last.arguments);
                     if result.len() == 1 {
-                        let (_, mut success_response) = result.remove(0);
-                        success_response.mime = OpenApiMimeType::Json;
-                        vec.push((None, success_response));
+                        for (_, mut success_response) in result.remove(0) {
+                            success_response.mime = OpenApiMimeType::Json;
+                            vec.push((None, success_response));
+                        }
                     }
                 }
                 "Form" => {
                     let mut result = self.extract_arguments(method, &last.arguments);
                     if result.len() == 1 {
-                        let (_, mut success_response) = result.remove(0);
-                        success_response.mime = OpenApiMimeType::Form;
-                        vec.push((None, success_response));
+                        for (_, mut success_response) in result.remove(0) {
+                            success_response.mime = OpenApiMimeType::Form;
+                            vec.push((None, success_response));
+                        }
                     }
                 }
                 // TODO: Find a way to handle this. This is a temp workaround for Lucid
                 "JsonContent" | "NoCache" => {
                     let mut result = self.extract_arguments(method, &last.arguments);
                     if result.len() == 1 {
-                        let (_, mut success_response) = result.remove(0);
-                        if name.as_str() == "JsonContent" {
-                            success_response.mime = OpenApiMimeType::Json;
+                        for (_, mut success_response) in result.remove(0) {
+                            if name.as_str() == "JsonContent" {
+                                success_response.mime = OpenApiMimeType::Json;
+                            }
+                            vec.push((None, success_response));
                         }
-                        vec.push((None, success_response));
                     }
                 }
                 _ => {
@@ -269,7 +276,7 @@ impl Gen {
         vec
     }
 
-    fn extract_arguments<'b>(&self, method: &'b Method<'b>, args: &PathArguments) -> Vec<(Option<u16>, ResponseInfo)> {
+    fn extract_arguments<'b>(&self, method: &'b Method<'b>, args: &PathArguments) -> Vec<Vec<(Option<u16>, ResponseInfo)>> {
         match args {
             PathArguments::AngleBracketed(ab) => ab
                 .args
@@ -278,7 +285,6 @@ impl Gen {
                     GenericArgument::Type(Type::Path(tp)) => Some(self.response_info_from_type_path(method, &tp.path)),
                     _ => None,
                 })
-                .flatten()
                 .collect(),
             _ => Vec::new(),
         }

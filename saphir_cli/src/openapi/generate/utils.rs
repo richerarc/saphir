@@ -1,6 +1,19 @@
 use convert_case::{Case, Casing};
-use serde::export::TryFrom;
 use syn::{Attribute, Lit, Meta, NestedMeta};
+
+pub(crate) fn case_from_serde_rename_str(case_name: &str) -> Option<Case> {
+    match case_name {
+        "lowercase" => Some(Case::Lower),
+        "UPPERCASE" => Some(Case::Upper),
+        "PascalCase" => Some(Case::Pascal),
+        "camelCase" => Some(Case::Camel),
+        "snake_case" => Some(Case::Snake),
+        "SCREAMING_SNAKE_CASE" => Some(Case::ScreamingSnake),
+        "kebab-case" => Some(Case::Kebab),
+        "SCREAMING-KEBAB-CASE" => None, // unsupported in convert_case
+        _ => None,
+    }
+}
 
 pub(crate) fn get_serde_field(mut field_name: String, field_attributes: &[Attribute], container_attributes: &[Attribute]) -> Option<String> {
     if find_macro_attribute_flag(field_attributes, "serde", "skip") || find_macro_attribute_flag(field_attributes, "serde", "skip_serializing") {
@@ -9,7 +22,7 @@ pub(crate) fn get_serde_field(mut field_name: String, field_attributes: &[Attrib
     if let Some(Lit::Str(rename)) = find_macro_attribute_named_value(field_attributes, "serde", "rename") {
         field_name = rename.value();
     } else if let Some(Lit::Str(rename)) = find_macro_attribute_named_value(container_attributes, "serde", "rename_all") {
-        if let Ok(case) = Case::try_from(rename.value().as_str()) {
+        if let Some(case) = case_from_serde_rename_str(rename.value().as_str()) {
             field_name = field_name.to_case(case);
         }
     }

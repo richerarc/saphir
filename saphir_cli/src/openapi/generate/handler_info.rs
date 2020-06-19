@@ -76,6 +76,9 @@ impl Gen {
                 Type::Path(p) => {
                     if let Some(s1) = p.path.segments.last() {
                         let mut param_type = s1.ident.to_string();
+                        if param_type.as_str() == "Ext" {
+                            continue;
+                        }
                         if param_type.as_str() == "CookieJar" {
                             has_cookies_param = true;
                             continue;

@@ -274,7 +274,7 @@ pub struct OpenApiPath {
     pub(crate) request_body: Option<OpenApiRequestBody>,
     #[serde(rename = "x-codegen-request-body-name", skip_serializing_if = "Option::is_none")]
     pub(crate) x_codegen_request_body_name: Option<String>,
-    pub(crate) responses: HashMap<u16, OpenApiResponse>,
+    pub(crate) responses: HashMap<String, OpenApiResponse>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

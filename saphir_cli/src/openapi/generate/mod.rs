@@ -236,7 +236,7 @@ by using the --package flag."
                         }
                         let status = StatusCode::from_u16(response.code);
                         data.responses.insert(
-                            response.code,
+                            response.code.to_string(),
                             OpenApiResponse {
                                 description: response
                                     .type_info

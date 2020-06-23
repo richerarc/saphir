@@ -10,7 +10,7 @@ pub(crate) fn case_from_serde_rename_str(case_name: &str) -> Option<Case> {
         "snake_case" => Some(Case::Snake),
         "SCREAMING_SNAKE_CASE" => Some(Case::ScreamingSnake),
         "kebab-case" => Some(Case::Kebab),
-        "SCREAMING-KEBAB-CASE" => None, // unsupported in convert_case
+        "SCREAMING-KEBAB-CASE" => Some(Case::Cobol),
         _ => None,
     }
 }

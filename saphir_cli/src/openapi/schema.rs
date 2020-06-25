@@ -4,7 +4,7 @@ use serde::{
 };
 use serde_derive::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt,
 };
 
@@ -235,8 +235,8 @@ pub struct OpenApi {
     pub(crate) info: OpenApiInfo,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) servers: Vec<OpenApiServer>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(crate) tags: Vec<OpenApiTag>,
+    #[serde(skip_serializing_if = "HashSet::is_empty")]
+    pub(crate) tags: HashSet<OpenApiTag>,
     // Key: api path / method / definition
     pub(crate) paths: BTreeMap<String, BTreeMap<OpenApiPathMethod, OpenApiPath>>,
 }
@@ -252,7 +252,7 @@ pub struct OpenApiServer {
     pub(crate) url: String,
 }
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct OpenApiTag {
     pub(crate) name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -263,7 +263,7 @@ pub struct OpenApiTag {
 #[serde(rename_all = "camelCase")]
 pub struct OpenApiPath {
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(crate) tags: Vec<OpenApiTag>,
+    pub(crate) tags: Vec<String>,
     pub(crate) summary: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) description: Option<String>,

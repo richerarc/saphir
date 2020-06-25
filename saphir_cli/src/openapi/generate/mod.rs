@@ -8,7 +8,7 @@ use crate::{
         },
         schema::{
             OpenApi, OpenApiContent, OpenApiMimeType, OpenApiObjectType, OpenApiParameter, OpenApiParameterLocation, OpenApiPath, OpenApiPathMethod,
-            OpenApiRequestBody, OpenApiResponse, OpenApiSchema, OpenApiType,
+            OpenApiRequestBody, OpenApiResponse, OpenApiSchema, OpenApiTag, OpenApiType,
         },
     },
     Command, CommandResult,
@@ -201,12 +201,21 @@ by using the --package flag."
                     } else {
                         None
                     };
+                    let tag = OpenApiTag {
+                        name: controller.name.clone(),
+                        description: Some(format!(
+                            "Endpoints under the {} controller (`{}`).",
+                            &controller.name, &controller.controller_name
+                        )),
+                    };
                     let mut data = OpenApiPath {
                         parameters: handler.parameters.clone(),
                         description,
                         operation_id: route.operation_id,
+                        tags: vec![tag.name.clone()],
                         ..Default::default()
                     };
+                    self.doc.tags.insert(tag);
 
                     if let Some(body_info) = &handler.body_info {
                         if method == OpenApiPathMethod::Get {

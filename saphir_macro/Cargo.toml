@@ -1,6 +1,6 @@
 [package]
 name = "saphir_macro"
-version = "2.0.6"
+version = "2.0.7"
 authors = ["Richer Archambault <richer.arc@gmail.com>"]
 edition = "2018"
 description = "Macro generation for http server framework"

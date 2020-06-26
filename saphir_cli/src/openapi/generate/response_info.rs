@@ -10,6 +10,7 @@ pub(crate) struct ResponseInfo {
     pub(crate) type_info: Option<TypeInfo>,
     pub(crate) mime: OpenApiMimeType,
     pub(crate) openapi_type: Option<OpenApiType>,
+    pub(crate) macro_name: Option<String>,
 }
 
 impl Gen {
@@ -52,6 +53,7 @@ impl Gen {
                     code: 200,
                     mime: OpenApiMimeType::Any,
                     openapi_type: None,
+                    macro_name: None,
                 },
             ));
         }
@@ -72,6 +74,7 @@ impl Gen {
                                 let mut codes: Vec<u16> = Vec::new();
                                 let mut types: Vec<String> = Vec::new();
                                 let mut mime: Option<String> = None;
+                                let mut name: Option<String> = None;
                                 if nl.nested.is_empty() {
                                     continue;
                                 }
@@ -99,6 +102,11 @@ impl Gen {
                                             Some("mime") => {
                                                 if let Lit::Str(s) = &nv.lit {
                                                     mime = Some(s.value());
+                                                }
+                                            }
+                                            Some("name") => {
+                                                if let Lit::Str(s) = &nv.lit {
+                                                    name = Some(s.value());
                                                 }
                                             }
                                             _ => {}
@@ -134,6 +142,7 @@ impl Gen {
                                                 mime: mime.clone().unwrap_or(OpenApiMimeType::Any),
                                                 type_info: None,
                                                 openapi_type: Some(openapi_type),
+                                                macro_name: name.clone(),
                                             },
                                         ));
                                         continue;
@@ -149,6 +158,7 @@ impl Gen {
                                                     mime: mime.clone().unwrap_or(OpenApiMimeType::Any),
                                                     type_info: None,
                                                     openapi_type: None,
+                                                    macro_name: None,
                                                 },
                                             ));
                                             continue;
@@ -317,6 +327,7 @@ impl Gen {
                                     type_info: None,
                                     mime: OpenApiMimeType::Any,
                                     openapi_type: None,
+                                    macro_name: None,
                                 },
                             ));
                         }
@@ -365,6 +376,7 @@ impl Gen {
                             type_info,
                             code: 200,
                             openapi_type: None,
+                            macro_name: None,
                         },
                     ));
                 }

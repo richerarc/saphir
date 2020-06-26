@@ -332,6 +332,20 @@ impl Gen {
                         }
                     }
                 }
+                "Vec" => {
+                    let mut result = self.extract_arguments(method, &last.arguments);
+                    if result.len() == 1 {
+                        for (_, mut success_response) in result.remove(0) {
+                            if let Some(mut type_info) = success_response.type_info.as_mut() {
+                                type_info.is_array = true;
+                            }
+                            if let Some(mut anon) = success_response.anonymous_type.as_mut() {
+                                anon.is_array = true;
+                            }
+                            vec.push((None, success_response));
+                        }
+                    }
+                }
                 "Json" => {
                     let mut result = self.extract_arguments(method, &last.arguments);
                     if result.len() == 1 {
@@ -394,6 +408,28 @@ impl Gen {
                 })
                 .collect(),
             _ => Vec::new(),
+        }
+    }
+
+    /// Utility function useful while debugging
+    fn get_full_type_string<'b>(&self, method: &'b Method<'b>, path: &Path) -> Option<String> {
+        let last = path.segments.last()?;
+        let name = last.ident.to_string();
+        let args = match &last.arguments {
+            PathArguments::AngleBracketed(ab) => ab
+                .args
+                .iter()
+                .filter_map(|a| match a {
+                    GenericArgument::Type(Type::Path(tp)) => self.get_full_type_string(method, &tp.path),
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        if args.is_empty() {
+            Some(name)
+        } else {
+            Some(format!("{}<{}>", name, args.join(", ")))
         }
     }
 }

@@ -211,8 +211,8 @@ by using the --package flag."
                     };
                     let mut data = OpenApiPath {
                         parameters: handler.parameters.clone(),
-                        description,
-                        operation_id: route.operation_id,
+                        description: description.clone(),
+                        operation_id: route.operation_id.clone(),
                         tags: vec![tag.name.clone()],
                         ..Default::default()
                     };
@@ -228,6 +228,10 @@ by using the --package flag."
                     }
 
                     for response in &handler.responses {
+                        if response.code == 200 && route.operation_id.as_str() == "get_security_keys" {
+                            dbg!(&response.type_info);
+                            dbg!(&response.anonymous_type);
+                        }
                         let mut content = HashMap::new();
                         if let Some((openapi_type, schema_name, is_array, min_array_len, max_array_len)) = response
                             .anonymous_type
@@ -349,7 +353,10 @@ by using the --package flag."
     }
 
     fn get_open_api_type_from_type_info<'b>(&self, scope: &'b dyn UseScope<'b>, type_info: &TypeInfo) -> Option<OpenApiType> {
-        let type_path = type_info.type_path.as_ref()?;
+        let type_path = match type_info.type_path.as_ref() {
+            Some(path) => path,
+            None => return OpenApiType::from_rust_type_str(type_info.name.as_str()),
+        };
         let type_mod = scope.target().module_by_use_path(type_path).ok().flatten()?;
         let type_impl = type_mod.find_type_definition(type_info.name.as_str()).ok().flatten()?;
         match type_impl.item {
@@ -367,7 +374,7 @@ by using the --package flag."
                 if let Some(field_type_info) = TypeInfo::new(item.scope, &field.ty) {
                     let field_type = self
                         .get_open_api_type_from_type_info(item.scope, &field_type_info)
-                        .unwrap_or_else(|| OpenApiType::from_rust_type_str(field_type_info.name.as_str()));
+                        .unwrap_or_else(|| OpenApiType::from_rust_type_str(field_type_info.name.as_str()).unwrap_or_else(|| OpenApiType::string()));
                     if !field_type_info.is_optional
                         && !find_macro_attribute_flag(&field.attrs, "serde", "default")
                         && find_macro_attribute_named_value(&field.attrs, "serde", "default").is_none()
@@ -525,7 +532,7 @@ by using the --package flag."
                 self._openapitype_from_raw(scope, &raw[1..(len - 1)], true)
             }
             _ => {
-                let schema = syn::parse_str::<syn::Path>(raw)
+                syn::parse_str::<syn::Path>(raw)
                     .ok()
                     .map(|p| TypeInfo::new_from_path(scope, &p))
                     .flatten()
@@ -533,8 +540,8 @@ by using the --package flag."
                     .filter(|t| t.is_type_serializable)
                     .map(|t| self.get_open_api_type_from_type_info(scope, t))
                     .flatten()
-                    .unwrap_or_else(|| OpenApiType::from_rust_type_str(raw));
-                Some((AnonymousType { schema, name: None, is_array }, len))
+                    .or_else(|| OpenApiType::from_rust_type_str(raw))
+                    .map(|schema| (AnonymousType { schema, name: None, is_array }, len))
             }
         }
     }

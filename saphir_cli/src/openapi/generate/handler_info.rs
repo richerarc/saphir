@@ -110,7 +110,7 @@ impl Gen {
                         }
 
                         let api_type = OpenApiType::from_rust_type_str(param_type.as_str());
-                        (api_type, optional)
+                        (api_type.unwrap_or_else(|| OpenApiType::string()), optional)
                     } else {
                         (OpenApiType::string(), false)
                     }

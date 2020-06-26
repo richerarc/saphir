@@ -218,12 +218,13 @@ impl OpenApiType {
         }
     }
 
-    pub fn from_rust_type_str(s: &str) -> OpenApiType {
+    pub fn from_rust_type_str(s: &str) -> Option<OpenApiType> {
         match s {
-            "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "i8" | "i16" | "i32" | "i64" | "i128" | "isize" => OpenApiType::Integer,
-            "f32" | "f64" => OpenApiType::Number,
-            "bool" | "Bool" | "Boolean" => OpenApiType::Boolean,
-            _ => OpenApiType::string(),
+            "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "i8" | "i16" | "i32" | "i64" | "i128" | "isize" => Some(OpenApiType::Integer),
+            "f32" | "f64" => Some(OpenApiType::Number),
+            "bool" | "Bool" | "Boolean" => Some(OpenApiType::Boolean),
+            "string" | "String" => Some(OpenApiType::string()),
+            _ => None,
         }
     }
 }

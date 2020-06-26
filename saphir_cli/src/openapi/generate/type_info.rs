@@ -91,10 +91,18 @@ impl TypeInfo {
                     SynItem::Enum(e) => &e.attrs,
                     _ => unreachable!(),
                 });
-                let is_type_serializable = item_attrs
+                let is_primitive = match name.as_str() {
+                    "u8" | "u16" | "u32" | "u64" | "u128" | "usize" |
+                    "i8" | "i16" | "i32" | "i64" | "i128" | "isize" |
+                    "f32" | "f64" |
+                    "bool" | "Boolean" |
+                    "string" | "String" => true,
+                    _ => false
+                };
+                let is_type_serializable = is_primitive | item_attrs
                     .map(|attrs| find_macro_attribute_flag(attrs, "derive", "Serialize"))
                     .unwrap_or_default();
-                let is_type_deserializable = item_attrs
+                let is_type_deserializable = is_primitive | item_attrs
                     .map(|attrs| find_macro_attribute_flag(attrs, "derive", "Deserialize"))
                     .unwrap_or_default();
                 let mime = item_attrs

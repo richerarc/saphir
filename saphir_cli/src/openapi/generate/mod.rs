@@ -3,6 +3,7 @@ use crate::{
         generate::{
             controller_info::ControllerInfo,
             crate_syn_browser::{Browser, Item, ItemKind, Module, UseScope},
+            response_info::AnonymousType,
             type_info::TypeInfo,
             utils::{find_macro_attribute_flag, find_macro_attribute_named_value, get_serde_field},
         },
@@ -228,23 +229,44 @@ by using the --package flag."
 
                     for response in &handler.responses {
                         let mut content = HashMap::new();
-                        if let Some(openapi_type) = response.openapi_type.clone().or_else(|| {
-                            response
-                                .type_info
-                                .as_ref()
-                                .filter(|t| t.is_type_serializable)
-                                .map(|t| self.get_open_api_type_from_type_info(entrypoint, &t))
-                                .flatten()
-                        }) {
-                            let schema_name = response.type_info.as_ref().map(|ti| ti.name.clone()).unwrap_or_else(|| {
-                                cur_controller_schema += 1;
+                        if let Some((openapi_type, schema_name, is_array, min_array_len, max_array_len)) = response
+                            .anonymous_type
+                            .as_ref()
+                            .map(|anon| {
+                                (
+                                    anon.schema.clone(),
+                                    anon.name.clone().unwrap_or_else(|| {
+                                        cur_controller_schema += 1;
+                                        format!("{}_response_{}", controller_model_name, &cur_controller_schema)
+                                    }),
+                                    anon.is_array,
+                                    None,
+                                    None,
+                                )
+                            })
+                            .or_else(|| {
                                 response
-                                    .macro_name
-                                    .clone()
-                                    .unwrap_or_else(|| format!("{}_response_{}", controller_model_name, &cur_controller_schema))
-                            });
-                            let schema = OpenApiSchema::Ref {
+                                    .type_info
+                                    .as_ref()
+                                    .filter(|t| t.is_type_serializable)
+                                    .map(|t| {
+                                        self.get_open_api_type_from_type_info(entrypoint, &t)
+                                            .map(|ti| (ti, t.name.clone(), t.is_array, t.min_array_len, t.max_array_len))
+                                    })
+                                    .flatten()
+                            })
+                        {
+                            let schema_ref = OpenApiSchema::Ref {
                                 type_ref: format!("#/components/schemas/{}", &schema_name),
+                            };
+                            let schema = if is_array {
+                                OpenApiSchema::Inline(OpenApiType::Array {
+                                    items: Box::new(schema_ref),
+                                    min_items: min_array_len,
+                                    max_items: max_array_len,
+                                })
+                            } else {
+                                schema_ref
                             };
                             self.doc.components.schemas.insert(schema_name, OpenApiSchema::Inline(openapi_type));
                             content.insert(response.mime.clone(), OpenApiContent { schema });
@@ -277,8 +299,17 @@ by using the --package flag."
                 .components
                 .schemas
                 .insert(body_info.type_info.name.clone(), OpenApiSchema::Inline(schema));
-            OpenApiSchema::Ref {
+            let schema_ref = OpenApiSchema::Ref {
                 type_ref: format!("#/components/schemas/{}", &body_info.type_info.name),
+            };
+            if body_info.type_info.is_array {
+                OpenApiSchema::Inline(OpenApiType::Array {
+                    items: Box::new(schema_ref),
+                    min_items: body_info.type_info.min_array_len.to_owned(),
+                    max_items: body_info.type_info.max_array_len.to_owned(),
+                })
+            } else {
+                schema_ref
             }
         } else {
             OpenApiSchema::Inline(OpenApiType::anonymous_input_object())
@@ -419,11 +450,11 @@ by using the --package flag."
         None
     }
 
-    pub(crate) fn openapitype_from_raw<'b>(&self, scope: &'b dyn UseScope<'b>, raw: &str) -> Option<OpenApiType> {
-        self._openapitype_from_raw(scope, raw).map(|(t, _)| t)
+    pub(crate) fn openapitype_from_raw<'b>(&self, scope: &'b dyn UseScope<'b>, raw: &str) -> Option<AnonymousType> {
+        self._openapitype_from_raw(scope, raw, false).map(|(t, _)| t)
     }
 
-    fn _openapitype_from_raw<'b>(&self, scope: &'b dyn UseScope<'b>, raw: &str) -> Option<(OpenApiType, usize)> {
+    fn _openapitype_from_raw<'b>(&self, scope: &'b dyn UseScope<'b>, raw: &str, is_array: bool) -> Option<(AnonymousType, usize)> {
         let raw = raw.trim();
         let len = raw.len();
         let mut chars = raw.chars();
@@ -450,10 +481,10 @@ by using the --package flag."
                             s = e + 1;
                         }
                         '{' | '[' => {
-                            let (t, end) = self._openapitype_from_raw(scope, &raw[s..(len - 1)])?;
+                            let (t, end) = self._openapitype_from_raw(scope, &raw[s..(len - 1)], char == '[')?;
                             e += end + 1;
                             if let Some(key) = cur_key {
-                                properties.insert(key.to_string(), Box::new(t));
+                                properties.insert(key.to_string(), Box::new(t.schema));
                                 required.push(key.to_string());
                                 s = e + 1;
                                 cur_key = None;
@@ -462,14 +493,21 @@ by using the --package flag."
                         ',' | '}' => {
                             if let Some(key) = cur_key {
                                 let value = &raw[s..e].trim();
-                                let (t, _) = self._openapitype_from_raw(scope, value)?;
-                                properties.insert(key.to_string(), Box::new(t));
+                                let (t, _) = self._openapitype_from_raw(scope, value, false)?;
+                                properties.insert(key.to_string(), Box::new(t.schema));
                                 required.push(key.to_string());
                             }
                             s = e + 1;
                             if char == '}' {
                                 return if !properties.is_empty() {
-                                    Some((OpenApiType::object(properties, required), e))
+                                    Some((
+                                        AnonymousType {
+                                            schema: OpenApiType::object(properties, required),
+                                            name: None,
+                                            is_array,
+                                        },
+                                        e,
+                                    ))
                                 } else {
                                     None
                                 };
@@ -484,10 +522,10 @@ by using the --package flag."
                 if chars.last()? != ']' {
                     return None;
                 }
-                self._openapitype_from_raw(scope, &raw[1..(len - 1)])
+                self._openapitype_from_raw(scope, &raw[1..(len - 1)], true)
             }
-            _ => Some((
-                syn::parse_str::<syn::Path>(raw)
+            _ => {
+                let schema = syn::parse_str::<syn::Path>(raw)
                     .ok()
                     .map(|p| TypeInfo::new_from_path(scope, &p))
                     .flatten()
@@ -495,9 +533,9 @@ by using the --package flag."
                     .filter(|t| t.is_type_serializable)
                     .map(|t| self.get_open_api_type_from_type_info(scope, t))
                     .flatten()
-                    .unwrap_or_else(|| OpenApiType::from_rust_type_str(raw)),
-                len,
-            )),
+                    .unwrap_or_else(|| OpenApiType::from_rust_type_str(raw));
+                Some((AnonymousType { schema, name: None, is_array }, len))
+            }
         }
     }
 }

@@ -4,13 +4,19 @@ use crate::openapi::{
 };
 use syn::{GenericArgument, Lit, Meta, MetaList, NestedMeta, Path, PathArguments, ReturnType, Type};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct ResponseInfo {
     pub(crate) code: u16,
     pub(crate) type_info: Option<TypeInfo>,
     pub(crate) mime: OpenApiMimeType,
-    pub(crate) openapi_type: Option<OpenApiType>,
-    pub(crate) macro_name: Option<String>,
+    pub(crate) anonymous_type: Option<AnonymousType>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct AnonymousType {
+    pub(crate) schema: OpenApiType,
+    pub(crate) name: Option<String>,
+    pub(crate) is_array: bool,
 }
 
 impl Gen {
@@ -49,11 +55,9 @@ impl Gen {
             vec.push((
                 None,
                 ResponseInfo {
-                    type_info: None,
                     code: 200,
                     mime: OpenApiMimeType::Any,
-                    openapi_type: None,
-                    macro_name: None,
+                    ..Default::default()
                 },
             ));
         }
@@ -134,15 +138,15 @@ impl Gen {
                                 let mime = mime.map(OpenApiMimeType::from);
 
                                 for (code, type_name) in pairs {
-                                    if let Some(openapi_type) = self.openapitype_from_raw(method.impl_item.im.item.scope, type_name.as_str()) {
+                                    if let Some(mut anonymous_type) = self.openapitype_from_raw(method.impl_item.im.item.scope, type_name.as_str()) {
+                                        anonymous_type.name = name.clone();
                                         vec.push((
                                             Some(code),
                                             ResponseInfo {
                                                 code,
                                                 mime: mime.clone().unwrap_or(OpenApiMimeType::Any),
                                                 type_info: None,
-                                                openapi_type: Some(openapi_type),
-                                                macro_name: name.clone(),
+                                                anonymous_type: Some(anonymous_type),
                                             },
                                         ));
                                         continue;
@@ -156,9 +160,7 @@ impl Gen {
                                                 ResponseInfo {
                                                     code,
                                                     mime: mime.clone().unwrap_or(OpenApiMimeType::Any),
-                                                    type_info: None,
-                                                    openapi_type: None,
-                                                    macro_name: None,
+                                                    ..Default::default()
                                                 },
                                             ));
                                             continue;
@@ -324,10 +326,7 @@ impl Gen {
                                 Some(404),
                                 ResponseInfo {
                                     code: 404,
-                                    type_info: None,
-                                    mime: OpenApiMimeType::Any,
-                                    openapi_type: None,
-                                    macro_name: None,
+                                    ..Default::default()
                                 },
                             ));
                         }
@@ -375,8 +374,7 @@ impl Gen {
                                 .unwrap_or(OpenApiMimeType::Any),
                             type_info,
                             code: 200,
-                            openapi_type: None,
-                            macro_name: None,
+                            ..Default::default()
                         },
                     ));
                 }

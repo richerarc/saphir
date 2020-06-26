@@ -9,6 +9,7 @@ use syn::{Expr, GenericArgument, Item as SynItem, Lit, Path, PathArguments, Type
 #[derive(Clone, Debug)]
 pub(crate) struct TypeInfo {
     pub(crate) name: String,
+    /// fully-qualified type path; None for anonymous type
     pub(crate) type_path: Option<String>,
     pub(crate) is_type_serializable: bool,
     pub(crate) is_type_deserializable: bool,

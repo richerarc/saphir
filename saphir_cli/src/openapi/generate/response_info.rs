@@ -410,26 +410,4 @@ impl Gen {
             _ => Vec::new(),
         }
     }
-
-    /// Utility function useful while debugging
-    fn get_full_type_string<'b>(&self, method: &'b Method<'b>, path: &Path) -> Option<String> {
-        let last = path.segments.last()?;
-        let name = last.ident.to_string();
-        let args = match &last.arguments {
-            PathArguments::AngleBracketed(ab) => ab
-                .args
-                .iter()
-                .filter_map(|a| match a {
-                    GenericArgument::Type(Type::Path(tp)) => self.get_full_type_string(method, &tp.path),
-                    _ => None,
-                })
-                .collect(),
-            _ => Vec::new(),
-        };
-        if args.is_empty() {
-            Some(name)
-        } else {
-            Some(format!("{}<{}>", name, args.join(", ")))
-        }
-    }
 }

@@ -192,6 +192,9 @@ by using the --package flag."
 
     fn fill_openapi_with_controllers<'b>(&mut self, entrypoint: &'b Module<'b>, controllers: Vec<ControllerInfo>) -> CommandResult {
         for controller in controllers {
+            let controller_name = controller.controller_name.as_str();
+            let controller_model_name = controller.name.as_str();
+            let mut cur_controller_schema = 0;
             for handler in controller.handlers {
                 for route in handler.routes {
                     let path = route.uri;
@@ -203,10 +206,7 @@ by using the --package flag."
                     };
                     let tag = OpenApiTag {
                         name: controller.name.clone(),
-                        description: Some(format!(
-                            "Endpoints under the {} controller (`{}`).",
-                            &controller.name, &controller.controller_name
-                        )),
+                        description: Some(format!("Endpoints under the {} controller (`{}`).", controller_model_name, controller_name)),
                     };
                     let mut data = OpenApiPath {
                         parameters: handler.parameters.clone(),
@@ -236,25 +236,26 @@ by using the --package flag."
                                 .map(|t| self.get_open_api_type_from_type_info(entrypoint, &t))
                                 .flatten()
                         }) {
-                            content.insert(
-                                response.mime.clone(),
-                                OpenApiContent {
-                                    schema: OpenApiSchema::Inline(openapi_type),
-                                },
-                            );
+                            let schema_name = response.type_info.as_ref().map(|ti| ti.name.clone()).unwrap_or_else(|| {
+                                cur_controller_schema += 1;
+                                response
+                                    .macro_name
+                                    .clone()
+                                    .unwrap_or_else(|| format!("{}_response_{}", controller_model_name, &cur_controller_schema))
+                            });
+                            let schema = OpenApiSchema::Ref {
+                                type_ref: format!("#/components/schemas/{}", &schema_name),
+                            };
+                            self.doc.components.schemas.insert(schema_name, OpenApiSchema::Inline(openapi_type));
+                            content.insert(response.mime.clone(), OpenApiContent { schema });
                         }
                         let status = StatusCode::from_u16(response.code);
-                        data.responses.insert(
-                            response.code.to_string(),
-                            OpenApiResponse {
-                                description: response
-                                    .type_info
-                                    .as_ref()
-                                    .map(|t| t.name.clone())
-                                    .unwrap_or_else(|| status.map(|s| s.canonical_reason()).ok().flatten().map(|s| s.to_owned()).unwrap_or_default()),
-                                content,
-                            },
-                        );
+                        let description = response
+                            .type_info
+                            .as_ref()
+                            .map(|t| t.name.clone())
+                            .unwrap_or_else(|| status.map(|s| s.canonical_reason()).ok().flatten().map(|s| s.to_owned()).unwrap_or_default());
+                        data.responses.insert(response.code.to_string(), OpenApiResponse { description, content });
                     }
 
                     if !self.doc.paths.contains_key(path.as_str()) {
@@ -269,19 +270,21 @@ by using the --package flag."
         Ok(())
     }
 
-    fn get_open_api_body_param<'b>(&self, entrypoint: &'b Module<'b>, body_info: &BodyParamInfo) -> Option<OpenApiRequestBody> {
-        let t = if body_info.type_info.is_type_deserializable {
-            self.get_open_api_type_from_type_info(entrypoint, &body_info.type_info)?
+    fn get_open_api_body_param<'b>(&mut self, entrypoint: &'b Module<'b>, body_info: &BodyParamInfo) -> Option<OpenApiRequestBody> {
+        let schema = if body_info.type_info.is_type_deserializable {
+            let schema = self.get_open_api_type_from_type_info(entrypoint, &body_info.type_info)?;
+            self.doc
+                .components
+                .schemas
+                .insert(body_info.type_info.name.clone(), OpenApiSchema::Inline(schema));
+            OpenApiSchema::Ref {
+                type_ref: format!("#/components/schemas/{}", &body_info.type_info.name),
+            }
         } else {
-            OpenApiType::anonymous_input_object()
+            OpenApiSchema::Inline(OpenApiType::anonymous_input_object())
         };
         let mut content: HashMap<OpenApiMimeType, OpenApiContent> = HashMap::new();
-        content.insert(
-            body_info.openapi_type.clone(),
-            OpenApiContent {
-                schema: OpenApiSchema::Inline(t),
-            },
-        );
+        content.insert(body_info.openapi_type.clone(), OpenApiContent { schema });
         Some(OpenApiRequestBody {
             description: body_info.type_info.name.clone(),
             required: !body_info.type_info.is_optional,

@@ -239,6 +239,8 @@ pub struct OpenApi {
     pub(crate) tags: HashSet<OpenApiTag>,
     // Key: api path / method / definition
     pub(crate) paths: BTreeMap<String, BTreeMap<OpenApiPathMethod, OpenApiPath>>,
+    #[serde(skip_serializing_if = "OpenApiComponents::is_empty")]
+    pub(crate) components: OpenApiComponents,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -320,4 +322,15 @@ pub struct OpenApiResponse {
     pub(crate) description: String,
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub(crate) content: HashMap<OpenApiMimeType, OpenApiContent>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct OpenApiComponents {
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub(crate) schemas: HashMap<String, OpenApiSchema>,
+}
+impl OpenApiComponents {
+    pub fn is_empty(&self) -> bool {
+        self.schemas.is_empty()
+    }
 }

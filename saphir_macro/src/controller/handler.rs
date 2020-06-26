@@ -418,6 +418,7 @@ impl HandlerAttrs {
                                                 let mut nb_code = 0;
                                                 let mut nb_type = 0;
                                                 let mut nb_mime = 0;
+                                                let mut nb_name = 0;
                                                 if openapi_attribute.nested.is_empty() {
                                                     return Err(Error::new_spanned(openapi_attribute, "openapi return attribute cannot be empty"));
                                                 }
@@ -457,6 +458,13 @@ impl HandlerAttrs {
                                                                                 return Err(Error::new_spanned(m, "Expected a mimetype string"));
                                                                             }
                                                                         }
+                                                                        Some("name") => {
+                                                                            if let Lit::Str(_) = &nv.lit {
+                                                                                nb_name += 1;
+                                                                            } else {
+                                                                                return Err(Error::new_spanned(m, "Expected a string"));
+                                                                            }
+                                                                        }
                                                                         _ => return Err(Error::new_spanned(&nv.path, "Invalid openapi return attribute")),
                                                                     }
                                                                 }
@@ -482,6 +490,10 @@ impl HandlerAttrs {
                                                     ));
                                                 }
 
+                                                if nb_name > 1 {
+                                                    return Err(Error::new_spanned(openapi_attribute, "Cannot specify the name twice"));
+                                                }
+
                                                 if nb_code > 1 && nb_type > 1 {
                                                     return Err(Error::new_spanned(
                                                         openapi_attribute,
@@ -495,6 +507,7 @@ impl HandlerAttrs {
                                                 let mut nb_code = 0;
                                                 let mut nb_type = 0;
                                                 let mut nb_mime = 0;
+                                                let mut nb_name = 0;
                                                 if openapi_attribute.nested.is_empty() {
                                                     return Err(Error::new_spanned(openapi_attribute, "openapi return attribute cannot be empty"));
                                                 }
@@ -534,6 +547,13 @@ impl HandlerAttrs {
                                                                                 return Err(Error::new_spanned(m, "Expected a mimetype string"));
                                                                             }
                                                                         }
+                                                                        Some("name") => {
+                                                                            if let Lit::Str(_) = &nv.lit {
+                                                                                nb_name += 1;
+                                                                            } else {
+                                                                                return Err(Error::new_spanned(m, "Expected a string"));
+                                                                            }
+                                                                        }
                                                                         _ => return Err(Error::new_spanned(&nv.path, "Invalid openapi return attribute")),
                                                                     }
                                                                 }
@@ -550,11 +570,15 @@ impl HandlerAttrs {
                                                 }
 
                                                 if nb_type > 1 {
-                                                    return Err(Error::new_spanned(openapi_attribute, "can only specify `type` per return_override"));
+                                                    return Err(Error::new_spanned(openapi_attribute, "can only specify one `type` per return_override"));
                                                 }
 
                                                 if nb_mime > 1 {
                                                     return Err(Error::new_spanned(openapi_attribute, "cannot specify multiple mimes for an override"));
+                                                }
+
+                                                if nb_name > 1 {
+                                                    return Err(Error::new_spanned(openapi_attribute, "Cannot specify the name twice"));
                                                 }
 
                                                 if nb_code == 0 && nb_mime == 0 {

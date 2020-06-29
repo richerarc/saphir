@@ -298,10 +298,20 @@ by using the --package flag."
                             .or_else(|| {
                                 response.type_info.as_mut().filter(|t| t.is_type_serializable).map(|t| {
                                     let name = t.rename.as_deref().unwrap_or_else(|| t.name.as_str()).to_owned();
-                                    t.is_array = false;
                                     let ti = self
                                         .get_open_api_type_from_type_info(entrypoint, &t)
-                                        .unwrap_or_else(|| OpenApiType::from_rust_type_str(t.name.as_str()).unwrap_or_else(OpenApiType::string));
+                                        .unwrap_or_else(|| {
+                                            let raw_type = OpenApiType::from_rust_type_str(t.name.as_str()).unwrap_or_else(OpenApiType::string);
+                                            if t.is_array {
+                                               OpenApiType::Array {
+                                                   items: Box::new( OpenApiSchema::Inline(raw_type)),
+                                                   min_items: t.min_array_len,
+                                                   max_items: t.max_array_len,
+                                               }
+                                            } else {
+                                                raw_type
+                                            }
+                                        });
                                     (ti, name)
                                 })
                             })

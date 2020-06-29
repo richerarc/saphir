@@ -22,13 +22,14 @@ use std::{
     fs::File as FsFile,
     io::Read,
     path::PathBuf,
+    str::FromStr,
     time::Instant,
 };
 use structopt::StructOpt;
-use syn::{Attribute, Fields, Item as SynItem, ItemEnum, ItemStruct, Lit, Meta, NestedMeta, Signature};
-use std::str::FromStr;
-use syn::export::fmt::Display;
-use syn::export::Formatter;
+use syn::{
+    export::{fmt::Display, Formatter},
+    Attribute, Fields, Item as SynItem, ItemEnum, ItemStruct, Lit, Meta, NestedMeta, Signature,
+};
 
 mod controller_info;
 mod crate_syn_browser;
@@ -68,9 +69,9 @@ impl FromStr for SchemaGranularity {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "none" => Ok(SchemaGranularity::None),
-            "top"  => Ok(SchemaGranularity::Top),
-            "all"  => Ok(SchemaGranularity::All),
-            _      => Err(SchemaGranularityError::UnknownValue),
+            "top" => Ok(SchemaGranularity::Top),
+            "all" => Ok(SchemaGranularity::All),
+            _ => Err(SchemaGranularityError::UnknownValue),
         }
     }
 }
@@ -112,8 +113,8 @@ pub(crate) struct GenArgs {
     ///
     /// Available values:
     /// - None :          all objects are inlined
-    /// - Top (default) : Top-level objects are described as a component
-    ///                   schema, nested are inlined
+    /// - Top (default) : Top-level objects are described as a component schema,
+    ///   nested are inlined
     /// - All :           All objects are described as a component schema
     #[structopt(short = "g", long = "schema-granularity", default_value = "Top", verbatim_doc_comment)]
     schema_granularity: SchemaGranularity,
@@ -296,7 +297,7 @@ by using the --package flag."
                             })
                             .or_else(|| {
                                 response.type_info.as_mut().filter(|t| t.is_type_serializable).map(|t| {
-                                    let name = t.rename.as_deref().unwrap_or(t.name.as_str()).to_owned();
+                                    let name = t.rename.as_deref().unwrap_or_else(|| t.name.as_str()).to_owned();
                                     t.is_array = false;
                                     let ti = self
                                         .get_open_api_type_from_type_info(entrypoint, &t)
@@ -350,17 +351,14 @@ by using the --package flag."
                 OpenApiSchema::Inline(t) => {
                     ty = t.clone();
                 }
-                OpenApiSchema::Ref { .. } => return OpenApiSchema::Inline(ty)
+                OpenApiSchema::Ref { .. } => return OpenApiSchema::Inline(ty),
             }
         }
 
         let schema = if ty.is_primitive() {
             OpenApiSchema::Inline(ty)
         } else {
-            self.doc
-                .components
-                .schemas
-                .insert(name.to_owned(), OpenApiSchema::Inline(ty));
+            self.doc.components.schemas.insert(name.to_owned(), OpenApiSchema::Inline(ty));
             OpenApiSchema::Ref {
                 type_ref: format!("#/components/schemas/{}", name),
             }
@@ -379,8 +377,9 @@ by using the --package flag."
     fn get_open_api_body_param<'b>(&mut self, entrypoint: &'b Module<'b>, body_info: &mut BodyParamInfo) -> Option<OpenApiRequestBody> {
         let schema = if body_info.type_info.is_type_deserializable {
             let ty = &mut body_info.type_info;
-            let name = ty.rename.as_deref().unwrap_or(ty.name.as_str());
-            let openapi_type = self.get_open_api_type_from_type_info(entrypoint, &ty)
+            let name = ty.rename.as_deref().unwrap_or_else(|| ty.name.as_str());
+            let openapi_type = self
+                .get_open_api_type_from_type_info(entrypoint, &ty)
                 .unwrap_or_else(OpenApiType::anonymous_input_object);
             let as_ref = self.args.schema_granularity != SchemaGranularity::None;
             self.get_schema(name, openapi_type, as_ref)
@@ -468,20 +467,31 @@ by using the --package flag."
                             OpenApiObjectType::AnonymousOutputObject | OpenApiObjectType::AnonymousInputObject { .. } => {}
                             OpenApiObjectType::Object { .. } | OpenApiObjectType::Dictionary { .. } if as_ref => {
                                 let _ = self.get_schema_ref(name.as_str(), field_type);
-                                properties.insert(field_name, Box::new(OpenApiType::Object { object: OpenApiObjectType::Ref { schema_path: format!("#/components/schemas/{}", name) }}));
+                                properties.insert(
+                                    field_name,
+                                    Box::new(OpenApiType::Object {
+                                        object: OpenApiObjectType::Ref {
+                                            schema_path: format!("#/components/schemas/{}", name),
+                                        },
+                                    }),
+                                );
                             }
-                            _ => { properties.insert(field_name, Box::new(field_type)); }
-                        }
+                            _ => {
+                                properties.insert(field_name, Box::new(field_type));
+                            }
+                        },
                         OpenApiType::Array { .. } if as_ref => {
                             let schema = self.get_schema_ref(name.as_str(), field_type);
                             match schema {
                                 OpenApiSchema::Inline(t) => {
                                     properties.insert(field_name, Box::new(t));
                                 }
-                                _ => unreachable!()
+                                _ => unreachable!(),
                             }
                         }
-                        _ => { properties.insert(field_name, Box::new(field_type)); }
+                        _ => {
+                            properties.insert(field_name, Box::new(field_type));
+                        }
                     };
                 } else {
                     println!("Unsupported type : {:?}", &field.ty);
@@ -559,10 +569,7 @@ by using the --package flag."
     }
 
     pub(crate) fn openapitype_from_raw<'b>(&mut self, scope: &'b dyn UseScope<'b>, raw: &str) -> Option<AnonymousType> {
-        self._openapitype_from_raw(scope, raw).map(|(schema, name, _)| AnonymousType {
-            schema,
-            name,
-        })
+        self._openapitype_from_raw(scope, raw).map(|(schema, name, _)| AnonymousType { schema, name })
     }
 
     fn _openapitype_from_raw<'b>(&mut self, scope: &'b dyn UseScope<'b>, raw: &str) -> Option<(OpenApiType, Option<String>, usize)> {
@@ -599,7 +606,7 @@ by using the --package flag."
                                     t = OpenApiType::Array {
                                         items: Box::new(OpenApiSchema::Inline(t)),
                                         min_items: None,
-                                        max_items: None
+                                        max_items: None,
                                     };
                                 }
                                 properties.insert(key.to_string(), Box::new(t));
@@ -618,11 +625,7 @@ by using the --package flag."
                             s = e + 1;
                             if char == '}' {
                                 return if !properties.is_empty() {
-                                    Some((
-                                        OpenApiType::object(properties, required),
-                                        None,
-                                        e,
-                                    ))
+                                    Some((OpenApiType::object(properties, required), None, e))
                                 } else {
                                     None
                                 };
@@ -637,11 +640,17 @@ by using the --package flag."
                 if chars.last()? != ']' {
                     return None;
                 }
-                self._openapitype_from_raw(scope, &raw[1..(len - 1)])
-                    .map(|(t, name, size)| {
-                        (OpenApiType::Array { items: Box::new(OpenApiSchema::Inline(t)), min_items: None, max_items: None },
-                            name, size)
-                    })
+                self._openapitype_from_raw(scope, &raw[1..(len - 1)]).map(|(t, name, size)| {
+                    (
+                        OpenApiType::Array {
+                            items: Box::new(OpenApiSchema::Inline(t)),
+                            min_items: None,
+                            max_items: None,
+                        },
+                        name,
+                        size,
+                    )
+                })
             }
             _ => syn::parse_str::<syn::Path>(raw)
                 .ok()

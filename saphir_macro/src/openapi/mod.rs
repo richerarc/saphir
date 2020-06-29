@@ -22,16 +22,16 @@ pub fn validate_openapi(args: AttributeArgs, input: Item) -> Result<TokenStream>
                 match nv.path.get_ident().map(|i| i.to_string()).as_deref() {
                     Some("mime") => {
                         if mime.is_some() {
-                            return Err(Error::new_spanned(nv, "Cannot specify `mime` twice"))
+                            return Err(Error::new_spanned(nv, "Cannot specify `mime` twice"));
                         }
                         mime = match nv.lit {
                             Lit::Str(s) => Some(s.value()),
                             _ => None,
                         }
-                    },
+                    }
                     Some("name") => {
                         if name.is_some() {
-                            return Err(Error::new_spanned(nv, "Cannot specify `name` twice"))
+                            return Err(Error::new_spanned(nv, "Cannot specify `name` twice"));
                         }
                         name = match nv.lit {
                             Lit::Str(s) => Some(s.value()),

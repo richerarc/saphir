@@ -44,7 +44,7 @@ pub fn validate_openapi(args: AttributeArgs, input: Item) -> Result<TokenStream>
         }
     }
 
-    if mime.is_none() || name.is_none() {
+    if mime.is_none() && name.is_none() {
         panic!(MISSING_ATRIBUTE);
     }
 

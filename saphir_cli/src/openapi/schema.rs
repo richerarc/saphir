@@ -149,6 +149,10 @@ pub enum OpenApiObjectType {
         #[serde(rename = "additionalProperties")]
         additional_properties: HashMap<String, Box<OpenApiType>>,
     },
+    Ref {
+        #[serde(rename = "$ref")]
+        schema_path: String,
+    },
     AnonymousInputObject {
         #[serde(rename = "additionalProperties", default = "serde_true")]
         additional_properties: bool,

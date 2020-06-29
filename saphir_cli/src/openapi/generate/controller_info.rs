@@ -31,7 +31,7 @@ impl Gen {
     /// Retrieve ControllerInfo from an implementation block.
     /// Saphir does not currently support multiple implementation blocks for the
     /// same controller.
-    pub(crate) fn extract_controller_info<'b>(&self, im: &'b Impl<'b>) -> Result<Option<ControllerInfo>, String> {
+    pub(crate) fn extract_controller_info<'b>(&mut self, im: &'b Impl<'b>) -> Result<Option<ControllerInfo>, String> {
         for attr in &im.syn.attrs {
             if let Some(first_seg) = attr.path.segments.first() {
                 let t = im.syn.self_ty.as_ref();

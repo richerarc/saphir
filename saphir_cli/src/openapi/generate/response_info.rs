@@ -16,7 +16,6 @@ pub(crate) struct ResponseInfo {
 pub(crate) struct AnonymousType {
     pub(crate) schema: OpenApiType,
     pub(crate) name: Option<String>,
-    pub(crate) is_array: bool,
 }
 
 impl Gen {
@@ -33,7 +32,7 @@ impl Gen {
             .collect()
     }
 
-    pub(crate) fn extract_response_info<'b>(&self, method: &'b Method<'b>) -> Vec<ResponseInfo> {
+    pub(crate) fn extract_response_info<'b>(&mut self, method: &'b Method<'b>) -> Vec<ResponseInfo> {
         let mut vec: Vec<(Option<u16>, ResponseInfo)> = Vec::new();
 
         let openapi_metas = self.get_openapi_metas(method);
@@ -65,7 +64,7 @@ impl Gen {
         vec.into_iter().map(|(_, r)| r).collect()
     }
 
-    fn response_info_from_openapi_meta<'b>(&self, method: &'b Method<'b>, meta: &MetaList) -> Vec<(Option<u16>, ResponseInfo)> {
+    fn response_info_from_openapi_meta<'b>(&mut self, method: &'b Method<'b>, meta: &MetaList) -> Vec<(Option<u16>, ResponseInfo)> {
         let mut vec = Vec::new();
 
         for openapi_paths in &meta.nested {
@@ -338,9 +337,6 @@ impl Gen {
                         for (_, mut success_response) in result.remove(0) {
                             if let Some(mut type_info) = success_response.type_info.as_mut() {
                                 type_info.is_array = true;
-                            }
-                            if let Some(mut anon) = success_response.anonymous_type.as_mut() {
-                                anon.is_array = true;
                             }
                             vec.push((None, success_response));
                         }

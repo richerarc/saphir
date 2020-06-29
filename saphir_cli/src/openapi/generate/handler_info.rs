@@ -14,7 +14,7 @@ pub(crate) struct HandlerInfo {
 }
 
 impl Gen {
-    pub(crate) fn extract_handler_info<'b>(&self, controller_path: &str, method: &'b Method<'b>) -> Result<Option<HandlerInfo>, String> {
+    pub(crate) fn extract_handler_info<'b>(&mut self, controller_path: &str, method: &'b Method<'b>) -> Result<Option<HandlerInfo>, String> {
         let mut consume_cookies: bool = self.handler_has_cookies(&method.syn);
 
         let routes: Vec<RouteInfo> = method

@@ -249,11 +249,12 @@ by using the --package flag."
                                     let is_array = t.is_array;
                                     let min = t.min_array_len;
                                     let max = t.max_array_len;
+                                    let name = t.rename.as_deref().unwrap_or(t.name.as_str()).to_owned();
                                     t.is_array = false;
                                     let ti = self
                                         .get_open_api_type_from_type_info(entrypoint, &t)
                                         .unwrap_or_else(|| OpenApiType::from_rust_type_str(t.name.as_str()).unwrap_or_else(OpenApiType::string));
-                                    (ti, t.name.clone(), is_array, min, max)
+                                    (ti, name, is_array, min, max)
                                 })
                             })
                         {
@@ -299,28 +300,31 @@ by using the --package flag."
 
     fn get_open_api_body_param<'b>(&mut self, entrypoint: &'b Module<'b>, body_info: &mut BodyParamInfo) -> Option<OpenApiRequestBody> {
         let schema = if body_info.type_info.is_type_deserializable {
-            let is_array = body_info.type_info.is_array;
-            body_info.type_info.is_array = false;
-            let schema = self.get_open_api_type_from_type_info(entrypoint, &body_info.type_info)?;
-            let schema_ref= if schema.is_primitive() {
-                OpenApiSchema::Inline(schema)
+            let ty = &mut body_info.type_info;
+            let is_array = ty.is_array;
+            ty.is_array = false;
+            let name = ty.rename.as_deref().unwrap_or(ty.name.as_str());
+            let openapi_type = self.get_open_api_type_from_type_info(entrypoint, &ty)
+                .unwrap_or_else(OpenApiType::anonymous_input_object);
+            let schema = if openapi_type.is_primitive() {
+                OpenApiSchema::Inline(openapi_type)
             } else {
                 self.doc
                     .components
                     .schemas
-                    .insert(body_info.type_info.name.clone(), OpenApiSchema::Inline(schema));
+                    .insert(name.to_owned(), OpenApiSchema::Inline(openapi_type));
                 OpenApiSchema::Ref {
-                    type_ref: format!("#/components/schemas/{}", &body_info.type_info.name),
+                    type_ref: format!("#/components/schemas/{}", name),
                 }
             };
             if is_array {
                 OpenApiSchema::Inline(OpenApiType::Array {
-                    items: Box::new(schema_ref),
+                    items: Box::new(schema),
                     min_items: body_info.type_info.min_array_len.to_owned(),
                     max_items: body_info.type_info.max_array_len.to_owned(),
                 })
             } else {
-                schema_ref
+                schema
             }
         } else {
             OpenApiSchema::Inline(OpenApiType::anonymous_input_object())

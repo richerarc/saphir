@@ -18,6 +18,7 @@ pub(crate) struct TypeInfo {
     pub(crate) min_array_len: Option<u32>,
     pub(crate) max_array_len: Option<u32>,
     pub(crate) mime: Option<String>,
+    pub(crate) rename: Option<String>,
 }
 
 impl TypeInfo {
@@ -104,6 +105,14 @@ impl TypeInfo {
                     | item_attrs
                         .map(|attrs| find_macro_attribute_flag(attrs, "derive", "Deserialize"))
                         .unwrap_or_default();
+                let rename = item_attrs
+                    .map(|attrs| find_macro_attribute_named_value(attrs, "openapi", "name"))
+                    .flatten()
+                    .map(|m| match m {
+                        Lit::Str(s) => Some(s.value()),
+                        _ => None,
+                    })
+                    .flatten();
                 let mime = item_attrs
                     .map(|attrs| find_macro_attribute_named_value(attrs, "openapi", "mime"))
                     .flatten()
@@ -122,6 +131,7 @@ impl TypeInfo {
                     min_array_len: None,
                     max_array_len: None,
                     mime,
+                    rename,
                 });
             }
         }

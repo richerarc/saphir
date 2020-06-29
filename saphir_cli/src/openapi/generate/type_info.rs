@@ -18,6 +18,7 @@ pub(crate) struct TypeInfo {
     pub(crate) min_array_len: Option<u32>,
     pub(crate) max_array_len: Option<u32>,
     pub(crate) mime: Option<String>,
+    pub(crate) rename: Option<String>,
 }
 
 impl TypeInfo {
@@ -91,12 +92,27 @@ impl TypeInfo {
                     SynItem::Enum(e) => &e.attrs,
                     _ => unreachable!(),
                 });
-                let is_type_serializable = item_attrs
-                    .map(|attrs| find_macro_attribute_flag(attrs, "derive", "Serialize"))
-                    .unwrap_or_default();
-                let is_type_deserializable = item_attrs
-                    .map(|attrs| find_macro_attribute_flag(attrs, "derive", "Deserialize"))
-                    .unwrap_or_default();
+                let is_primitive = match name.as_str() {
+                    "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "i8" | "i16" | "i32" | "i64" | "i128" | "isize" | "f32" | "f64" | "bool" | "Boolean"
+                    | "string" | "String" => true,
+                    _ => false,
+                };
+                let is_type_serializable = is_primitive
+                    | item_attrs
+                        .map(|attrs| find_macro_attribute_flag(attrs, "derive", "Serialize"))
+                        .unwrap_or_default();
+                let is_type_deserializable = is_primitive
+                    | item_attrs
+                        .map(|attrs| find_macro_attribute_flag(attrs, "derive", "Deserialize"))
+                        .unwrap_or_default();
+                let rename = item_attrs
+                    .map(|attrs| find_macro_attribute_named_value(attrs, "openapi", "name"))
+                    .flatten()
+                    .map(|m| match m {
+                        Lit::Str(s) => Some(s.value()),
+                        _ => None,
+                    })
+                    .flatten();
                 let mime = item_attrs
                     .map(|attrs| find_macro_attribute_named_value(attrs, "openapi", "mime"))
                     .flatten()
@@ -115,6 +131,7 @@ impl TypeInfo {
                     min_array_len: None,
                     max_array_len: None,
                     mime,
+                    rename,
                 });
             }
         }

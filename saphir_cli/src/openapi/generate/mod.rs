@@ -196,7 +196,7 @@ by using the --package flag."
             let controller_name = controller.controller_name.as_str();
             let controller_model_name = controller.name.as_str();
             let mut cur_controller_schema = 0;
-            for handler in controller.handlers {
+            for mut handler in controller.handlers {
                 for route in handler.routes {
                     let path = route.uri;
                     let method = route.method;
@@ -218,7 +218,7 @@ by using the --package flag."
                     };
                     self.doc.tags.insert(tag);
 
-                    if let Some(body_info) = &handler.body_info {
+                    if let Some(body_info) = handler.body_info.as_mut() {
                         if method == OpenApiPathMethod::Get {
                             let parameters = self.get_open_api_parameters_from_body_info(entrypoint, body_info);
                             data.parameters.extend(parameters);
@@ -227,7 +227,7 @@ by using the --package flag."
                         }
                     }
 
-                    for response in &handler.responses {
+                    for response in &mut handler.responses {
                         let mut content = HashMap::new();
                         if let Some((openapi_type, schema_name, is_array, min_array_len, max_array_len)) = response
                             .anonymous_type
@@ -245,16 +245,25 @@ by using the --package flag."
                                 )
                             })
                             .or_else(|| {
-                                response.type_info.as_ref().filter(|t| t.is_type_serializable).map(|t| {
+                                response.type_info.as_mut().filter(|t| t.is_type_serializable).map(|t| {
+                                    let is_array = t.is_array;
+                                    let min = t.min_array_len;
+                                    let max = t.max_array_len;
+                                    t.is_array = false;
                                     let ti = self
                                         .get_open_api_type_from_type_info(entrypoint, &t)
                                         .unwrap_or_else(|| OpenApiType::from_rust_type_str(t.name.as_str()).unwrap_or_else(OpenApiType::string));
-                                    (ti, t.name.clone(), t.is_array, t.min_array_len, t.max_array_len)
+                                    (ti, t.name.clone(), is_array, min, max)
                                 })
                             })
                         {
-                            let schema_ref = OpenApiSchema::Ref {
-                                type_ref: format!("#/components/schemas/{}", &schema_name),
+                            let schema_ref = if openapi_type.is_primitive() {
+                                OpenApiSchema::Inline(openapi_type)
+                            } else {
+                                self.doc.components.schemas.insert(schema_name.clone(), OpenApiSchema::Inline(openapi_type));
+                                OpenApiSchema::Ref {
+                                    type_ref: format!("#/components/schemas/{}", &schema_name),
+                                }
                             };
                             let schema = if is_array {
                                 OpenApiSchema::Inline(OpenApiType::Array {
@@ -265,7 +274,6 @@ by using the --package flag."
                             } else {
                                 schema_ref
                             };
-                            self.doc.components.schemas.insert(schema_name, OpenApiSchema::Inline(openapi_type));
                             content.insert(response.mime.clone(), OpenApiContent { schema });
                         }
                         let status = StatusCode::from_u16(response.code);
@@ -289,17 +297,23 @@ by using the --package flag."
         Ok(())
     }
 
-    fn get_open_api_body_param<'b>(&mut self, entrypoint: &'b Module<'b>, body_info: &BodyParamInfo) -> Option<OpenApiRequestBody> {
+    fn get_open_api_body_param<'b>(&mut self, entrypoint: &'b Module<'b>, body_info: &mut BodyParamInfo) -> Option<OpenApiRequestBody> {
         let schema = if body_info.type_info.is_type_deserializable {
+            let is_array = body_info.type_info.is_array;
+            body_info.type_info.is_array = false;
             let schema = self.get_open_api_type_from_type_info(entrypoint, &body_info.type_info)?;
-            self.doc
-                .components
-                .schemas
-                .insert(body_info.type_info.name.clone(), OpenApiSchema::Inline(schema));
-            let schema_ref = OpenApiSchema::Ref {
-                type_ref: format!("#/components/schemas/{}", &body_info.type_info.name),
+            let schema_ref= if schema.is_primitive() {
+                OpenApiSchema::Inline(schema)
+            } else {
+                self.doc
+                    .components
+                    .schemas
+                    .insert(body_info.type_info.name.clone(), OpenApiSchema::Inline(schema));
+                OpenApiSchema::Ref {
+                    type_ref: format!("#/components/schemas/{}", &body_info.type_info.name),
+                }
             };
-            if body_info.type_info.is_array {
+            if is_array {
                 OpenApiSchema::Inline(OpenApiType::Array {
                     items: Box::new(schema_ref),
                     min_items: body_info.type_info.min_array_len.to_owned(),

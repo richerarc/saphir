@@ -191,6 +191,13 @@ impl Default for OpenApiType {
     }
 }
 impl OpenApiType {
+    pub fn is_primitive(&self) -> bool {
+        match self {
+            OpenApiType::Object { .. } | OpenApiType::Array { .. } => false,
+            _ => true,
+        }
+    }
+
     pub fn string() -> Self {
         OpenApiType::String { enum_values: Vec::default() }
     }

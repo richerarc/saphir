@@ -112,41 +112,36 @@ fn gen_controller_handlers_fn(attr: &ControllerAttr, handlers: &[HandlerRepr]) -
         for (method, path) in methods_paths {
             let method = method.as_str();
             if guards.is_empty() {
-                let handler_e = quote! {
-                    let b = b.add(Method::from_str(#method).expect("Method was validated by the macro expansion"), #path, #ctrl_ident::#handler_ident);
-                };
-                handler_e.to_tokens(&mut handler_stream);
+                (quote! {
+                    .add(Method::from_str(#method).expect("Method was validated by the macro expansion"), #path, #ctrl_ident::#handler_ident)
+                })
+                .to_tokens(&mut handler_stream);
             } else {
                 let mut guard_stream = TokenStream::new();
 
                 for guard_def in guards {
-                    guard_def.to_tokens(&mut guard_stream);
                     (quote! {
-                        let g = g.apply(guard);
+                        .apply(#guard_def)
                     })
                     .to_tokens(&mut guard_stream);
                 }
 
-                let handler_e = quote! {
-                    let b = b.add_with_guards(Method::from_str(#method).expect("Method was validated the macro expansion"), #path, #ctrl_ident::#handler_ident, |g| {
-                        #guard_stream
-                        g
-                    });
-                };
-                handler_e.to_tokens(&mut handler_stream);
+                (quote! {
+                    .add_with_guards(Method::from_str(#method).expect("Method was validated the macro expansion"), #path, #ctrl_ident::#handler_ident, |g| {
+                        g #guard_stream
+                    })
+                })
+                .to_tokens(&mut handler_stream);
             }
         }
     }
 
-    let e = quote! {
+    let quoted_h = quote! {
         fn handlers(&self) -> Vec<ControllerEndpoint<Self>> where Self: Sized {
-            let b = EndpointsBuilder::new();
-
-            #handler_stream
-
-            b.build()
+            EndpointsBuilder::new()
+                #handler_stream
+                .build()
         }
     };
-
-    e
+    quoted_h
 }

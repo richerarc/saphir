@@ -4,10 +4,9 @@ use http::Method;
 use proc_macro2::{Ident, TokenStream};
 use quote::quote_spanned;
 use syn::{
-    export::ToTokens, Attribute, Error, Expr, FnArg, GenericArgument, ImplItem, ImplItemMethod, ItemImpl, Lit, Meta, MetaNameValue, NestedMeta, Pat, PatIdent,
-    PatType, Path, PathArguments, PathSegment, Result, ReturnType, Type, TypePath,
+    export::ToTokens, spanned::Spanned, Attribute, Error, Expr, FnArg, GenericArgument, ImplItem, ImplItemMethod, ItemImpl, Lit, Meta, MetaNameValue,
+    NestedMeta, Pat, PatIdent, PatType, Path, PathArguments, PathSegment, Result, ReturnType, Type, TypePath,
 };
-use syn::spanned::Spanned;
 
 #[derive(Clone, Debug)]
 pub enum MapAfterLoad {

@@ -1,11 +1,11 @@
 use std::str::FromStr;
 
 use http::Method;
-use proc_macro2::{Ident, Span, TokenStream};
-use quote::quote;
+use proc_macro2::{Ident, TokenStream};
+use quote::quote_spanned;
 use syn::{
-    export::ToTokens, Attribute, Error, Expr, FnArg, GenericArgument, ImplItem, ImplItemMethod, ItemImpl, Lit, Meta, MetaNameValue, NestedMeta, Pat, PatIdent,
-    PatType, Path, PathArguments, PathSegment, Result, ReturnType, Type, TypePath,
+    export::ToTokens, spanned::Spanned, Attribute, Error, Expr, FnArg, GenericArgument, ImplItem, ImplItemMethod, ItemImpl, Lit, Meta, MetaNameValue,
+    NestedMeta, Pat, PatIdent, PatType, Path, PathArguments, PathSegment, Result, ReturnType, Type, TypePath,
 };
 
 #[derive(Clone, Debug)]
@@ -275,33 +275,32 @@ pub struct GuardDef {
 
 impl ToTokens for GuardDef {
     fn to_tokens(&self, tokens: &mut TokenStream) {
+        let span = tokens.span();
         let guard_type = &self.guard_type;
-        (quote! {let guard:#guard_type = }).to_tokens(tokens);
         if let Some(init_fn) = self.init_fn.as_ref() {
             init_fn.to_tokens(tokens);
         } else {
-            (quote! {#guard_type::new}).to_tokens(tokens);
+            quote_spanned!(span=> #guard_type::new).to_tokens(tokens);
         }
 
-        let paren = syn::token::Paren { span: Span::call_site() };
+        let paren = syn::token::Paren { span };
 
         paren.surround(tokens, |t| {
             if self.init_fn.is_some() {
-                (quote! {self}).to_tokens(t);
+                quote_spanned!(span=> self).to_tokens(t);
                 if self.init_expr.is_some() || self.init_data.is_some() {
-                    syn::token::Comma { spans: [Span::call_site()] }.to_tokens(t);
+                    syn::token::Comma { spans: [span] }.to_tokens(t);
                 }
             }
 
             if let Some(init_expr) = self.init_expr.as_ref() {
-                syn::token::Brace { span: Span::call_site() }.surround(t, |t2| {
+                syn::token::Brace { span }.surround(t, |t2| {
                     init_expr.to_tokens(t2);
                 });
             } else if let Some(init_data) = self.init_data.as_ref() {
                 init_data.to_tokens(t);
             }
         });
-        syn::token::Semi { spans: [Span::call_site()] }.to_tokens(tokens);
     }
 }
 

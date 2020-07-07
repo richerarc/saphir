@@ -116,7 +116,7 @@ fn gen_query_load(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
     if opts.parse_query {
         (quote! {
 
-        let mut query = req.uri().query().map(|query_str| serde_urlencoded::from_str::<HashMap<String, String>>(query_str)).transpose()?.unwrap_or_default();
+        let mut query = req.uri().query().map(saphir::utils::read_query_string_to_hashmap).transpose()?.unwrap_or_default();
         })
         .to_tokens(stream);
     }
@@ -289,7 +289,7 @@ impl ArgsRepr {
 
         (quote! {
 
-            let #id = if let Some(form) = req.uri().query().map(|query_str| serde_urlencoded::from_str::<#typ>(query_str).map_err(SaphirError::SerdeUrlDe)) {
+            let #id = if let Some(form) = req.uri().query().map(|query_str| saphir::utils::read_query_string_to_type::<#typ>(query_str).map_err(SaphirError::SerdeUrlDe)) {
                 Some(form.map(|x| Form(x)))
             } else {
                 Some(req.body_mut().take_as::<#typ_raw>().await.map(|x| Form(x)))

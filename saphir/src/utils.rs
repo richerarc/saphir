@@ -2,11 +2,12 @@ use crate::{body::Body, error::SaphirError, request::Request};
 use http::Method;
 use regex::Regex;
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, VecDeque},
     iter::FromIterator,
     str::FromStr,
     sync::atomic::AtomicU64,
 };
+use crate::http_context::HandlerMetadata;
 
 // TODO: Add possibility to match any route like /page/<path..>/view
 // this will match any route that begins with /page and ends with /view, the in
@@ -20,22 +21,37 @@ static ENDPOINT_ID: AtomicU64 = AtomicU64::new(0);
 pub enum EndpointResolverResult {
     InvalidPath,
     MethodNotAllowed,
-    Match,
+    Match(Option<HandlerMetadata>),
 }
 
 pub struct EndpointResolver {
     path_matcher: UriPathMatcher,
-    methods: HashSet<Method>,
+    methods: HashMap<Method, Option<HandlerMetadata>>,
     id: u64,
     allow_any_method: bool,
 }
 
 impl EndpointResolver {
     pub fn new(path_str: &str, method: Method) -> Result<EndpointResolver, SaphirError> {
-        let mut methods = HashSet::new();
+        let mut methods = HashMap::new();
         let allow_any_method = method.is_any();
         if !allow_any_method {
-            methods.insert(method);
+            methods.insert(method, None);
+        }
+
+        Ok(EndpointResolver {
+            path_matcher: UriPathMatcher::new(path_str).map_err(SaphirError::Other)?,
+            methods,
+            id: ENDPOINT_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
+            allow_any_method,
+        })
+    }
+
+    pub fn new_with_metadata<I: Into<Option<HandlerMetadata>>>(path_str: &str, method: Method, meta: I) -> Result<EndpointResolver, SaphirError> {
+        let mut methods = HashMap::new();
+        let allow_any_method = method.is_any();
+        if !allow_any_method {
+            methods.insert(method, meta.into());
         }
 
         Ok(EndpointResolver {
@@ -50,15 +66,25 @@ impl EndpointResolver {
         if !self.allow_any_method && m.is_any() {
             self.allow_any_method = true;
         } else {
-            self.methods.insert(m);
+            self.methods.insert(m, None);
+        }
+    }
+
+    pub fn add_method_with_metadata<I: Into<Option<HandlerMetadata>>>(&mut self, m: Method, meta: I) {
+        if !self.allow_any_method && m.is_any() {
+            self.allow_any_method = true;
+        } else {
+            self.methods.insert(m, meta.into());
         }
     }
 
     pub fn resolve(&self, req: &mut Request<Body>) -> EndpointResolverResult {
         let path = req.uri().path().to_string();
         if self.path_matcher.match_all_and_capture(path, req.captures_mut()) {
-            if self.allow_any_method || self.methods.contains(req.method()) {
-                EndpointResolverResult::Match
+            let method_meta_opt = self.methods.get(req.method());
+            if self.allow_any_method || method_meta_opt.is_some() {
+                let meta = method_meta_opt.map(|op| op.clone()).flatten();
+                EndpointResolverResult::Match(meta)
             } else {
                 EndpointResolverResult::MethodNotAllowed
             }

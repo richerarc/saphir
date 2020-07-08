@@ -28,6 +28,7 @@ use crate::{
     router::{Builder as RouterBuilder, Router, RouterChain, RouterChainEnd},
 };
 use http::{HeaderValue, Request as RawRequest, Response as RawResponse};
+use crate::responder::Responder;
 
 /// Default time for request handling is 30 seconds
 pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
@@ -417,7 +418,16 @@ impl Stack {
     }
 
     async fn invoke(&self, req: Request<Body>) -> Result<Response<Body>, SaphirError> {
-        let ctx = HttpContext::new(req, self.router.clone());
+        let mut ctx = HttpContext::new(req, self.router.clone());
+
+        match self.router.resolve_metadata(ctx.state.request_unchecked_mut()) {
+            Ok(Some(_)) => {},
+            Ok(None) => {},
+            Err(status) => {
+                return status.respond_with_builder(crate::response::Builder::new(), &ctx).build();
+            },
+        }
+
         self.middlewares
             .next(ctx)
             .await

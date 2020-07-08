@@ -147,6 +147,12 @@ impl State {
     }
 }
 
+/// MetaData of the resolved request handler
+#[derive(Debug, Clone)]
+pub struct HandlerMetadata {
+    pub name: &'static str
+}
+
 /// Context representing the relationship between a request and a response
 /// This structure only appears inside Middleware since the act before and after
 /// the request
@@ -161,6 +167,7 @@ pub struct HttpContext {
     #[cfg(feature = "operation")]
     /// Unique Identifier of the current request->response chain
     pub operation_id: crate::http_context::operation::OperationId,
+    pub metadata: Option<HandlerMetadata>,
     pub(crate) router: Option<Router>,
 }
 
@@ -170,7 +177,7 @@ impl HttpContext {
         {
             let state = State::Before(Box::new(request));
             let router = Some(router);
-            HttpContext { state, router }
+            HttpContext { state, metadata: None, router }
         }
 
         #[cfg(feature = "operation")]
@@ -186,7 +193,7 @@ impl HttpContext {
             *request.operation_id_mut() = operation_id;
             let state = State::Before(Box::new(request));
             let router = Some(router);
-            HttpContext { state, router, operation_id }
+            HttpContext { state, router, operation_id, metadata: None }
         }
     }
 

@@ -23,6 +23,7 @@ use crate::{
 use futures::{future::BoxFuture, FutureExt};
 use http::Method;
 use std::{collections::HashMap, sync::Arc};
+use crate::http_context::HandlerMetadata;
 
 /// Builder type for the router
 pub struct Builder<Chain: RouterChain + Send + Unpin + 'static + Sync> {
@@ -140,13 +141,14 @@ impl<Controllers: 'static + RouterChain + Unpin + Send + Sync> Builder<Controlle
     /// ```
     pub fn controller<C: Controller + Send + Unpin + Sync>(mut self, controller: C) -> Builder<RouterChainLink<C, Controllers>> {
         let mut handlers = HashMap::new();
-        for (method, subroute, handler, guard_chain) in controller.handlers() {
+        for (name, method, subroute, handler, guard_chain) in controller.handlers() {
             let route = format!("{}{}", C::BASE_PATH, subroute);
+            let meta = name.map(|name| HandlerMetadata{ name });
             let endpoint_id = if let Some(er) = self.resolver.get_mut(&route) {
-                er.add_method(method.clone());
+                er.add_method_with_metadata(method.clone(), meta);
                 er.id()
             } else {
-                let er = EndpointResolver::new(&route, method.clone()).expect("Unable to construct endpoint resolver");
+                let er = EndpointResolver::new_with_metadata(&route, method.clone(), meta).expect("Unable to construct endpoint resolver");
                 let er_id = er.id();
                 self.resolver.insert(route, er);
                 er_id
@@ -199,7 +201,24 @@ impl Router {
             match endpoint_resolver.resolve(req) {
                 EndpointResolverResult::InvalidPath => continue,
                 EndpointResolverResult::MethodNotAllowed => method_not_allowed = true,
-                EndpointResolverResult::Match => return Ok(endpoint_resolver.id()),
+                EndpointResolverResult::Match(_) => return Ok(endpoint_resolver.id()),
+            }
+        }
+
+        if method_not_allowed {
+            Err(405)
+        } else {
+            Err(404)
+        }
+    }
+
+    pub fn resolve_metadata(&self, req: &mut Request<Body>) -> Result<Option<HandlerMetadata>, u16> {
+        let mut method_not_allowed = false;
+        for endpoint_resolver in &self.inner.resolvers {
+            match endpoint_resolver.resolve(req) {
+                EndpointResolverResult::InvalidPath => continue,
+                EndpointResolverResult::MethodNotAllowed => method_not_allowed = true,
+                EndpointResolverResult::Match(opt) => return Ok(opt),
             }
         }
 

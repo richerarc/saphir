@@ -105,6 +105,8 @@ fn gen_controller_handlers_fn(attr: &ControllerAttr, handlers: &[HandlerRepr]) -
     let mut handler_stream = TokenStream::new();
     let ctrl_ident = attr.ident.clone();
 
+    let controller_name = attr.ident.to_string();
+
     for handler in handlers {
         let HandlerAttrs { methods_paths, guards, .. } = &handler.attrs;
         let handler_ident = handler.original_method.sig.ident.clone();
@@ -113,21 +115,40 @@ fn gen_controller_handlers_fn(attr: &ControllerAttr, handlers: &[HandlerRepr]) -
             let method = method.as_str();
             if guards.is_empty() {
                 (quote! {
-                    .add(Method::from_str(#method).expect("Method was validated by the macro expansion"), #path, #ctrl_ident::#handler_ident)
+                    .add({
+                        println!("   - [{}] route : {} {}", #controller_name, #method, #path);
+                        Method::from_str(#method).expect("Method was validated by the macro expansion")
+                    }, #path, #ctrl_ident::#handler_ident)
                 })
                 .to_tokens(&mut handler_stream);
             } else {
                 let mut guard_stream = TokenStream::new();
+                let mut guard_print_stream = TokenStream::new();
 
                 for guard_def in guards {
                     (quote! {
                         .apply(#guard_def)
                     })
                     .to_tokens(&mut guard_stream);
+
+                    let guard_name = guard_def.guard_type.get_ident().expect("Guard should have an identity").to_string();
+                    if let Some(guard_init_data) = guard_def.init_data.as_ref() {
+                        (quote! {
+                            println!("      - Guard : [{:?}] - data : {:?}", #guard_name, #guard_init_data);
+                        }).to_tokens(&mut guard_print_stream);
+                    } else {
+                        (quote! {
+                            println!("      - Guard : [{:?}]", #guard_name);
+                        }).to_tokens(&mut guard_print_stream);
+                    }
                 }
 
                 (quote! {
-                    .add_with_guards(Method::from_str(#method).expect("Method was validated the macro expansion"), #path, #ctrl_ident::#handler_ident, |g| {
+                    .add_with_guards({
+                        println!("   - [{}] route : {} {}", #controller_name, #method, #path);
+                        #guard_print_stream
+                        Method::from_str(#method).expect("Method was validated the macro expansion")
+                    }, #path, #ctrl_ident::#handler_ident, |g| {
                         g #guard_stream
                     })
                 })
@@ -138,6 +159,7 @@ fn gen_controller_handlers_fn(attr: &ControllerAttr, handlers: &[HandlerRepr]) -
 
     let quoted_h = quote! {
         fn handlers(&self) -> Vec<ControllerEndpoint<Self>> where Self: Sized {
+            println!("Adding controller : [{}]", #controller_name);
             EndpointsBuilder::new()
                 #handler_stream
                 .build()

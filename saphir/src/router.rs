@@ -15,7 +15,7 @@ use crate::{
     error::SaphirError,
     guard::{Builder as GuardBuilder, GuardChain, GuardChainEnd},
     handler::DynHandler,
-    http_context::{HttpContext, State},
+    http_context::{HandlerMetadata, HttpContext, State},
     request::Request,
     responder::{DynResponder, Responder},
     utils::{EndpointResolver, EndpointResolverResult},
@@ -23,7 +23,6 @@ use crate::{
 use futures::{future::BoxFuture, FutureExt};
 use http::Method;
 use std::{collections::HashMap, sync::Arc};
-use crate::http_context::HandlerMetadata;
 
 /// Builder type for the router
 pub struct Builder<Chain: RouterChain + Send + Unpin + 'static + Sync> {
@@ -143,7 +142,7 @@ impl<Controllers: 'static + RouterChain + Unpin + Send + Sync> Builder<Controlle
         let mut handlers = HashMap::new();
         for (name, method, subroute, handler, guard_chain) in controller.handlers() {
             let route = format!("{}{}", C::BASE_PATH, subroute);
-            let meta = name.map(|name| HandlerMetadata{ name });
+            let meta = name.map(|name| HandlerMetadata { name });
             let endpoint_id = if let Some(er) = self.resolver.get_mut(&route) {
                 er.add_method_with_metadata(method.clone(), meta);
                 er.id()
@@ -170,9 +169,12 @@ impl<Controllers: 'static + RouterChain + Unpin + Send + Sync> Builder<Controlle
     pub(crate) fn build(self) -> Router {
         let Builder { resolver, chain: controllers } = self;
 
+        let mut resolvers: Vec<_> = resolver.into_iter().map(|(_, e)| e).collect();
+        resolvers.sort_unstable();
+
         Router {
             inner: Arc::new(RouterInner {
-                resolvers: resolver.into_iter().map(|(_, e)| e).collect(),
+                resolvers,
                 chain: Box::new(controllers),
             }),
         }
@@ -214,6 +216,7 @@ impl Router {
 
     pub fn resolve_metadata(&self, req: &mut Request<Body>) -> Result<Option<HandlerMetadata>, u16> {
         let mut method_not_allowed = false;
+
         for endpoint_resolver in &self.inner.resolvers {
             match endpoint_resolver.resolve(req) {
                 EndpointResolverResult::InvalidPath => continue,

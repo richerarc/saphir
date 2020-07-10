@@ -126,8 +126,10 @@ fn gen_controller_handlers_fn(attr: &ControllerAttr, handlers: &[HandlerRepr]) -
                     .to_tokens(&mut guard_stream);
                 }
 
+                let handler_name = handler_ident.to_string();
+
                 (quote! {
-                    .add_with_guards(Method::from_str(#method).expect("Method was validated the macro expansion"), #path, #ctrl_ident::#handler_ident, |g| {
+                    .add_with_guards_and_name(#handler_name, Method::from_str(#method).expect("Method was validated the macro expansion"), #path, #ctrl_ident::#handler_ident, |g| {
                         g #guard_stream
                     })
                 })

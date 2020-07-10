@@ -148,9 +148,9 @@ impl State {
 }
 
 /// MetaData of the resolved request handler
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct HandlerMetadata {
-    pub name: &'static str
+    pub name: &'static str,
 }
 
 /// Context representing the relationship between a request and a response
@@ -193,7 +193,12 @@ impl HttpContext {
             *request.operation_id_mut() = operation_id;
             let state = State::Before(Box::new(request));
             let router = Some(router);
-            HttpContext { state, router, operation_id, metadata: None }
+            HttpContext {
+                state,
+                router,
+                operation_id,
+                metadata: None,
+            }
         }
     }
 

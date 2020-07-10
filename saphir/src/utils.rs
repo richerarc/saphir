@@ -1,5 +1,6 @@
-use crate::{body::Body, error::SaphirError, request::Request};
+use crate::{body::Body, error::SaphirError, http_context::HandlerMetadata, request::Request};
 use http::Method;
+use nom::lib::std::cmp::{min, Ordering};
 use regex::Regex;
 use std::{
     collections::{HashMap, VecDeque},
@@ -7,7 +8,6 @@ use std::{
     str::FromStr,
     sync::atomic::AtomicU64,
 };
-use crate::http_context::HandlerMetadata;
 
 // TODO: Add possibility to match any route like /page/<path..>/view
 // this will match any route that begins with /page and ends with /view, the in
@@ -24,11 +24,30 @@ pub enum EndpointResolverResult {
     Match(Option<HandlerMetadata>),
 }
 
+#[derive(Debug, Eq)]
 pub struct EndpointResolver {
     path_matcher: UriPathMatcher,
     methods: HashMap<Method, Option<HandlerMetadata>>,
     id: u64,
     allow_any_method: bool,
+}
+
+impl Ord for EndpointResolver {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.path_matcher.cmp(&other.path_matcher)
+    }
+}
+
+impl PartialOrd for EndpointResolver {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for EndpointResolver {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
 }
 
 impl EndpointResolver {
@@ -83,7 +102,7 @@ impl EndpointResolver {
         if self.path_matcher.match_all_and_capture(path, req.captures_mut()) {
             let method_meta_opt = self.methods.get(req.method());
             if self.allow_any_method || method_meta_opt.is_some() {
-                let meta = method_meta_opt.map(|op| op.clone()).flatten();
+                let meta = method_meta_opt.cloned().flatten();
                 EndpointResolverResult::Match(meta)
             } else {
                 EndpointResolverResult::MethodNotAllowed
@@ -98,7 +117,7 @@ impl EndpointResolver {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq)]
 pub(crate) enum UriPathMatcher {
     Simple {
         inner: Vec<UriPathSegmentMatcher>,
@@ -108,6 +127,78 @@ pub(crate) enum UriPathMatcher {
         end: VecDeque<UriPathSegmentMatcher>,
         wildcard_capture_name: Option<String>,
     },
+}
+
+impl Ord for UriPathMatcher {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let (start_self, end_self, simple_self) = match self {
+            UriPathMatcher::Simple { inner } => (inner, None, true),
+            UriPathMatcher::Wildcard { start, end, .. } => (start, Some(end), false),
+        };
+        let (start_other, end_other, simple_other) = match other {
+            UriPathMatcher::Simple { inner } => (inner, None, true),
+            UriPathMatcher::Wildcard { start, end, .. } => (start, Some(end), false),
+        };
+
+        let i_self = start_self.len();
+        let i_other = start_other.len();
+        let min_len = min(i_self, i_other);
+        for i in 0..min_len {
+            let cmp = start_self[i].cmp(&start_other[i]);
+            if cmp != Ordering::Equal {
+                return cmp;
+            }
+        }
+
+        if i_self > i_other {
+            for start in start_self.iter().take(i_self).skip(min_len) {
+                if let UriPathSegmentMatcher::Static { .. } = start {
+                    return Ordering::Less;
+                }
+            }
+        }
+        if i_other > i_self {
+            for start in start_other.iter().take(i_other).skip(min_len) {
+                if let UriPathSegmentMatcher::Static { .. } = start {
+                    return Ordering::Greater;
+                }
+            }
+        }
+
+        match (end_self, end_other) {
+            (Some(end_self), Some(end_other)) => {
+                let j_self = end_self.len();
+                let j_other = end_other.len();
+                let min_len = min(j_self, j_other);
+                for j in 0..min_len {
+                    let cmp = end_self[j].cmp(&end_other[j]);
+                    if cmp != Ordering::Equal {
+                        return cmp;
+                    }
+                }
+                j_other.cmp(&j_self)
+            }
+            (Some(e), None) if !e.is_empty() => Ordering::Less,
+            (None, Some(e)) if !e.is_empty() => Ordering::Greater,
+            _ => match (simple_self, simple_other) {
+                (true, false) => Ordering::Less,
+                (false, true) => Ordering::Greater,
+                _ => i_other.cmp(&i_self),
+            },
+        }
+    }
+}
+
+impl PartialOrd for UriPathMatcher {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for UriPathMatcher {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
 }
 
 impl UriPathMatcher {
@@ -304,6 +395,25 @@ pub(crate) enum UriPathSegmentMatcher {
     Custom { name: Option<String>, segment: Regex },
     Wildcard { prefix: Option<String>, suffix: Option<String> },
 }
+impl Eq for UriPathSegmentMatcher {}
+
+impl Ord for UriPathSegmentMatcher {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.ord_index().cmp(&other.ord_index())
+    }
+}
+
+impl PartialOrd for UriPathSegmentMatcher {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for UriPathSegmentMatcher {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
 
 impl UriPathSegmentMatcher {
     const SEGMENT_VARIABLE_CLOSING_CHARS: &'static [char] = &['}', '>'];
@@ -366,6 +476,16 @@ impl UriPathSegmentMatcher {
             UriPathSegmentMatcher::Wildcard { .. } => None,
         }
     }
+
+    #[inline]
+    fn ord_index(&self) -> u16 {
+        match self {
+            UriPathSegmentMatcher::Static { .. } => 1,
+            UriPathSegmentMatcher::Variable { .. } => 3,
+            UriPathSegmentMatcher::Custom { .. } => 2,
+            UriPathSegmentMatcher::Wildcard { .. } => 3,
+        }
+    }
 }
 
 pub trait MethodExtension {
@@ -396,4 +516,51 @@ where
     T: for<'a> serde::Deserialize<'a>,
 {
     serde_urlencoded::from_str::<T>(query_str)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{EndpointResolver, Method};
+    use nom::lib::std::collections::HashMap;
+    use std::str::FromStr;
+
+    #[test]
+    fn test_simple_endpoint_resolver_ordering() {
+        let paths = vec![
+            "/api/v1/users",
+            "/api/v1/users/keys",
+            "/api/v1/users/keys/<id>",
+            "/api/v1/users/keys/first",
+            "/api/v1/users/keys/**",
+            "/api/v1/users/keys/**/delete",
+            "/api/v1/users/**/delete",
+            "/api/v1/users/<user_id>/keys",
+            "/api/v1/users/<user_id>/<key_id>",
+            "/api/v1/users/<user_id>",
+        ];
+        let mut resolvers = HashMap::new();
+        let mut ids = HashMap::new();
+        for path in &paths {
+            let resolver = EndpointResolver::new(path, Method::from_str("GET").unwrap()).unwrap();
+            ids.insert(path, resolver.id());
+            resolvers.insert(path, resolver);
+        }
+
+        assert!(resolvers.get(&"/api/v1/users/keys/first") < resolvers.get(&"/api/v1/users/keys/<id>"));
+        assert!(resolvers.get(&"/api/v1/users/keys/<id>") < resolvers.get(&"/api/v1/users/keys/**"));
+
+        let mut resolvers_vec: Vec<_> = resolvers.into_iter().map(|(_, r)| r).collect();
+        resolvers_vec.sort_unstable();
+
+        assert_eq!(&resolvers_vec[0].id(), ids.get(&"/api/v1/users/keys/first").unwrap());
+        assert_eq!(&resolvers_vec[1].id(), ids.get(&"/api/v1/users/keys/**/delete").unwrap());
+        assert_eq!(&resolvers_vec[2].id(), ids.get(&"/api/v1/users/keys/<id>").unwrap());
+        assert_eq!(&resolvers_vec[3].id(), ids.get(&"/api/v1/users/keys").unwrap());
+        assert_eq!(&resolvers_vec[4].id(), ids.get(&"/api/v1/users/keys/**").unwrap());
+        assert_eq!(&resolvers_vec[5].id(), ids.get(&"/api/v1/users/<user_id>/keys").unwrap());
+        assert_eq!(&resolvers_vec[6].id(), ids.get(&"/api/v1/users/**/delete").unwrap());
+        assert_eq!(&resolvers_vec[7].id(), ids.get(&"/api/v1/users/<user_id>/<key_id>").unwrap());
+        assert_eq!(&resolvers_vec[8].id(), ids.get(&"/api/v1/users/<user_id>").unwrap());
+        assert_eq!(&resolvers_vec[9].id(), ids.get(&"/api/v1/users").unwrap());
+    }
 }

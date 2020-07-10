@@ -1,8 +1,8 @@
 use crate::{body::Body, error::SaphirError, http_context::HandlerMetadata, request::Request};
 use http::Method;
-use std::cmp::{min, Ordering};
 use regex::Regex;
 use std::{
+    cmp::{min, Ordering},
     collections::{HashMap, VecDeque},
     iter::FromIterator,
     str::FromStr,
@@ -547,8 +547,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::{EndpointResolver, Method};
-    use std::collections::HashMap;
-    use std::str::FromStr;
+    use std::{collections::HashMap, str::FromStr};
 
     #[test]
     fn test_simple_endpoint_resolver_ordering() {

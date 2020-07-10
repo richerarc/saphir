@@ -42,7 +42,13 @@ use futures_util::future::{Future, FutureExt};
 use http::Method;
 
 /// Type definition to represent a endpoint within a controller
-pub type ControllerEndpoint<C> = (Method, &'static str, Box<dyn DynControllerHandler<C, Body> + Send + Sync>, Box<dyn GuardChain>);
+pub type ControllerEndpoint<C> = (
+    Option<&'static str>,
+    Method,
+    &'static str,
+    Box<dyn DynControllerHandler<C, Body> + Send + Sync>,
+    Box<dyn GuardChain>,
+);
 
 /// Trait that defines how a controller handles its requests
 pub trait Controller {
@@ -124,7 +130,7 @@ impl<C: Controller> EndpointsBuilder<C> {
     where
         H: 'static + DynControllerHandler<C, Body> + Send + Sync,
     {
-        self.handlers.push((method, route, Box::new(handler), GuardBuilder::default().build()));
+        self.handlers.push((None, method, route, Box::new(handler), GuardBuilder::default().build()));
         self
     }
 
@@ -136,7 +142,32 @@ impl<C: Controller> EndpointsBuilder<C> {
         F: FnOnce(GuardBuilder<GuardChainEnd>) -> GuardBuilder<Chain>,
         Chain: GuardChain + 'static,
     {
-        self.handlers.push((method, route, Box::new(handler), guards(GuardBuilder::default()).build()));
+        self.handlers
+            .push((None, method, route, Box::new(handler), guards(GuardBuilder::default()).build()));
+        self
+    }
+
+    /// Add but with a handler name
+    #[inline]
+    pub fn add_with_name<H>(mut self, handler_name: &'static str, method: Method, route: &'static str, handler: H) -> Self
+    where
+        H: 'static + DynControllerHandler<C, Body> + Send + Sync,
+    {
+        self.handlers
+            .push((Some(handler_name), method, route, Box::new(handler), GuardBuilder::default().build()));
+        self
+    }
+
+    /// Add with guard but with a handler name
+    #[inline]
+    pub fn add_with_guards_and_name<H, F, Chain>(mut self, handler_name: &'static str, method: Method, route: &'static str, handler: H, guards: F) -> Self
+    where
+        H: 'static + DynControllerHandler<C, Body> + Send + Sync,
+        F: FnOnce(GuardBuilder<GuardChainEnd>) -> GuardBuilder<Chain>,
+        Chain: GuardChain + 'static,
+    {
+        self.handlers
+            .push((Some(handler_name), method, route, Box::new(handler), guards(GuardBuilder::default()).build()));
         self
     }
 

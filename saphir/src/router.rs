@@ -15,7 +15,7 @@ use crate::{
     error::SaphirError,
     guard::{Builder as GuardBuilder, GuardChain, GuardChainEnd},
     handler::DynHandler,
-    http_context::{HttpContext, State},
+    http_context::{HandlerMetadata, HttpContext, State},
     request::Request,
     responder::{DynResponder, Responder},
     utils::{EndpointResolver, EndpointResolverResult},
@@ -140,13 +140,14 @@ impl<Controllers: 'static + RouterChain + Unpin + Send + Sync> Builder<Controlle
     /// ```
     pub fn controller<C: Controller + Send + Unpin + Sync>(mut self, controller: C) -> Builder<RouterChainLink<C, Controllers>> {
         let mut handlers = HashMap::new();
-        for (method, subroute, handler, guard_chain) in controller.handlers() {
+        for (name, method, subroute, handler, guard_chain) in controller.handlers() {
             let route = format!("{}{}", C::BASE_PATH, subroute);
+            let meta = name.map(|name| HandlerMetadata { route_id: 0, name: Some(name) });
             let endpoint_id = if let Some(er) = self.resolver.get_mut(&route) {
-                er.add_method(method.clone());
+                er.add_method_with_metadata(method.clone(), meta);
                 er.id()
             } else {
-                let er = EndpointResolver::new(&route, method.clone()).expect("Unable to construct endpoint resolver");
+                let er = EndpointResolver::new_with_metadata(&route, method.clone(), meta).expect("Unable to construct endpoint resolver");
                 let er_id = er.id();
                 self.resolver.insert(route, er);
                 er_id
@@ -168,9 +169,12 @@ impl<Controllers: 'static + RouterChain + Unpin + Send + Sync> Builder<Controlle
     pub(crate) fn build(self) -> Router {
         let Builder { resolver, chain: controllers } = self;
 
+        let mut resolvers: Vec<_> = resolver.into_iter().map(|(_, e)| e).collect();
+        resolvers.sort_unstable();
+
         Router {
             inner: Arc::new(RouterInner {
-                resolvers: resolver.into_iter().map(|(_, e)| e).collect(),
+                resolvers,
                 chain: Box::new(controllers),
             }),
         }
@@ -199,7 +203,7 @@ impl Router {
             match endpoint_resolver.resolve(req) {
                 EndpointResolverResult::InvalidPath => continue,
                 EndpointResolverResult::MethodNotAllowed => method_not_allowed = true,
-                EndpointResolverResult::Match => return Ok(endpoint_resolver.id()),
+                EndpointResolverResult::Match(_) => return Ok(endpoint_resolver.id()),
             }
         }
 
@@ -210,23 +214,31 @@ impl Router {
         }
     }
 
-    pub async fn handle(self, mut ctx: HttpContext) -> Result<HttpContext, SaphirError> {
-        let mut req = ctx.state.take_request().ok_or_else(|| SaphirError::RequestMovedBeforeHandler)?;
-        match self.resolve(&mut req) {
-            Ok(id) => self.dispatch(id, req, ctx).await,
-            Err(status) => {
-                ctx.state = State::After(Box::new(status.respond_with_builder(crate::response::Builder::new(), &ctx).build()?));
-                Ok(ctx)
+    pub fn resolve_metadata(&self, req: &mut Request<Body>) -> Result<&HandlerMetadata, u16> {
+        let mut method_not_allowed = false;
+
+        for endpoint_resolver in &self.inner.resolvers {
+            match endpoint_resolver.resolve(req) {
+                EndpointResolverResult::InvalidPath => continue,
+                EndpointResolverResult::MethodNotAllowed => method_not_allowed = true,
+                EndpointResolverResult::Match(meta) => return Ok(meta),
             }
+        }
+
+        if method_not_allowed {
+            Err(405)
+        } else {
+            Err(404)
         }
     }
 
-    pub async fn dispatch(&self, resolver_id: u64, req: Request<Body>, mut ctx: HttpContext) -> Result<HttpContext, SaphirError> {
+    pub async fn dispatch(&self, mut ctx: HttpContext) -> Result<HttpContext, SaphirError> {
+        let req = ctx.state.take_request().ok_or_else(|| SaphirError::RequestMovedBeforeHandler)?;
         // # SAFETY #
         // The router is initialized in static memory when calling run on Server.
         let static_self = unsafe { std::mem::transmute::<&'_ Self, &'static Self>(self) };
         let b = crate::response::Builder::new();
-        let res = if let Some(responder) = static_self.inner.chain.dispatch(resolver_id, req) {
+        let res = if let Some(responder) = static_self.inner.chain.dispatch(ctx.metadata.route_id, req) {
             responder.await.dyn_respond(b, &ctx)
         } else {
             404.respond_with_builder(b, &ctx)

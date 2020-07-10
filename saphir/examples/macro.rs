@@ -101,6 +101,7 @@ impl ApiKeyMiddleware {
             info!("Not Authenticated");
         }
 
+        info!("Handler {} will be used", ctx.metadata.name.unwrap_or("unknown"));
         chain.next(ctx).await
     }
 }

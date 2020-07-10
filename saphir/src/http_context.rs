@@ -147,6 +147,13 @@ impl State {
     }
 }
 
+/// MetaData of the resolved request handler
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
+pub struct HandlerMetadata {
+    pub route_id: u64,
+    pub name: Option<&'static str>,
+}
+
 /// Context representing the relationship between a request and a response
 /// This structure only appears inside Middleware since the act before and after
 /// the request
@@ -161,16 +168,17 @@ pub struct HttpContext {
     #[cfg(feature = "operation")]
     /// Unique Identifier of the current request->response chain
     pub operation_id: crate::http_context::operation::OperationId,
+    pub metadata: HandlerMetadata,
     pub(crate) router: Option<Router>,
 }
 
 impl HttpContext {
-    pub(crate) fn new(request: Request, router: Router) -> Self {
+    pub(crate) fn new(request: Request, router: Router, metadata: HandlerMetadata) -> Self {
         #[cfg(not(feature = "operation"))]
         {
             let state = State::Before(Box::new(request));
             let router = Some(router);
-            HttpContext { state, router }
+            HttpContext { state, metadata, router }
         }
 
         #[cfg(feature = "operation")]
@@ -186,7 +194,12 @@ impl HttpContext {
             *request.operation_id_mut() = operation_id;
             let state = State::Before(Box::new(request));
             let router = Some(router);
-            HttpContext { state, router, operation_id }
+            HttpContext {
+                state,
+                router,
+                operation_id,
+                metadata,
+            }
         }
     }
 

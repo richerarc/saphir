@@ -27,7 +27,7 @@ use crate::{
     response::Response,
     router::{Builder as RouterBuilder, Router, RouterChain, RouterChainEnd},
 };
-use http::{HeaderValue, Request as RawRequest, Response as RawResponse};
+use http::{HeaderValue, Request as RawRequest, Response as RawResponse, StatusCode};
 
 /// Default time for request handling is 30 seconds
 pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
@@ -417,11 +417,15 @@ impl Stack {
     }
 
     async fn invoke(&self, mut req: Request<Body>) -> Result<Response<Body>, SaphirError> {
-        let resolved = self.router.resolve_metadata(&mut req);
-        let mut ctx = HttpContext::new(req, self.router.clone());
-        if let Ok(meta) = resolved {
-            ctx.metadata = meta;
-        }
+        let meta = match self.router.resolve_metadata(&mut req) {
+            Ok(m) => m,
+            Err(e) => {
+                let mut r = Response::new(Body::empty());
+                *r.status_mut() = StatusCode::from_u16(e).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+                return Ok(r);
+            }
+        };
+        let ctx = HttpContext::new(req, self.router.clone(), meta.clone());
 
         self.middlewares
             .next(ctx)

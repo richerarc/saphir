@@ -1,6 +1,6 @@
 use crate::{body::Body, error::SaphirError, http_context::HandlerMetadata, request::Request};
 use http::Method;
-use nom::lib::std::cmp::{min, Ordering};
+use std::cmp::{min, Ordering};
 use regex::Regex;
 use std::{
     collections::{HashMap, VecDeque},
@@ -18,18 +18,23 @@ use std::{
 
 static ENDPOINT_ID: AtomicU64 = AtomicU64::new(0);
 
-pub enum EndpointResolverResult {
+pub enum EndpointResolverResult<'a> {
     InvalidPath,
     MethodNotAllowed,
-    Match(Option<HandlerMetadata>),
+    Match(&'a HandlerMetadata),
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum EndpointResolverMethods {
+    Specific(HashMap<Method, HandlerMetadata>),
+    Any(HandlerMetadata),
 }
 
 #[derive(Debug, Eq)]
 pub struct EndpointResolver {
-    path_matcher: UriPathMatcher,
-    methods: HashMap<Method, Option<HandlerMetadata>>,
     id: u64,
-    allow_any_method: bool,
+    path_matcher: UriPathMatcher,
+    methods: EndpointResolverMethods,
 }
 
 impl Ord for EndpointResolver {
@@ -52,60 +57,81 @@ impl PartialEq for EndpointResolver {
 
 impl EndpointResolver {
     pub fn new(path_str: &str, method: Method) -> Result<EndpointResolver, SaphirError> {
-        let mut methods = HashMap::new();
-        let allow_any_method = method.is_any();
-        if !allow_any_method {
-            methods.insert(method, None);
-        }
+        let id = ENDPOINT_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let meta = HandlerMetadata { route_id: id, name: None };
+        let methods = if method.is_any() {
+            EndpointResolverMethods::Any(meta)
+        } else {
+            let mut methods = HashMap::new();
+            methods.insert(method, meta);
+            EndpointResolverMethods::Specific(methods)
+        };
 
         Ok(EndpointResolver {
             path_matcher: UriPathMatcher::new(path_str).map_err(SaphirError::Other)?,
             methods,
-            id: ENDPOINT_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
-            allow_any_method,
+            id,
         })
     }
 
     pub fn new_with_metadata<I: Into<Option<HandlerMetadata>>>(path_str: &str, method: Method, meta: I) -> Result<EndpointResolver, SaphirError> {
-        let mut methods = HashMap::new();
-        let allow_any_method = method.is_any();
-        if !allow_any_method {
-            methods.insert(method, meta.into());
-        }
+        let id = ENDPOINT_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let mut meta = meta.into().unwrap_or_default();
+        meta.route_id = id;
+        let methods = if method.is_any() {
+            EndpointResolverMethods::Any(meta)
+        } else {
+            let mut methods = HashMap::new();
+            methods.insert(method, meta);
+            EndpointResolverMethods::Specific(methods)
+        };
 
         Ok(EndpointResolver {
             path_matcher: UriPathMatcher::new(path_str).map_err(SaphirError::Other)?,
             methods,
-            id: ENDPOINT_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
-            allow_any_method,
+            id,
         })
     }
 
     pub fn add_method(&mut self, m: Method) {
-        if !self.allow_any_method && m.is_any() {
-            self.allow_any_method = true;
-        } else {
-            self.methods.insert(m, None);
+        match &mut self.methods {
+            EndpointResolverMethods::Specific(inner) => {
+                if m.is_any() {
+                    panic!("Adding ANY method but an Handler already defines specific methods, This is fatal")
+                }
+                let meta = HandlerMetadata { route_id: self.id, name: None };
+                inner.insert(m, meta);
+            }
+            EndpointResolverMethods::Any(_) => panic!("Adding a specific endpoint method but an Handler already defines ANY method, This is fatal"),
         }
     }
 
     pub fn add_method_with_metadata<I: Into<Option<HandlerMetadata>>>(&mut self, m: Method, meta: I) {
-        if !self.allow_any_method && m.is_any() {
-            self.allow_any_method = true;
-        } else {
-            self.methods.insert(m, meta.into());
+        match &mut self.methods {
+            EndpointResolverMethods::Specific(inner) => {
+                if m.is_any() {
+                    panic!("Adding ANY method but an Handler already defines specific methods, This is fatal")
+                }
+                let mut meta = meta.into().unwrap_or_default();
+                meta.route_id = self.id;
+                inner.insert(m, meta);
+            }
+            EndpointResolverMethods::Any(_) => panic!("Adding a specific endpoint method but an Handler already defines ANY method, This is fatal"),
         }
     }
 
     pub fn resolve(&self, req: &mut Request<Body>) -> EndpointResolverResult {
         let path = req.uri().path().to_string();
         if self.path_matcher.match_all_and_capture(path, req.captures_mut()) {
-            let method_meta_opt = self.methods.get(req.method());
-            if self.allow_any_method || method_meta_opt.is_some() {
-                let meta = method_meta_opt.cloned().flatten();
-                EndpointResolverResult::Match(meta)
-            } else {
-                EndpointResolverResult::MethodNotAllowed
+            match &self.methods {
+                EndpointResolverMethods::Specific(methods) => {
+                    if let Some(meta) = methods.get(req.method()) {
+                        EndpointResolverResult::Match(meta)
+                    } else {
+                        EndpointResolverResult::MethodNotAllowed
+                    }
+                }
+                EndpointResolverMethods::Any(meta) => EndpointResolverResult::Match(meta),
             }
         } else {
             EndpointResolverResult::InvalidPath
@@ -521,7 +547,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::{EndpointResolver, Method};
-    use nom::lib::std::collections::HashMap;
+    use std::collections::HashMap;
     use std::str::FromStr;
 
     #[test]

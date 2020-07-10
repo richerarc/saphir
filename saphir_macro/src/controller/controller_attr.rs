@@ -111,9 +111,10 @@ fn gen_controller_handlers_fn(attr: &ControllerAttr, handlers: &[HandlerRepr]) -
 
         for (method, path) in methods_paths {
             let method = method.as_str();
+            let handler_name = handler_ident.to_string();
             if guards.is_empty() {
                 (quote! {
-                    .add(Method::from_str(#method).expect("Method was validated by the macro expansion"), #path, #ctrl_ident::#handler_ident)
+                    .add_with_name(#handler_name, Method::from_str(#method).expect("Method was validated by the macro expansion"), #path, #ctrl_ident::#handler_ident)
                 })
                 .to_tokens(&mut handler_stream);
             } else {
@@ -125,8 +126,6 @@ fn gen_controller_handlers_fn(attr: &ControllerAttr, handlers: &[HandlerRepr]) -
                     })
                     .to_tokens(&mut guard_stream);
                 }
-
-                let handler_name = handler_ident.to_string();
 
                 (quote! {
                     .add_with_guards_and_name(#handler_name, Method::from_str(#method).expect("Method was validated the macro expansion"), #path, #ctrl_ident::#handler_ident, |g| {

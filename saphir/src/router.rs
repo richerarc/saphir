@@ -142,7 +142,7 @@ impl<Controllers: 'static + RouterChain + Unpin + Send + Sync> Builder<Controlle
         let mut handlers = HashMap::new();
         for (name, method, subroute, handler, guard_chain) in controller.handlers() {
             let route = format!("{}{}", C::BASE_PATH, subroute);
-            let meta = name.map(|name| HandlerMetadata { name });
+            let meta = name.map(|name| HandlerMetadata { route_id: 0, name: Some(name) });
             let endpoint_id = if let Some(er) = self.resolver.get_mut(&route) {
                 er.add_method_with_metadata(method.clone(), meta);
                 er.id()
@@ -214,14 +214,14 @@ impl Router {
         }
     }
 
-    pub fn resolve_metadata(&self, req: &mut Request<Body>) -> Result<Option<HandlerMetadata>, u16> {
+    pub fn resolve_metadata(&self, req: &mut Request<Body>) -> Result<&HandlerMetadata, u16> {
         let mut method_not_allowed = false;
 
         for endpoint_resolver in &self.inner.resolvers {
             match endpoint_resolver.resolve(req) {
                 EndpointResolverResult::InvalidPath => continue,
                 EndpointResolverResult::MethodNotAllowed => method_not_allowed = true,
-                EndpointResolverResult::Match(opt) => return Ok(opt),
+                EndpointResolverResult::Match(meta) => return Ok(meta),
             }
         }
 
@@ -232,23 +232,13 @@ impl Router {
         }
     }
 
-    pub async fn handle(self, mut ctx: HttpContext) -> Result<HttpContext, SaphirError> {
-        let mut req = ctx.state.take_request().ok_or_else(|| SaphirError::RequestMovedBeforeHandler)?;
-        match self.resolve(&mut req) {
-            Ok(id) => self.dispatch(id, req, ctx).await,
-            Err(status) => {
-                ctx.state = State::After(Box::new(status.respond_with_builder(crate::response::Builder::new(), &ctx).build()?));
-                Ok(ctx)
-            }
-        }
-    }
-
-    pub async fn dispatch(&self, resolver_id: u64, req: Request<Body>, mut ctx: HttpContext) -> Result<HttpContext, SaphirError> {
+    pub async fn dispatch(&self, mut ctx: HttpContext) -> Result<HttpContext, SaphirError> {
+        let req = ctx.state.take_request().ok_or_else(|| SaphirError::RequestMovedBeforeHandler)?;
         // # SAFETY #
         // The router is initialized in static memory when calling run on Server.
         let static_self = unsafe { std::mem::transmute::<&'_ Self, &'static Self>(self) };
         let b = crate::response::Builder::new();
-        let res = if let Some(responder) = static_self.inner.chain.dispatch(resolver_id, req) {
+        let res = if let Some(responder) = static_self.inner.chain.dispatch(ctx.metadata.route_id, req) {
             responder.await.dyn_respond(b, &ctx)
         } else {
             404.respond_with_builder(b, &ctx)

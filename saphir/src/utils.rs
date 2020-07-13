@@ -1,4 +1,9 @@
-use crate::{body::Body, error::SaphirError, http_context::HandlerMetadata, request::Request};
+use crate::{
+    body::Body,
+    error::SaphirError,
+    http_context::{HandlerMetadata, RouteId},
+    request::Request,
+};
 use http::Method;
 use regex::Regex;
 use std::{
@@ -8,7 +13,6 @@ use std::{
     str::FromStr,
     sync::atomic::AtomicU64,
 };
-use crate::http_context::RouteId;
 
 // TODO: Add possibility to match any route like /page/<path..>/view
 // this will match any route that begins with /page and ends with /view, the in
@@ -59,7 +63,10 @@ impl PartialEq for EndpointResolver {
 impl EndpointResolver {
     pub fn new(path_str: &str, method: Method) -> Result<EndpointResolver, SaphirError> {
         let id = ENDPOINT_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let meta = HandlerMetadata { route_id: RouteId::new(id), name: None };
+        let meta = HandlerMetadata {
+            route_id: RouteId::new(id),
+            name: None,
+        };
         let methods = if method.is_any() {
             EndpointResolverMethods::Any(meta)
         } else {
@@ -100,7 +107,10 @@ impl EndpointResolver {
                 if m.is_any() {
                     panic!("Adding ANY method but an Handler already defines specific methods, This is fatal")
                 }
-                let meta = HandlerMetadata { route_id: RouteId::new(self.id), name: None };
+                let meta = HandlerMetadata {
+                    route_id: RouteId::new(self.id),
+                    name: None,
+                };
                 inner.insert(m, meta);
             }
             EndpointResolverMethods::Any(_) => panic!("Adding a specific endpoint method but an Handler already defines ANY method, This is fatal"),

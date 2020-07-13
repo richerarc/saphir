@@ -15,7 +15,7 @@ use crate::{
     error::SaphirError,
     guard::{Builder as GuardBuilder, GuardChain, GuardChainEnd},
     handler::DynHandler,
-    http_context::{HandlerMetadata, HttpContext, State},
+    http_context::{HandlerMetadata, HttpContext, RouteId, State},
     request::Request,
     responder::{DynResponder, Responder},
     utils::{EndpointResolver, EndpointResolverResult},
@@ -23,7 +23,6 @@ use crate::{
 use futures::{future::BoxFuture, FutureExt};
 use http::Method;
 use std::{collections::HashMap, sync::Arc};
-use crate::http_context::RouteId;
 
 /// Builder type for the router
 pub struct Builder<Chain: RouterChain + Send + Unpin + 'static + Sync> {
@@ -143,7 +142,10 @@ impl<Controllers: 'static + RouterChain + Unpin + Send + Sync> Builder<Controlle
         let mut handlers = HashMap::new();
         for (name, method, subroute, handler, guard_chain) in controller.handlers() {
             let route = format!("{}{}", C::BASE_PATH, subroute);
-            let meta = name.map(|name| HandlerMetadata { route_id: Default::default(), name: Some(name) });
+            let meta = name.map(|name| HandlerMetadata {
+                route_id: Default::default(),
+                name: Some(name),
+            });
             let endpoint_id = if let Some(er) = self.resolver.get_mut(&route) {
                 er.add_method_with_metadata(method.clone(), meta);
                 er.id()
@@ -246,7 +248,7 @@ impl Router {
                     ctx.state = State::After(Box::new(r));
                     ctx
                 });
-            },
+            }
         };
         let res = if let Some(responder) = static_self.inner.chain.dispatch(route_id, req) {
             responder.await.dyn_respond(b, &ctx)

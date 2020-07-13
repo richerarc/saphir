@@ -176,14 +176,14 @@ impl HandlerMetadata {
     pub(crate) fn not_found() -> Self {
         HandlerMetadata {
             route_id: Default::default(),
-            name: None
+            name: None,
         }
     }
 
     pub(crate) fn not_allowed() -> Self {
         HandlerMetadata {
             route_id: RouteId::Error(405),
-            name: None
+            name: None,
         }
     }
 }

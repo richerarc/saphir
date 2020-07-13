@@ -23,6 +23,7 @@ use crate::{
 use futures::{future::BoxFuture, FutureExt};
 use http::Method;
 use std::{collections::HashMap, sync::Arc};
+use crate::http_context::RouteId;
 
 /// Builder type for the router
 pub struct Builder<Chain: RouterChain + Send + Unpin + 'static + Sync> {
@@ -142,7 +143,7 @@ impl<Controllers: 'static + RouterChain + Unpin + Send + Sync> Builder<Controlle
         let mut handlers = HashMap::new();
         for (name, method, subroute, handler, guard_chain) in controller.handlers() {
             let route = format!("{}{}", C::BASE_PATH, subroute);
-            let meta = name.map(|name| HandlerMetadata { route_id: 0, name: Some(name) });
+            let meta = name.map(|name| HandlerMetadata { route_id: Default::default(), name: Some(name) });
             let endpoint_id = if let Some(er) = self.resolver.get_mut(&route) {
                 er.add_method_with_metadata(method.clone(), meta);
                 er.id()
@@ -214,21 +215,21 @@ impl Router {
         }
     }
 
-    pub fn resolve_metadata(&self, req: &mut Request<Body>) -> Result<&HandlerMetadata, u16> {
+    pub fn resolve_metadata(&self, req: &mut Request<Body>) -> HandlerMetadata {
         let mut method_not_allowed = false;
 
         for endpoint_resolver in &self.inner.resolvers {
             match endpoint_resolver.resolve(req) {
                 EndpointResolverResult::InvalidPath => continue,
                 EndpointResolverResult::MethodNotAllowed => method_not_allowed = true,
-                EndpointResolverResult::Match(meta) => return Ok(meta),
+                EndpointResolverResult::Match(meta) => return meta.clone(),
             }
         }
 
         if method_not_allowed {
-            Err(405)
+            HandlerMetadata::not_allowed()
         } else {
-            Err(404)
+            HandlerMetadata::not_found()
         }
     }
 
@@ -238,7 +239,16 @@ impl Router {
         // The router is initialized in static memory when calling run on Server.
         let static_self = unsafe { std::mem::transmute::<&'_ Self, &'static Self>(self) };
         let b = crate::response::Builder::new();
-        let res = if let Some(responder) = static_self.inner.chain.dispatch(ctx.metadata.route_id, req) {
+        let route_id = match ctx.metadata.route_id {
+            RouteId::Id(id) => id,
+            RouteId::Error(e) => {
+                return e.respond_with_builder(b, &ctx).build().map(|r| {
+                    ctx.state = State::After(Box::new(r));
+                    ctx
+                });
+            },
+        };
+        let res = if let Some(responder) = static_self.inner.chain.dispatch(route_id, req) {
             responder.await.dyn_respond(b, &ctx)
         } else {
             404.respond_with_builder(b, &ctx)

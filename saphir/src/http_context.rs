@@ -147,11 +147,45 @@ impl State {
     }
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum RouteId {
+    Id(u64),
+    Error(u16),
+}
+
+impl RouteId {
+    pub(crate) fn new(id: u64) -> Self {
+        RouteId::Id(id)
+    }
+}
+
+impl Default for RouteId {
+    fn default() -> Self {
+        RouteId::Error(404)
+    }
+}
+
 /// MetaData of the resolved request handler
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 pub struct HandlerMetadata {
-    pub route_id: u64,
+    pub route_id: RouteId,
     pub name: Option<&'static str>,
+}
+
+impl HandlerMetadata {
+    pub(crate) fn not_found() -> Self {
+        HandlerMetadata {
+            route_id: Default::default(),
+            name: None
+        }
+    }
+
+    pub(crate) fn not_allowed() -> Self {
+        HandlerMetadata {
+            route_id: RouteId::Error(405),
+            name: None
+        }
+    }
 }
 
 /// Context representing the relationship between a request and a response

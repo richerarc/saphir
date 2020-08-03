@@ -387,7 +387,6 @@ by using the --package flag."
                 self.generated_schema_names.insert(name.to_string(), map);
                 name.to_string()
             };
-            println!("generated schema `{}` (in {:?})", ref_name.as_str(), full_path);
             self.doc.components.schemas.insert(ref_name.clone(), OpenApiSchema::Inline(ty));
             OpenApiSchema::Ref {
                 type_ref: format!("#/components/schemas/{}", ref_name.as_str()),
@@ -503,7 +502,15 @@ by using the --package flag."
                         .unwrap_or_else(|| {
                             let type_name = field_type_info.rename.as_ref().unwrap_or(&field_type_info.name);
                             let raw_type = OpenApiType::from_rust_type_str(type_name.as_str()).unwrap_or_else(OpenApiType::string);
-                            OpenApiSchema::Inline(raw_type)
+                            if field_type_info.is_array {
+                                OpenApiSchema::Inline(OpenApiType::Array {
+                                    items: Box::new(OpenApiSchema::Inline(raw_type)),
+                                    min_items: field_type_info.min_array_len,
+                                    max_items: field_type_info.max_array_len,
+                                })
+                            } else {
+                                OpenApiSchema::Inline(raw_type)
+                            }
                         });
                     if !field_type_info.is_optional
                         && !find_macro_attribute_flag(&field.attrs, "serde", "default")

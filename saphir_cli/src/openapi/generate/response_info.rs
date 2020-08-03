@@ -1,6 +1,6 @@
 use crate::openapi::{
     generate::{crate_syn_browser::Method, type_info::TypeInfo, Gen},
-    schema::{OpenApiMimeType, OpenApiType},
+    schema::{OpenApiMimeType, OpenApiSchema},
 };
 use syn::{GenericArgument, Lit, Meta, MetaList, NestedMeta, Path, PathArguments, ReturnType, Type};
 
@@ -14,7 +14,7 @@ pub(crate) struct ResponseInfo {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct AnonymousType {
-    pub(crate) schema: OpenApiType,
+    pub(crate) schema: OpenApiSchema,
     pub(crate) name: Option<String>,
 }
 

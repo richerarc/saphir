@@ -139,15 +139,15 @@ fn serde_true() -> bool {
 #[serde(untagged)]
 pub enum OpenApiObjectType {
     Object {
-        properties: HashMap<String, Box<OpenApiType>>,
+        properties: HashMap<String, Box<OpenApiSchema>>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         required: Vec<String>,
     },
     Dictionary {
         #[serde(skip_serializing_if = "HashMap::is_empty")]
-        properties: HashMap<String, Box<OpenApiType>>,
+        properties: HashMap<String, Box<OpenApiSchema>>,
         #[serde(rename = "additionalProperties")]
-        additional_properties: HashMap<String, Box<OpenApiType>>,
+        additional_properties: Box<OpenApiObjectType>,
     },
     Ref {
         #[serde(rename = "$ref")]
@@ -210,7 +210,7 @@ impl OpenApiType {
         OpenApiType::String { enum_values: values }
     }
 
-    pub fn object(properties: HashMap<String, Box<OpenApiType>>, required: Vec<String>) -> Self {
+    pub fn object(properties: HashMap<String, Box<OpenApiSchema>>, required: Vec<String>) -> Self {
         OpenApiType::Object {
             object: OpenApiObjectType::Object { properties, required },
         }
@@ -338,8 +338,8 @@ pub struct OpenApiResponse {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct OpenApiComponents {
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
-    pub(crate) schemas: HashMap<String, OpenApiSchema>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) schemas: BTreeMap<String, OpenApiSchema>,
 }
 impl OpenApiComponents {
     pub fn is_empty(&self) -> bool {

@@ -685,7 +685,7 @@ by using the --package flag."
                 .filter(|t| t.is_type_serializable)
                 .map(|t| self.get_open_api_schema_from_type_info(scope, t, self.args.schema_granularity == SchemaGranularity::All))
                 .flatten()
-                .or_else(|| OpenApiType::from_rust_type_str(raw).map(|rt| OpenApiSchema::Inline(rt)))
+                .or_else(|| OpenApiType::from_rust_type_str(raw).map(OpenApiSchema::Inline))
                 .map(|schema| (schema, None, len)),
         }
     }

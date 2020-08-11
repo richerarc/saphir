@@ -1,6 +1,6 @@
 [package]
 name = "saphir"
-version = "2.7.2"
+version = "2.7.3"
 edition = "2018"
 authors = ["Richer Archambault <richer.arc@gmail.com>"]
 description = "Fully async-await http server framework"
@@ -31,7 +31,7 @@ tokio = { version = "0.2.13", features = ["full"] }
 futures = "0.3"
 futures-util = "0.3"
 tower-service = "0.3"
-saphir-cookie = "0.13.1"
+saphir-cookie = "0.13.2"
 http = "0.2"
 http-body = "0.3"
 parking_lot = "0.11"

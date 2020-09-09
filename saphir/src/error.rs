@@ -56,6 +56,8 @@ pub enum SaphirError {
     MissingParameter(String, bool),
     ///
     InvalidParameter(String, bool),
+    ///
+    RequestTimeout,
 }
 
 impl Debug for SaphirError {
@@ -77,6 +79,7 @@ impl Debug for SaphirError {
             SaphirError::SerdeUrlSer(d) => std::fmt::Debug::fmt(d, f),
             SaphirError::MissingParameter(d, _) => std::fmt::Debug::fmt(d, f),
             SaphirError::InvalidParameter(d, _) => std::fmt::Debug::fmt(d, f),
+            SaphirError::RequestTimeout => f.write_str("RequestTimeout"),
         }
     }
 }
@@ -227,6 +230,10 @@ impl Responder for SaphirError {
                 builder.status(500)
             }
             SaphirError::Responder(mut r) => r.dyn_respond(builder, ctx),
+            SaphirError::RequestTimeout => {
+                warn!("{}Request timed out", op_id);
+                builder.status(408)
+            }
         }
     }
 }

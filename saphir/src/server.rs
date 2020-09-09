@@ -28,6 +28,7 @@ use crate::{
     router::{Builder as RouterBuilder, Router, RouterChain, RouterChainEnd},
 };
 use http::{HeaderValue, Request as RawRequest, Response as RawResponse};
+use std::pin::Pin;
 
 /// Default time for request handling is 30 seconds
 pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
@@ -361,41 +362,19 @@ impl Server {
             }
         };
 
-        if let Some(request_timeout_ms) = listener_config.request_timeout_ms {
-            use tokio::time::{timeout, Duration};
-            incoming
-                .for_each_concurrent(None, |client_socket| async {
-                    match client_socket {
-                        Ok(client_socket) => {
-                            let peer_addr = client_socket.peer_addr().ok();
-                            let http_handler = http.serve_connection(client_socket, stack.new_handler(peer_addr));
-                            let f = timeout(Duration::from_millis(request_timeout_ms), http_handler);
-
-                            tokio::spawn(f);
-                        }
-                        Err(e) => {
-                            warn!("incoming connection encountered an error: {}", e);
-                        }
+        incoming
+            .for_each_concurrent(None, |client_socket| async {
+                match client_socket {
+                    Ok(client_socket) => {
+                        let peer_addr = client_socket.peer_addr().ok();
+                        tokio::spawn(http.serve_connection(client_socket, stack.new_handler(listener_config.request_timeout_ms, peer_addr)));
                     }
-                })
-                .await;
-        } else {
-            incoming
-                .for_each_concurrent(None, |client_socket| async {
-                    match client_socket {
-                        Ok(client_socket) => {
-                            let peer_addr = client_socket.peer_addr().ok();
-                            let http_handler = http.serve_connection(client_socket, stack.new_handler(peer_addr));
-
-                            tokio::spawn(http_handler);
-                        }
-                        Err(e) => {
-                            warn!("incoming connection encountered an error: {}", e);
-                        }
+                    Err(e) => {
+                        warn!("incoming connection encountered an error: {}", e);
                     }
-                })
-                .await;
-        }
+                }
+            })
+            .await;
 
         Ok(())
     }
@@ -412,18 +391,40 @@ unsafe impl Send for Stack {}
 unsafe impl Sync for Stack {}
 
 impl Stack {
-    fn new_handler(&'static self, peer_addr: Option<SocketAddr>) -> StackHandler {
-        StackHandler { stack: self, peer_addr }
+    fn new_handler(&'static self, timeout_ms: Option<u64>, peer_addr: Option<SocketAddr>) -> StackHandler {
+        StackHandler {
+            timeout_ms,
+            stack: self,
+            peer_addr,
+        }
     }
 
-    async fn invoke(&self, mut req: Request<Body>) -> Result<Response<Body>, SaphirError> {
+    async fn invoke(&self, mut req: Request<Body>, timeout_ms: Option<u64>) -> Result<Response<Body>, SaphirError> {
+        use tokio::time::{timeout, Duration, Elapsed};
+
         let meta = self.router.resolve_metadata(&mut req);
         let ctx = HttpContext::new(req, self.router.clone(), meta);
+        let op_id = ctx.operation_id.clone();
 
-        self.middlewares
-            .next(ctx)
-            .await
-            .and_then(|mut ctx| ctx.state.take_response().ok_or_else(|| SaphirError::ResponseMoved))
+        if let Some(timeout_ms) = timeout_ms {
+            match timeout(Duration::from_millis(timeout_ms), async move {
+                self.middlewares
+                    .next(ctx)
+                    .await
+                    .and_then(|mut ctx| ctx.state.take_response().ok_or_else(|| SaphirError::ResponseMoved))
+            }).await {
+                Ok(res) => res,
+                Err(Elapsed { .. }) => {
+                    warn!("{}Request timed out", op_id);
+                    crate::response::Builder::new().status(408).build()
+                },
+            }
+        } else {
+            self.middlewares
+                .next(ctx)
+                .await
+                .and_then(|mut ctx| ctx.state.take_response().ok_or_else(|| SaphirError::ResponseMoved))
+        }
     }
 }
 
@@ -431,13 +432,14 @@ impl Stack {
 #[derive(Clone)]
 pub struct StackHandler {
     stack: &'static Stack,
+    timeout_ms: Option<u64>,
     peer_addr: Option<SocketAddr>,
 }
 
 impl Service<hyper::Request<hyper::Body>> for StackHandler {
-    type Error = SaphirError;
-    type Future = Box<dyn Future<Output = Result<hyper::Response<hyper::Body>, Self::Error>> + Send + Unpin>;
     type Response = hyper::Response<hyper::Body>;
+    type Error = SaphirError;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
@@ -445,7 +447,7 @@ impl Service<hyper::Request<hyper::Body>> for StackHandler {
 
     fn call(&mut self, req: hyper::Request<hyper::Body>) -> Self::Future {
         let req = Request::new(req.map(Body::from_raw), self.peer_addr.take());
-        let fut = Box::pin(self.stack.invoke(req).map(|r| {
+        Box::pin(self.stack.invoke(req, self.timeout_ms).map(|r| {
             r.and_then(|mut r| {
                 // # SAFETY #
                 // Memory has been initialized at server startup.
@@ -454,9 +456,7 @@ impl Service<hyper::Request<hyper::Body>> for StackHandler {
                 });
                 r.into_raw().map(|r| r.map(|b| b.into_raw()))
             })
-        }));
-
-        Box::new(fut) as Box<dyn Future<Output = Result<hyper::Response<hyper::Body>, SaphirError>> + Send + Unpin>
+        })) as Self::Future
     }
 }
 
@@ -642,6 +642,6 @@ pub async fn inject_raw(req: RawRequest<RawBody>) -> Result<RawResponse<RawBody>
     let stack = unsafe { STACK.as_ptr().as_ref().expect("Memory has been initialized above.") };
 
     let saphir_req = Request::new(req.map(Body::from_raw), None);
-    let saphir_res = stack.invoke(saphir_req).await?;
+    let saphir_res = stack.invoke(saphir_req, None).await?;
     Ok(saphir_res.into_raw().map(|r| r.map(|b| b.into_raw()))?)
 }

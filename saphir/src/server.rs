@@ -29,7 +29,6 @@ use crate::{
 };
 use http::{HeaderValue, Request as RawRequest, Response as RawResponse};
 use std::pin::Pin;
-use crate::responder::Responder;
 
 /// Default time for request handling is 30 seconds
 pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
@@ -428,7 +427,11 @@ impl Stack {
             let meta = self.router.resolve_metadata(&mut err_req);
             let ctx = HttpContext::new(err_req, self.router.clone(), meta);
             let builder = crate::response::Builder::new();
-            e.respond_with_builder(builder, &ctx).build()
+            e.log(&ctx);
+            e.response_builder(builder, &ctx).build().map_err(|e2| {
+                e2.log(&ctx);
+                e2
+            })
         })
     }
 }

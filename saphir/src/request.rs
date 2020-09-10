@@ -60,9 +60,9 @@ impl<T> Request<T> {
             inner: RawRequest::new(Body::empty()),
             captures: req.captures.clone(),
             cookies: req.cookies.clone(),
-            peer_addr: req.peer_addr.clone(),
+            peer_addr: req.peer_addr,
             #[cfg(feature = "operation")]
-            operation_id: req.operation_id.clone(),
+            operation_id: req.operation_id,
         }
     }
 

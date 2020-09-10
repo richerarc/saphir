@@ -445,9 +445,11 @@ pub struct StackHandler {
     peer_addr: Option<SocketAddr>,
 }
 
+type StackHandlerFut<S, E> = dyn Future<Output = Result<S, E>> + Send;
+
 impl Service<hyper::Request<hyper::Body>> for StackHandler {
     type Error = SaphirError;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+    type Future = Pin<Box<StackHandlerFut<Self::Response, Self::Error>>>;
     type Response = hyper::Response<hyper::Body>;
 
     fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {

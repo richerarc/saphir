@@ -217,7 +217,7 @@ impl Router {
         }
     }
 
-    pub fn resolve_metadata(&self, req: &mut Request<Body>) -> HandlerMetadata {
+    pub fn resolve_metadata(&self, req: &mut Request) -> HandlerMetadata {
         let mut method_not_allowed = false;
 
         for endpoint_resolver in &self.inner.resolvers {

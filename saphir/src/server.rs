@@ -29,6 +29,7 @@ use crate::{
 };
 use http::{HeaderValue, Request as RawRequest, Response as RawResponse};
 use std::pin::Pin;
+use crate::responder::Responder;
 
 /// Default time for request handling is 30 seconds
 pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
@@ -403,8 +404,8 @@ impl Stack {
         use tokio::time::{timeout, Duration, Elapsed};
 
         let meta = self.router.resolve_metadata(&mut req);
+        let mut err_req = Request::clone_for_err(&req);
         let ctx = HttpContext::new(req, self.router.clone(), meta);
-        let op_id = ctx.operation_id.clone();
 
         if let Some(timeout_ms) = timeout_ms {
             match timeout(Duration::from_millis(timeout_ms), async move {
@@ -415,8 +416,7 @@ impl Stack {
             }).await {
                 Ok(res) => res,
                 Err(Elapsed { .. }) => {
-                    warn!("{}Request timed out", op_id);
-                    crate::response::Builder::new().status(408).build()
+                    Err(SaphirError::RequestTimeout)
                 },
             }
         } else {
@@ -424,7 +424,12 @@ impl Stack {
                 .next(ctx)
                 .await
                 .and_then(|mut ctx| ctx.state.take_response().ok_or_else(|| SaphirError::ResponseMoved))
-        }
+        }.or_else(|e| {
+            let meta = self.router.resolve_metadata(&mut err_req);
+            let ctx = HttpContext::new(err_req, self.router.clone(), meta);
+            let builder = crate::response::Builder::new();
+            e.respond_with_builder(builder, &ctx).build()
+        })
     }
 }
 

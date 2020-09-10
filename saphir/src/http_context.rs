@@ -1,4 +1,5 @@
 use crate::{request::Request, response::Response, router::Router};
+use crate::body::Body;
 
 #[cfg(feature = "operation")]
 pub static OPERATION_ID_HEADER: &str = "Operation-Id";
@@ -8,19 +9,19 @@ pub static OPERATION_ID_HEADER: &str = "Operation-Id";
 /// responder. Empty will be the state of a context when the request is being
 /// processed by the handler, or when its original state has been moved by using
 /// take & take unchecked methods
-pub enum State {
-    Before(Box<Request>),
+pub enum State<T = Body> {
+    Before(Box<Request<T>>),
     After(Box<Response>),
     Empty,
 }
 
-impl Default for State {
+impl<T> Default for State<T> {
     fn default() -> Self {
         State::Empty
     }
 }
 
-impl State {
+impl<T> State<T> {
     /// Take the current context leaving `State::Empty` behind
     pub fn take(&mut self) -> Self {
         std::mem::take(self)
@@ -29,7 +30,7 @@ impl State {
     /// Take the current request leaving `State::Empty` behind
     /// Returns `Some(Request)` if the state was `Before` or `None` if it was
     /// something else
-    pub fn take_request(&mut self) -> Option<Request> {
+    pub fn take_request(&mut self) -> Option<Request<T>> {
         match std::mem::take(self) {
             State::Before(r) => Some(*r),
             _ => None,
@@ -40,7 +41,7 @@ impl State {
     ///
     /// # Panics
     /// Panics if the state is not `Before`
-    pub fn take_request_unchecked(&mut self) -> Request {
+    pub fn take_request_unchecked(&mut self) -> Request<T> {
         match std::mem::take(self) {
             State::Before(r) => *r,
             _ => panic!("State::take_request_unchecked should be called only before the handler & when it is ensured that the request wasn't moved"),
@@ -69,7 +70,7 @@ impl State {
     }
 
     /// Returns `Some` of the current request if state if `Before`
-    pub fn request(&self) -> Option<&Request> {
+    pub fn request(&self) -> Option<&Request<T>> {
         match self {
             State::Before(r) => Some(r),
             _ => None,
@@ -78,7 +79,7 @@ impl State {
 
     /// Returns `Some` of the current request as a mutable ref if state if
     /// `Before`
-    pub fn request_mut(&mut self) -> Option<&Request> {
+    pub fn request_mut(&mut self) -> Option<&Request<T>> {
         match self {
             State::Before(r) => Some(r),
             _ => None,
@@ -89,7 +90,7 @@ impl State {
     ///
     /// # Panics
     /// Panics if state is not `Before`
-    pub fn request_unchecked(&self) -> &Request {
+    pub fn request_unchecked(&self) -> &Request<T> {
         match self {
             State::Before(r) => r,
             _ => panic!("State::request_unchecked should be called only before the handler & when it is ensured that the request wasn't moved"),
@@ -100,7 +101,7 @@ impl State {
     ///
     /// # Panics
     /// panics if state is not `Before`
-    pub fn request_unchecked_mut(&mut self) -> &mut Request {
+    pub fn request_unchecked_mut(&mut self) -> &mut Request<T> {
         match self {
             State::Before(r) => r,
             _ => panic!("State::request_unchecked_mut should be called only before the handler & when it is ensured that the request wasn't moved"),

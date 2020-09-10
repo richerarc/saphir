@@ -412,18 +412,19 @@ impl Stack {
                     .next(ctx)
                     .await
                     .and_then(|mut ctx| ctx.state.take_response().ok_or_else(|| SaphirError::ResponseMoved))
-            }).await {
+            })
+            .await
+            {
                 Ok(res) => res,
-                Err(Elapsed { .. }) => {
-                    Err(SaphirError::RequestTimeout)
-                },
+                Err(Elapsed { .. }) => Err(SaphirError::RequestTimeout),
             }
         } else {
             self.middlewares
                 .next(ctx)
                 .await
                 .and_then(|mut ctx| ctx.state.take_response().ok_or_else(|| SaphirError::ResponseMoved))
-        }.or_else(|e| {
+        }
+        .or_else(|e| {
             let meta = self.router.resolve_metadata(&mut err_req);
             let ctx = HttpContext::new(err_req, self.router.clone(), meta);
             let builder = crate::response::Builder::new();
@@ -445,9 +446,9 @@ pub struct StackHandler {
 }
 
 impl Service<hyper::Request<hyper::Body>> for StackHandler {
-    type Response = hyper::Response<hyper::Body>;
     type Error = SaphirError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+    type Response = hyper::Response<hyper::Body>;
 
     fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))

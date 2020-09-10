@@ -178,7 +178,7 @@ impl SaphirError {
             SaphirError::RequestTimeout => {
                 warn!("{}Request timed out", op_id);
             }
-            SaphirError::Responder(_) => {},
+            SaphirError::Responder(_) => {}
         }
     }
 }

@@ -1,5 +1,4 @@
-use crate::{request::Request, response::Response, router::Router};
-use crate::body::Body;
+use crate::{body::Body, request::Request, response::Response, router::Router};
 
 #[cfg(feature = "operation")]
 pub static OPERATION_ID_HEADER: &str = "Operation-Id";

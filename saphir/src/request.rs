@@ -55,17 +55,6 @@ impl<T> Request<T> {
         }
     }
 
-    pub(crate) fn clone_for_err(req: &Self) -> Request<Body> {
-        Request::<Body> {
-            inner: RawRequest::new(Body::empty()),
-            captures: req.captures.clone(),
-            cookies: req.cookies.clone(),
-            peer_addr: req.peer_addr,
-            #[cfg(feature = "operation")]
-            operation_id: req.operation_id,
-        }
-    }
-
     /// Return the Peer SocketAddr if one was available when receiving the
     /// request
     #[inline]

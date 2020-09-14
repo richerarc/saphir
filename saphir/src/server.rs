@@ -385,9 +385,7 @@ pub struct Stack {
     router: Router,
     middlewares: Box<dyn MiddlewareChain>,
 }
-
 unsafe impl Send for Stack {}
-
 unsafe impl Sync for Stack {}
 
 impl Stack {
@@ -403,8 +401,8 @@ impl Stack {
         use tokio::time::{timeout, Duration, Elapsed};
 
         let meta = self.router.resolve_metadata(&mut req);
-        let mut err_req = Request::clone_for_err(&req);
         let ctx = HttpContext::new(req, self.router.clone(), meta);
+        let err_ctx = ctx.clone_with_empty_state();
 
         if let Some(timeout_ms) = timeout_ms {
             match timeout(Duration::from_millis(timeout_ms), async move {
@@ -425,12 +423,10 @@ impl Stack {
                 .and_then(|mut ctx| ctx.state.take_response().ok_or_else(|| SaphirError::ResponseMoved))
         }
         .or_else(|e| {
-            let meta = self.router.resolve_metadata(&mut err_req);
-            let ctx = HttpContext::new(err_req, self.router.clone(), meta);
             let builder = crate::response::Builder::new();
-            e.log(&ctx);
-            e.response_builder(builder, &ctx).build().map_err(|e2| {
-                e2.log(&ctx);
+            e.log(&err_ctx);
+            e.response_builder(builder, &err_ctx).build().map_err(|e2| {
+                e2.log(&err_ctx);
                 e2
             })
         })

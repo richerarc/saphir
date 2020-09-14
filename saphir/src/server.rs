@@ -431,23 +431,25 @@ impl Stack {
         let ctx = HttpContext::new(req, self.router.clone(), meta);
         let err_ctx = ctx.clone_with_empty_state();
 
-        timeout(Duration::from_millis(timeout_ms), async move {
+        match timeout(Duration::from_millis(timeout_ms), async move {
             self.middlewares
                 .next(ctx)
                 .await
                 .and_then(|mut ctx| ctx.state.take_response().ok_or_else(|| SaphirError::ResponseMoved))
         })
         .map_err(|_| SaphirError::RequestTimeout)
-        .map_ok_or_else(|e| Err(e), |res| res)
         .await
-        .or_else(|e| {
-            let builder = crate::response::Builder::new();
-            e.log(&err_ctx);
-            e.response_builder(builder, &err_ctx).build().map_err(|e2| {
-                e2.log(&err_ctx);
-                e2
-            })
-        })
+        {
+            Ok(res) => res,
+            Err(e) => {
+                let builder = crate::response::Builder::new();
+                e.log(&err_ctx);
+                e.response_builder(builder, &err_ctx).build().map_err(|e2| {
+                    e2.log(&err_ctx);
+                    e2
+                })
+            }
+        }
     }
 }
 

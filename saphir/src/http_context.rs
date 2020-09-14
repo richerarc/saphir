@@ -243,7 +243,7 @@ impl HttpContext {
             router: self.router.clone(),
             metadata: self.metadata.clone(),
             #[cfg(feature = "operation")]
-            operation_id: self.operation_id.clone(),
+            operation_id: self.operation_id,
         }
     }
 

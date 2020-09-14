@@ -237,6 +237,16 @@ impl HttpContext {
         }
     }
 
+    pub fn clone_with_empty_state(&self) -> Self {
+        HttpContext {
+            state: State::Empty,
+            router: self.router.clone(),
+            metadata: self.metadata.clone(),
+            #[cfg(feature = "operation")]
+            operation_id: self.operation_id,
+        }
+    }
+
     /// Explicitly set the inner state to `Before` with the given response
     pub fn before(&mut self, request: Request) {
         self.state = State::Before(Box::new(request))

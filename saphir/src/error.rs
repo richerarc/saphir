@@ -56,6 +56,8 @@ pub enum SaphirError {
     MissingParameter(String, bool),
     ///
     InvalidParameter(String, bool),
+    ///
+    RequestTimeout,
 }
 
 impl Debug for SaphirError {
@@ -77,6 +79,7 @@ impl Debug for SaphirError {
             SaphirError::SerdeUrlSer(d) => std::fmt::Debug::fmt(d, f),
             SaphirError::MissingParameter(d, _) => std::fmt::Debug::fmt(d, f),
             SaphirError::InvalidParameter(d, _) => std::fmt::Debug::fmt(d, f),
+            SaphirError::RequestTimeout => f.write_str("RequestTimeout"),
         }
     }
 }
@@ -84,6 +87,99 @@ impl Debug for SaphirError {
 impl SaphirError {
     pub fn responder<T: Responder + Send + Sync + 'static>(e: T) -> Self {
         SaphirError::Responder(Box::new(Some(e)))
+    }
+
+    pub(crate) fn response_builder(self, builder: Builder, ctx: &HttpContext) -> Builder {
+        match self {
+            SaphirError::Internal(_) => builder.status(500),
+            SaphirError::Io(_) => builder.status(500),
+            SaphirError::BodyAlreadyTaken => builder.status(500),
+            SaphirError::Custom(_) => builder.status(500),
+            SaphirError::Other(_) => builder.status(500),
+            #[cfg(feature = "json")]
+            SaphirError::SerdeJson(_) => builder.status(400),
+            #[cfg(feature = "form")]
+            SaphirError::SerdeUrlDe(_) => builder.status(400),
+            #[cfg(feature = "form")]
+            SaphirError::SerdeUrlSer(_) => builder.status(400),
+            SaphirError::MissingParameter(..) => builder.status(400),
+            SaphirError::InvalidParameter(..) => builder.status(400),
+            SaphirError::RequestMovedBeforeHandler => builder.status(500),
+            SaphirError::ResponseMoved => builder.status(500),
+            SaphirError::Responder(mut r) => r.dyn_respond(builder, ctx),
+            SaphirError::RequestTimeout => builder.status(408),
+        }
+    }
+
+    pub(crate) fn log(&self, ctx: &HttpContext) {
+        let op_id = {
+            #[cfg(not(feature = "operation"))]
+            {
+                String::new()
+            }
+
+            #[cfg(feature = "operation")]
+            {
+                format!("[Operation id: {}] ", ctx.operation_id)
+            }
+        };
+
+        match self {
+            SaphirError::Internal(e) => {
+                warn!("{}Saphir encountered an internal error that was returned as a responder: {:?}", op_id, e);
+            }
+            SaphirError::Io(e) => {
+                warn!("{}Saphir encountered an Io error that was returned as a responder: {:?}", op_id, e);
+            }
+            SaphirError::BodyAlreadyTaken => {
+                warn!("{}A controller handler attempted to take the request body more thant one time", op_id);
+            }
+            SaphirError::Custom(e) => {
+                warn!("{}A custom error was returned as a responder: {:?}", op_id, e);
+            }
+            SaphirError::Other(e) => {
+                warn!("{}Saphir encountered an Unknown error that was returned as a responder: {:?}", op_id, e);
+            }
+            #[cfg(feature = "json")]
+            SaphirError::SerdeJson(e) => {
+                debug!("{}Unable to de/serialize json type: {:?}", op_id, e);
+            }
+            #[cfg(feature = "form")]
+            SaphirError::SerdeUrlDe(e) => {
+                debug!("{}Unable to deserialize form type: {:?}", op_id, e);
+            }
+            #[cfg(feature = "form")]
+            SaphirError::SerdeUrlSer(e) => {
+                debug!("{}Unable to serialize form type: {:?}", op_id, e);
+            }
+            SaphirError::MissingParameter(name, is_query) => {
+                if *is_query {
+                    debug!("{}Missing query parameter {}", op_id, name);
+                } else {
+                    debug!("{}Missing path parameter {}", op_id, name);
+                }
+            }
+            SaphirError::InvalidParameter(name, is_query) => {
+                if *is_query {
+                    debug!("{}Unable to parse query parameter {}", op_id, name);
+                } else {
+                    debug!("{}Unable to parse path parameter {}", op_id, name);
+                }
+            }
+            SaphirError::RequestMovedBeforeHandler => {
+                warn!(
+                    "{}A request was moved out of its context by a middleware, but the middleware did not stop request processing",
+                    op_id
+                );
+            }
+            SaphirError::ResponseMoved => {
+                warn!("{}A response was moved before being sent to the client", op_id);
+            }
+            SaphirError::RequestTimeout => {
+                warn!("{}Request timed out", op_id);
+            }
+            SaphirError::Responder(_) => {}
+        }
     }
 }
 
@@ -149,84 +245,7 @@ impl StdError for SaphirError {}
 impl Responder for SaphirError {
     #[allow(unused_variables)]
     fn respond_with_builder(self, builder: Builder, ctx: &HttpContext) -> Builder {
-        let op_id = {
-            #[cfg(not(feature = "operation"))]
-            {
-                String::new()
-            }
-
-            #[cfg(feature = "operation")]
-            {
-                format!("[Operation id: {}] ", ctx.operation_id)
-            }
-        };
-
-        match self {
-            SaphirError::Internal(e) => {
-                warn!("{}Saphir encountered an internal error that was returned as a responder: {:?}", op_id, e);
-                builder.status(500)
-            }
-            SaphirError::Io(e) => {
-                warn!("{}Saphir encountered an Io error that was returned as a responder: {:?}", op_id, e);
-                builder.status(500)
-            }
-            SaphirError::BodyAlreadyTaken => {
-                warn!("{}A controller handler attempted to take the request body more thant one time", op_id);
-                builder.status(500)
-            }
-            SaphirError::Custom(e) => {
-                warn!("{}A custom error was returned as a responder: {:?}", op_id, e);
-                builder.status(500)
-            }
-            SaphirError::Other(e) => {
-                warn!("{}Saphir encountered an Unknown error that was returned as a responder: {:?}", op_id, e);
-                builder.status(500)
-            }
-            #[cfg(feature = "json")]
-            SaphirError::SerdeJson(e) => {
-                debug!("{}Unable to de/serialize json type: {:?}", op_id, e);
-                builder.status(400)
-            }
-            #[cfg(feature = "form")]
-            SaphirError::SerdeUrlDe(e) => {
-                debug!("{}Unable to deserialize form type: {:?}", op_id, e);
-                builder.status(400)
-            }
-            #[cfg(feature = "form")]
-            SaphirError::SerdeUrlSer(e) => {
-                debug!("{}Unable to serialize form type: {:?}", op_id, e);
-                builder.status(400)
-            }
-            SaphirError::MissingParameter(name, is_query) => {
-                if is_query {
-                    debug!("{}Missing query parameter {}", op_id, name);
-                } else {
-                    debug!("{}Missing path parameter {}", op_id, name);
-                }
-
-                builder.status(400)
-            }
-            SaphirError::InvalidParameter(name, is_query) => {
-                if is_query {
-                    debug!("{}Unable to parse query parameter {}", op_id, name);
-                } else {
-                    debug!("{}Unable to parse path parameter {}", op_id, name);
-                }
-
-                builder.status(400)
-            }
-            SaphirError::RequestMovedBeforeHandler => {
-                warn!(
-                    "{}A request was moved out of its context by a middleware, but the middleware did not stop request processing",
-                    op_id
-                );
-                builder.status(500)
-            }
-            SaphirError::ResponseMoved => {
-                warn!("{}A response was moved before being sent to the client", op_id);
-                builder.status(500)
-            }
-            SaphirError::Responder(mut r) => r.dyn_respond(builder, ctx),
-        }
+        self.log(ctx);
+        self.response_builder(builder, ctx)
     }
 }

@@ -28,6 +28,7 @@ use crate::{
     router::{Builder as RouterBuilder, Router, RouterChain, RouterChainEnd},
 };
 use http::{HeaderValue, Request as RawRequest, Response as RawResponse};
+use std::pin::Pin;
 
 /// Default time for request handling is 30 seconds
 pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
@@ -361,17 +362,13 @@ impl Server {
             }
         };
 
-        if let Some(request_timeout_ms) = listener_config.request_timeout_ms {
-            use tokio::time::{timeout, Duration};
+        if let Some(timeout_ms) = listener_config.request_timeout_ms {
             incoming
                 .for_each_concurrent(None, |client_socket| async {
                     match client_socket {
                         Ok(client_socket) => {
                             let peer_addr = client_socket.peer_addr().ok();
-                            let http_handler = http.serve_connection(client_socket, stack.new_handler(peer_addr));
-                            let f = timeout(Duration::from_millis(request_timeout_ms), http_handler);
-
-                            tokio::spawn(f);
+                            tokio::spawn(http.serve_connection(client_socket, stack.new_timeout_handler(timeout_ms, peer_addr)));
                         }
                         Err(e) => {
                             warn!("incoming connection encountered an error: {}", e);
@@ -385,9 +382,7 @@ impl Server {
                     match client_socket {
                         Ok(client_socket) => {
                             let peer_addr = client_socket.peer_addr().ok();
-                            let http_handler = http.serve_connection(client_socket, stack.new_handler(peer_addr));
-
-                            tokio::spawn(http_handler);
+                            tokio::spawn(http.serve_connection(client_socket, stack.new_handler(peer_addr)));
                         }
                         Err(e) => {
                             warn!("incoming connection encountered an error: {}", e);
@@ -406,9 +401,7 @@ pub struct Stack {
     router: Router,
     middlewares: Box<dyn MiddlewareChain>,
 }
-
 unsafe impl Send for Stack {}
-
 unsafe impl Sync for Stack {}
 
 impl Stack {
@@ -416,16 +409,63 @@ impl Stack {
         StackHandler { stack: self, peer_addr }
     }
 
+    fn new_timeout_handler(&'static self, timeout_ms: u64, peer_addr: Option<SocketAddr>) -> TimeoutStackHandler {
+        TimeoutStackHandler {
+            timeout_ms,
+            stack: self,
+            peer_addr,
+        }
+    }
+
     async fn invoke(&self, mut req: Request<Body>) -> Result<Response<Body>, SaphirError> {
         let meta = self.router.resolve_metadata(&mut req);
         let ctx = HttpContext::new(req, self.router.clone(), meta);
+        let err_ctx = ctx.clone_with_empty_state();
 
         self.middlewares
             .next(ctx)
             .await
             .and_then(|mut ctx| ctx.state.take_response().ok_or_else(|| SaphirError::ResponseMoved))
+            .or_else(|e| {
+                let builder = crate::response::Builder::new();
+                e.log(&err_ctx);
+                e.response_builder(builder, &err_ctx).build().map_err(|e2| {
+                    e2.log(&err_ctx);
+                    e2
+                })
+            })
+    }
+
+    async fn invoke_with_timeout(&self, mut req: Request<Body>, timeout_ms: u64) -> Result<Response<Body>, SaphirError> {
+        use tokio::time::{timeout, Duration};
+
+        let meta = self.router.resolve_metadata(&mut req);
+        let ctx = HttpContext::new(req, self.router.clone(), meta);
+        let err_ctx = ctx.clone_with_empty_state();
+
+        match timeout(Duration::from_millis(timeout_ms), async move {
+            self.middlewares
+                .next(ctx)
+                .await
+                .and_then(|mut ctx| ctx.state.take_response().ok_or_else(|| SaphirError::ResponseMoved))
+        })
+        .map_err(|_| SaphirError::RequestTimeout)
+        .await
+        {
+            Ok(res) => res,
+            Err(e) => {
+                let builder = crate::response::Builder::new();
+                e.log(&err_ctx);
+                e.response_builder(builder, &err_ctx).build().map_err(|e2| {
+                    e2.log(&err_ctx);
+                    e2
+                })
+            }
+        }
     }
 }
+
+type StackHandlerFut<S, E> = dyn Future<Output = Result<S, E>> + Send;
 
 #[doc(hidden)]
 #[derive(Clone)]
@@ -436,7 +476,7 @@ pub struct StackHandler {
 
 impl Service<hyper::Request<hyper::Body>> for StackHandler {
     type Error = SaphirError;
-    type Future = Box<dyn Future<Output = Result<hyper::Response<hyper::Body>, Self::Error>> + Send + Unpin>;
+    type Future = Pin<Box<StackHandlerFut<Self::Response, Self::Error>>>;
     type Response = hyper::Response<hyper::Body>;
 
     fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -445,7 +485,7 @@ impl Service<hyper::Request<hyper::Body>> for StackHandler {
 
     fn call(&mut self, req: hyper::Request<hyper::Body>) -> Self::Future {
         let req = Request::new(req.map(Body::from_raw), self.peer_addr.take());
-        let fut = Box::pin(self.stack.invoke(req).map(|r| {
+        Box::pin(self.stack.invoke(req).map(|r| {
             r.and_then(|mut r| {
                 // # SAFETY #
                 // Memory has been initialized at server startup.
@@ -454,9 +494,39 @@ impl Service<hyper::Request<hyper::Body>> for StackHandler {
                 });
                 r.into_raw().map(|r| r.map(|b| b.into_raw()))
             })
-        }));
+        })) as Self::Future
+    }
+}
 
-        Box::new(fut) as Box<dyn Future<Output = Result<hyper::Response<hyper::Body>, SaphirError>> + Send + Unpin>
+#[doc(hidden)]
+#[derive(Clone)]
+pub struct TimeoutStackHandler {
+    stack: &'static Stack,
+    timeout_ms: u64,
+    peer_addr: Option<SocketAddr>,
+}
+
+impl Service<hyper::Request<hyper::Body>> for TimeoutStackHandler {
+    type Error = SaphirError;
+    type Future = Pin<Box<StackHandlerFut<Self::Response, Self::Error>>>;
+    type Response = hyper::Response<hyper::Body>;
+
+    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, req: hyper::Request<hyper::Body>) -> Self::Future {
+        let req = Request::new(req.map(Body::from_raw), self.peer_addr.take());
+        Box::pin(self.stack.invoke_with_timeout(req, self.timeout_ms).map(|r| {
+            r.and_then(|mut r| {
+                // # SAFETY #
+                // Memory has been initialized at server startup.
+                r.headers_mut().insert(http::header::SERVER, unsafe {
+                    SERVER_NAME.as_ptr().as_ref().expect("Memory has been initialized at server startup.").clone()
+                });
+                r.into_raw().map(|r| r.map(|b| b.into_raw()))
+            })
+        })) as Self::Future
     }
 }
 

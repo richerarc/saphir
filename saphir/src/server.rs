@@ -362,23 +362,35 @@ impl Server {
             }
         };
 
-        incoming
-            .for_each_concurrent(None, |client_socket| async {
-                match client_socket {
-                    Ok(client_socket) => {
-                        let peer_addr = client_socket.peer_addr().ok();
-                        if let Some(timeout_ms) = listener_config.request_timeout_ms {
+        if let Some(timeout_ms) = listener_config.request_timeout_ms {
+            incoming
+                .for_each_concurrent(None, |client_socket| async {
+                    match client_socket {
+                        Ok(client_socket) => {
+                            let peer_addr = client_socket.peer_addr().ok();
                             tokio::spawn(http.serve_connection(client_socket, stack.new_timeout_handler(timeout_ms, peer_addr)));
-                        } else {
+                        }
+                        Err(e) => {
+                            warn!("incoming connection encountered an error: {}", e);
+                        }
+                    }
+                })
+                .await;
+        } else {
+            incoming
+                .for_each_concurrent(None, |client_socket| async {
+                    match client_socket {
+                        Ok(client_socket) => {
+                            let peer_addr = client_socket.peer_addr().ok();
                             tokio::spawn(http.serve_connection(client_socket, stack.new_handler(peer_addr)));
-                        };
+                        }
+                        Err(e) => {
+                            warn!("incoming connection encountered an error: {}", e);
+                        }
                     }
-                    Err(e) => {
-                        warn!("incoming connection encountered an error: {}", e);
-                    }
-                }
-            })
-            .await;
+                })
+                .await;
+        }
 
         Ok(())
     }

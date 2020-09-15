@@ -84,8 +84,9 @@
 //! async fn my_handler(&self) -> Result<Option<String>, MyError> { /*...*/ Ok(None) }
 //! # }
 //! ```
-//! will generate by default the same documentation as if it was written as such
-//! : ```rust
+//! will generate by default the same documentation as if it was written as
+//! such:
+//! ```rust
 //! # #[macro_use] extern crate saphir_macro;
 //! # use crate::saphir::prelude::*;
 //! #

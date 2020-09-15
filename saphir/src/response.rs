@@ -12,6 +12,7 @@ use crate::{
     body::{Body, TransmuteBody},
     error::SaphirError,
 };
+use http::header::CONTENT_TYPE;
 
 /// Struct that wraps a hyper response + some magic
 pub struct Response<T = Body> {
@@ -311,6 +312,18 @@ impl Builder {
         self
     }
 
+    #[inline]
+    pub(crate) fn content_type_if_not_set(mut self, content_type: &str) -> Builder {
+        if let Some(headers) = self.inner.headers_mut() {
+            if !headers.contains_key(CONTENT_TYPE) {
+                if let Ok(hv) = HeaderValue::from_str(content_type) {
+                    headers.insert(CONTENT_TYPE, hv);
+                }
+            }
+        }
+        self
+    }
+
     /// Finish the builder into Response<Body>
     #[inline]
     pub fn build(self) -> Result<Response<Body>, SaphirError> {
@@ -340,7 +353,7 @@ mod json {
     impl Builder {
         pub fn json<T: Serialize>(self, t: &T) -> Result<Builder, (Builder, SaphirError)> {
             match serde_json::to_vec(t) {
-                Ok(v) => Ok(self.body(v)),
+                Ok(v) => Ok(self.content_type_if_not_set("application/json").body(v)),
                 Err(e) => Err((self, e.into())),
             }
         }

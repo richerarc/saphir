@@ -46,14 +46,15 @@
 //!   "application/json")]`
 //!
 //! `type` can also be a string describing a raw object, for example :
-//! `#[openapi(return(code = 200, type = "[{code: String, name: String}]))", mime
-//! = "json"))]`
+//! `#[openapi(return(code = 200, type = "[{code: String, name: String}]))",
+//! mime = "json"))]`
 //!
 //! You can also specify multiples codes that would return a similar type.
 //! For example, if you have a type `MyJsonError` rendering an error as a json
 //! payload, and your endpoint can return a 404 and a 500 in such a format,
 //! you could write it as such :
-//! `#[openapi(return(type = "MyJsonError", mime = "json", code = 404, code = 500))]`
+//! `#[openapi(return(type = "MyJsonError", mime = "json", code = 404, code =
+//! 500))]`
 //!
 //!
 //! ### `return_override(type = "<type_path>", code = <code>[, mime = <mime>])`
@@ -83,7 +84,8 @@
 //! async fn my_handler(&self) -> Result<Option<String>, MyError> { /*...*/ Ok(None) }
 //! # }
 //! ```
-//! will generate by default the same documentation as if it was written as such :
+//! will generate by default the same documentation as if it was written as
+//! such:
 //! ```rust
 //! # #[macro_use] extern crate saphir_macro;
 //! # use crate::saphir::prelude::*;
@@ -110,8 +112,8 @@
 //! ```
 //!
 //! If you want to start with these defaults and override the return of a single
-//! type in the composed result, for example specyfing that `MyError` is rendered
-//! as a json document, then you can use `return_override` like this :
+//! type in the composed result, for example specyfing that `MyError` is
+//! rendered as a json document, then you can use `return_override` like this :
 //! ```rust
 //! # #[macro_use] extern crate saphir_macro;
 //! # use crate::saphir::prelude::*;

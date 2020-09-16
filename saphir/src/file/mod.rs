@@ -18,7 +18,7 @@ use flate2::write::{DeflateEncoder, GzEncoder};
 use futures::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, Cursor};
 use mime::Mime;
 use nom::lib::std::str::FromStr;
-use std::io::Write;
+use std::io::{Cursor as CursorSync, Write};
 
 mod cache;
 pub mod conditional_request;
@@ -203,6 +203,8 @@ impl FromStr for Compression {
             "deflate" => Ok(Compression::Deflate),
             "gzip" => Ok(Compression::Gzip),
             "br" => Ok(Compression::Brotli),
+            "identity" => Ok(Compression::Raw),
+            "*" => Ok(Compression::Raw),
             _ => Err(SaphirError::Other("Encoding not supported".to_string())),
         }
     }
@@ -223,6 +225,7 @@ pub enum Encoder {
     Brotli(Box<brotli::CompressorWriter<Vec<u8>>>),
     Gzip(GzEncoder<Vec<u8>>),
     Deflate(DeflateEncoder<Vec<u8>>),
+    Raw(CursorSync<Vec<u8>>),
     None,
 }
 
@@ -247,6 +250,7 @@ impl std::io::Write for Encoder {
             Encoder::Brotli(e) => e.write(buf),
             Encoder::Gzip(e) => e.write(buf),
             Encoder::Deflate(e) => e.write(buf),
+            Encoder::Raw(e) => std::io::Write::write(e, buf),
             Encoder::None => Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe)),
         }
     }
@@ -256,21 +260,20 @@ impl std::io::Write for Encoder {
             Encoder::Brotli(e) => e.flush(),
             Encoder::Gzip(e) => e.flush(),
             Encoder::Deflate(e) => e.flush(),
+            Encoder::Raw(e) => std::io::Write::flush(e),
             Encoder::None => Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe)),
         }
     }
 }
 
 pub async fn compress_file(mut file: Pin<Box<dyn SaphirFile>>, mut encoder: Encoder, compression: Compression) -> io::Result<Vec<u8>> {
-    if encoder.is_none() && compression != Compression::Raw {
+    if encoder.is_none() {
         encoder = match compression {
             Compression::Gzip => Encoder::Gzip(GzEncoder::new(Vec::new(), flate2::Compression::default())),
             Compression::Deflate => Encoder::Deflate(DeflateEncoder::new(Vec::new(), flate2::Compression::default())),
             Compression::Brotli => Encoder::Brotli(Box::new(brotli::CompressorWriter::new(Vec::new(), MAX_BUFFER, 6, 22))),
-            Compression::Raw => Encoder::None,
+            Compression::Raw => Encoder::Raw(CursorSync::new(Vec::new())),
         }
-    } else if compression == Compression::Raw {
-        return Err(io::Error::from(io::ErrorKind::InvalidInput));
     }
 
     loop {
@@ -291,6 +294,10 @@ pub async fn compress_file(mut file: Pin<Box<dyn SaphirFile>>, mut encoder: Enco
         Encoder::Gzip(e) => e.finish(),
         Encoder::Deflate(e) => e.finish(),
         Encoder::Brotli(mut e) => match e.flush() {
+            Ok(()) => Ok(e.into_inner()),
+            Err(e) => Err(e),
+        },
+        Encoder::Raw(mut e) => match std::io::Write::flush(&mut e) {
             Ok(()) => Ok(e.into_inner()),
             Err(e) => Err(e),
         },

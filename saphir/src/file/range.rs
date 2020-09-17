@@ -122,7 +122,7 @@ impl ToString for Range {
 
                 for (i, range) in ranges.iter().enumerate() {
                     if i != 0 {
-                        string.push_str(",");
+                        string.push(',');
                     }
                     string.push_str(&range.to_string())
                 }

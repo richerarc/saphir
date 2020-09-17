@@ -236,7 +236,7 @@ impl Router {
     }
 
     pub async fn dispatch(&self, mut ctx: HttpContext) -> Result<HttpContext, SaphirError> {
-        let req = ctx.state.take_request().ok_or_else(|| SaphirError::RequestMovedBeforeHandler)?;
+        let req = ctx.state.take_request().ok_or(SaphirError::RequestMovedBeforeHandler)?;
         // # SAFETY #
         // The router is initialized in static memory when calling run on Server.
         let static_self = unsafe { std::mem::transmute::<&'_ Self, &'static Self>(self) };

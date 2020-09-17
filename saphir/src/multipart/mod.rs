@@ -169,7 +169,7 @@ impl Field {
             return Ok(None);
         }
 
-        parser::parse_next_field_chunk(self.stream.as_mut().ok_or_else(|| MultipartError::AlreadyConsumed)?, self.boundary.as_str())
+        parser::parse_next_field_chunk(self.stream.as_mut().ok_or(MultipartError::AlreadyConsumed)?, self.boundary.as_str())
             .await
             .map(|b| if b.is_empty() { None } else { Some(b) })
     }
@@ -228,7 +228,7 @@ impl Field {
     }
 
     async fn read_all(&mut self) -> Result<Vec<u8>, MultipartError> {
-        parser::parse_field_data(self.stream.take().ok_or_else(|| MultipartError::AlreadyConsumed)?, self.boundary.as_str())
+        parser::parse_field_data(self.stream.take().ok_or(MultipartError::AlreadyConsumed)?, self.boundary.as_str())
             .await
             .map(|mut b| {
                 if b[(b.len() - 2)..b.len()] == [0x0d, 0x0a] {
@@ -275,7 +275,7 @@ impl FromRequest for Multipart {
             .as_ref()
             .and_then(|mime| mime.get_param(mime::BOUNDARY))
             .map(|name| name.to_string())
-            .ok_or_else(|| MultipartError::MissingBoundary);
+            .ok_or(MultipartError::MissingBoundary);
 
         let stream = req.body_mut().take().into_raw().map_err(MultipartError::Hyper);
 

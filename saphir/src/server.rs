@@ -425,7 +425,7 @@ impl Stack {
         self.middlewares
             .next(ctx)
             .await
-            .and_then(|mut ctx| ctx.state.take_response().ok_or_else(|| SaphirError::ResponseMoved))
+            .and_then(|mut ctx| ctx.state.take_response().ok_or(SaphirError::ResponseMoved))
             .or_else(|e| {
                 let builder = crate::response::Builder::new();
                 e.log(&err_ctx);
@@ -447,7 +447,7 @@ impl Stack {
             self.middlewares
                 .next(ctx)
                 .await
-                .and_then(|mut ctx| ctx.state.take_response().ok_or_else(|| SaphirError::ResponseMoved))
+                .and_then(|mut ctx| ctx.state.take_response().ok_or(SaphirError::ResponseMoved))
         })
         .map_err(|_| SaphirError::RequestTimeout)
         .await

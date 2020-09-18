@@ -12,7 +12,6 @@ use crate::{
     body::{Body, TransmuteBody},
     error::SaphirError,
 };
-use http::header::CONTENT_TYPE;
 
 /// Struct that wraps a hyper response + some magic
 pub struct Response<T = Body> {
@@ -312,12 +311,13 @@ impl Builder {
         self
     }
 
+    #[cfg(any(feature = "form", feature = "json"))]
     #[inline]
     pub(crate) fn content_type_if_not_set(mut self, content_type: &str) -> Builder {
         if let Some(headers) = self.inner.headers_mut() {
-            if !headers.contains_key(CONTENT_TYPE) {
+            if !headers.contains_key(http::header::CONTENT_TYPE) {
                 if let Ok(hv) = HeaderValue::from_str(content_type) {
-                    headers.insert(CONTENT_TYPE, hv);
+                    headers.insert(http::header::CONTENT_TYPE, hv);
                 }
             }
         }
@@ -369,7 +369,7 @@ mod form {
     impl Builder {
         pub fn form<T: Serialize>(self, t: &T) -> Result<Builder, (Builder, SaphirError)> {
             match serde_urlencoded::to_string(t) {
-                Ok(v) => Ok(self.body(v)),
+                Ok(v) => Ok(self.content_type_if_not_set("application/x-www-form-urlencoded").body(v)),
                 Err(e) => Err((self, e.into())),
             }
         }

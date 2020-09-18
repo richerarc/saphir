@@ -111,6 +111,7 @@ impl SaphirError {
         }
     }
 
+    #[allow(unused_variables)]
     pub(crate) fn log(&self, ctx: &HttpContext) {
         let op_id = {
             #[cfg(not(feature = "operation"))]

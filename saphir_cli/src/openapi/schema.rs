@@ -4,9 +4,15 @@ use serde::{
 };
 use serde_derive::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashMap},
     fmt,
 };
+use std::cmp::Ordering;
+use once_cell::sync::Lazy;
+use regex::Regex;
+
+static VERSIONNED_TAG_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r".+_v\d+").expect("regex should be valid"));
+static VERSION_TAG_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"v\d+").expect("regex should be valid"));
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -247,12 +253,19 @@ pub struct OpenApi {
     pub(crate) info: OpenApiInfo,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) servers: Vec<OpenApiServer>,
-    #[serde(skip_serializing_if = "HashSet::is_empty")]
-    pub(crate) tags: HashSet<OpenApiTag>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) tags: Vec<OpenApiTag>,
     // Key: api path / method / definition
     pub(crate) paths: BTreeMap<String, BTreeMap<OpenApiPathMethod, OpenApiPath>>,
     #[serde(skip_serializing_if = "OpenApiComponents::is_empty")]
     pub(crate) components: OpenApiComponents,
+}
+
+impl OpenApi {
+    pub fn sort_and_dedup_tags(&mut self) {
+        self.tags.sort_unstable();
+        self.tags.dedup();
+    }
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -271,6 +284,32 @@ pub struct OpenApiTag {
     pub(crate) name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) description: Option<String>,
+}
+
+impl OpenApiTag {
+    fn type_ord(&self) -> u8 {
+        if VERSION_TAG_REGEX.is_match(&self.name) { return 1; }
+        if VERSIONNED_TAG_REGEX.is_match(&self.name) { return 2; }
+        0
+    }
+}
+
+impl Ord for OpenApiTag {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let a = self.type_ord();
+        let b = other.type_ord();
+        if a == b {
+            self.name.cmp(&other.name)
+        } else {
+            a.cmp(&b)
+        }
+    }
+}
+
+impl PartialOrd for OpenApiTag {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]

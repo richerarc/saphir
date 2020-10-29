@@ -169,6 +169,7 @@ impl Command for Gen {
         let entrypoint = self.get_crate_entrypoint(self.args.package_name.as_ref(), browser)?;
         let controllers = self.load_controllers(entrypoint)?;
         self.fill_openapi_with_controllers(entrypoint, controllers)?;
+        self.doc.sort_and_dedup_tags();
         let file = self.write_doc_file()?;
         println!("Succesfully created `{}` in {}ms", file, now.elapsed().as_millis());
         Ok(())
@@ -261,18 +262,31 @@ by using the --package flag."
                     } else {
                         None
                     };
-                    let tag = OpenApiTag {
+
+                    let mut tags = Vec::new();
+                    tags.push(OpenApiTag {
                         name: controller.name.clone(),
                         description: Some(format!("Endpoints under the {} controller (`{}`).", controller_model_name, controller_name)),
-                    };
+                    });
+                    if let Some(version) = &controller.version {
+                        tags.push(OpenApiTag {
+                            name: format!("v{}", version),
+                            description: Some(format!("Endpoints under the v{} controllers.", version)),
+                        });
+                        tags.push(OpenApiTag {
+                            name: format!("{}-v{}", controller_model_name, version),
+                            description: Some(format!("Endpoints under the {} controller v{} (`{}`).", controller_model_name, version, controller_name)),
+                        });
+                    }
+
                     let mut data = OpenApiPath {
                         parameters: handler.parameters.clone(),
                         description: description.clone(),
                         operation_id: route.operation_id.clone(),
-                        tags: vec![tag.name.clone()],
+                        tags: tags.iter().map(|t| t.name.clone()).collect(),
                         ..Default::default()
                     };
-                    self.doc.tags.insert(tag);
+                    self.doc.tags.extend(tags);
 
                     if let Some(body_info) = handler.body_info.as_mut() {
                         if method == OpenApiPathMethod::Get {

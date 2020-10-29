@@ -1,15 +1,15 @@
+use once_cell::sync::Lazy;
+use regex::Regex;
 use serde::{
     de::{self, Visitor},
     Deserialize as ImplDeserialize, Deserializer, Serialize as ImplSerialize, Serializer,
 };
 use serde_derive::{Deserialize, Serialize};
 use std::{
+    cmp::Ordering,
     collections::{BTreeMap, HashMap},
     fmt,
 };
-use std::cmp::Ordering;
-use once_cell::sync::Lazy;
-use regex::Regex;
 
 static VERSIONNED_TAG_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r".+_v\d+").expect("regex should be valid"));
 static VERSION_TAG_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"v\d+").expect("regex should be valid"));
@@ -288,8 +288,12 @@ pub struct OpenApiTag {
 
 impl OpenApiTag {
     fn type_ord(&self) -> u8 {
-        if VERSION_TAG_REGEX.is_match(&self.name) { return 1; }
-        if VERSIONNED_TAG_REGEX.is_match(&self.name) { return 2; }
+        if VERSION_TAG_REGEX.is_match(&self.name) {
+            return 1;
+        }
+        if VERSIONNED_TAG_REGEX.is_match(&self.name) {
+            return 2;
+        }
         0
     }
 }

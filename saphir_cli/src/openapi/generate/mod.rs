@@ -275,7 +275,10 @@ by using the --package flag."
                         });
                         tags.push(OpenApiTag {
                             name: format!("{}-v{}", controller_model_name, version),
-                            description: Some(format!("Endpoints under the {} controller v{} (`{}`).", controller_model_name, version, controller_name)),
+                            description: Some(format!(
+                                "Endpoints under the {} controller v{} (`{}`).",
+                                controller_model_name, version, controller_name
+                            )),
                         });
                     }
 

@@ -66,6 +66,7 @@
 //!   data
 //!
 //! *_More feature will be added in the future_*
+#![allow(clippy::match_like_matches_macro)]
 
 #[macro_use]
 extern crate log;

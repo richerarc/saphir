@@ -1,5 +1,6 @@
 // The `quote!` macro requires deep recursion.
 #![recursion_limit = "512"]
+#![allow(clippy::match_like_matches_macro)]
 
 extern crate proc_macro;
 

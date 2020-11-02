@@ -1,3 +1,4 @@
+#![allow(clippy::match_like_matches_macro)]
 use structopt::StructOpt;
 
 mod openapi;

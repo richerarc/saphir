@@ -641,16 +641,9 @@ by using the --package flag."
                             s = e + 1;
                         }
                         '{' | '[' => {
-                            let (mut t, _, end) = self._openapitype_from_raw(scope, &raw[s..(len - 1)])?;
+                            let (t, _, end) = self._openapitype_from_raw(scope, &raw[s..(len - 1)])?;
                             e += end + 1;
                             if let Some(key) = cur_key {
-                                if char == '[' {
-                                    t = OpenApiSchema::Inline(OpenApiType::Array {
-                                        items: Box::new(t),
-                                        min_items: None,
-                                        max_items: None,
-                                    });
-                                }
                                 properties.insert(key.to_string(), Box::new(t));
                                 required.push(key.to_string());
                                 s = e + 1;

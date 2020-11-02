@@ -7,7 +7,7 @@ use serde::{
 use serde_derive::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap},
     fmt,
 };
 
@@ -26,7 +26,7 @@ impl Default for OpenApiParameterLocation {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub enum OpenApiMimeType {
     Json,
     Form,
@@ -145,13 +145,13 @@ fn serde_true() -> bool {
 #[serde(untagged)]
 pub enum OpenApiObjectType {
     Object {
-        properties: HashMap<String, Box<OpenApiSchema>>,
+        properties: BTreeMap<String, Box<OpenApiSchema>>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         required: Vec<String>,
     },
     Dictionary {
-        #[serde(skip_serializing_if = "HashMap::is_empty")]
-        properties: HashMap<String, Box<OpenApiSchema>>,
+        #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+        properties: BTreeMap<String, Box<OpenApiSchema>>,
         #[serde(rename = "additionalProperties")]
         additional_properties: Box<OpenApiObjectType>,
     },
@@ -216,7 +216,7 @@ impl OpenApiType {
         OpenApiType::String { enum_values: values }
     }
 
-    pub fn object(properties: HashMap<String, Box<OpenApiSchema>>, required: Vec<String>) -> Self {
+    pub fn object(properties: BTreeMap<String, Box<OpenApiSchema>>, required: Vec<String>) -> Self {
         OpenApiType::Object {
             object: OpenApiObjectType::Object { properties, required },
         }
@@ -331,7 +331,7 @@ pub struct OpenApiPath {
     pub(crate) request_body: Option<OpenApiRequestBody>,
     #[serde(rename = "x-codegen-request-body-name", skip_serializing_if = "Option::is_none")]
     pub(crate) x_codegen_request_body_name: Option<String>,
-    pub(crate) responses: HashMap<String, OpenApiResponse>,
+    pub(crate) responses: BTreeMap<String, OpenApiResponse>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -349,7 +349,7 @@ pub struct OpenApiParameter {
 pub struct OpenApiRequestBody {
     pub(crate) description: String,
     pub(crate) required: bool,
-    pub(crate) content: HashMap<OpenApiMimeType, OpenApiContent>,
+    pub(crate) content: BTreeMap<OpenApiMimeType, OpenApiContent>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -375,8 +375,8 @@ impl Default for OpenApiSchema {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct OpenApiResponse {
     pub(crate) description: String,
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
-    pub(crate) content: HashMap<OpenApiMimeType, OpenApiContent>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) content: BTreeMap<OpenApiMimeType, OpenApiContent>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

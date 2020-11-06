@@ -156,8 +156,7 @@ impl FileMiddleware {
             .header(http::header::ACCEPT_RANGES, "bytes")
             .header(header::CONTENT_TYPE, Self::guess_path_mime(&path).to_string())
             .header(header::CONTENT_LENGTH, size)
-            .header(header::CACHE_CONTROL, "public")
-            .header(header::CACHE_CONTROL, "max-age=86400")
+            .header(header::CACHE_CONTROL, "public, max-age=86400")
             .header(header::ETAG, etag.get_tag());
         ctx.after(builder.build()?);
 

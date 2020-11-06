@@ -7,6 +7,7 @@ use crate::{
         range_requests::{extract_range, is_range_fresh, is_satisfiable_range},
         Compression,
     },
+    handler::DynHandler,
     prelude::*,
 };
 use mime::Mime;
@@ -17,13 +18,11 @@ use std::{
     str::{FromStr, Utf8Error},
     time::SystemTime,
 };
-use crate::handler::DynHandler;
 
 const DEFAULT_CACHE_MAX_FILE_SIZE: u64 = 2_097_152;
 const DEFAULT_CACHE_MAX_CAPACITY: u64 = 536_870_912;
 const DEFAULT_INDEX_FILES: [&str; 2] = ["index.html", "index.htm"];
 const DEFAULT_TRY_FILES: [&str; 2] = ["$uri", "$uri/"];
-
 
 pub struct FileMiddleware {
     base_path: PathBuf,
@@ -59,7 +58,7 @@ impl FileMiddleware {
 
             let path = match self.file_path_from_path(&path) {
                 Ok(p) => p,
-                Err(_) =>  continue 'try_files,
+                Err(_) => continue 'try_files,
             };
 
             if path.is_hidden() {
@@ -243,7 +242,9 @@ impl FileMiddlewareBuilder {
     }
 
     pub fn file_not_found_handler<H>(mut self, handler: H) -> Self
-    where H: 'static + DynHandler<Body> + Sync + Send {
+    where
+        H: 'static + DynHandler<Body> + Sync + Send,
+    {
         self.file_not_found_handler = Some(Box::new(handler));
         self
     }
@@ -252,8 +253,8 @@ impl FileMiddlewareBuilder {
         Ok(FileMiddleware {
             base_path: self.base_path,
             www_path: self.www_path,
-            index_files: self.index_files.unwrap_or(DEFAULT_INDEX_FILES.iter().map(|s| s.to_string()).collect()),
-            try_files: self.try_files.unwrap_or(DEFAULT_TRY_FILES.iter().map(|s| s.to_string()).collect()),
+            index_files: self.index_files.unwrap_or_else(|| DEFAULT_INDEX_FILES.iter().map(|s| s.to_string()).collect()),
+            try_files: self.try_files.unwrap_or_else(|| DEFAULT_TRY_FILES.iter().map(|s| s.to_string()).collect()),
             cache: FileCache::new(
                 self.max_file_size.unwrap_or(DEFAULT_CACHE_MAX_FILE_SIZE),
                 self.max_capacity.unwrap_or(DEFAULT_CACHE_MAX_CAPACITY),
@@ -262,67 +263,6 @@ impl FileMiddlewareBuilder {
         })
     }
 }
-
-// #[doc(hidden)]
-// pub trait DynFileMiddlewareHandler {
-//     fn dyn_handle(&self, ctx: &HttpContext) -> Pin<Box<dyn Future<Output = Box<dyn DynResponder + Send>> + Unpin + Send>>;
-// }
-//
-// impl<H, Fut, R> DynFileMiddlewareHandler for H
-//     where
-//         R: 'static + Responder + Send,
-//         Fut: 'static + Future<Output = R> + Unpin + Send,
-//         H: FileMiddlewareHandler<Future = Fut, Responder = R> + Send + Sync,
-// {
-//     #[inline]
-//     fn dyn_handle(&self, ctx: &HttpContext) -> Pin<Box<dyn Future<Output = Box<dyn DynResponder + Send>> + Unpin + Send>> {
-//         Box::pin(self.handle(ctx).map(|r| Box::new(Some(r)) as Box<dyn DynResponder + Send>))
-//     }
-// }
-//
-// /// Define a Handler of a potential http request
-// ///
-// /// Implementing this trait on any type will allow the router to route request
-// /// towards it. Implemented by default on Controllers and on any `async
-// /// fn(Request<Body>) -> impl Responder`
-// pub trait FileMiddlewareHandler {
-//     // /// Responder returned by the handler
-//     // type Responder: Responder;
-//     // /// Specific future returning the responder
-//     type Future: Future<Output = Self::Responder>;
-//     type Responder: Responder;
-//
-//     /// Handle the http request, returning a future of a responder
-//     fn handle<'h>(&self, ctx: &'h HttpContext) -> Self::Future;
-// }
-//
-// impl<Fun, Fut, R> FileMiddlewareHandler for Fun
-//     where
-//         Fun: for<'h> Fn(&'h HttpContext) -> Fut,
-//         Fut: 'static + Future<Output = R> + Send,
-//         R: Responder,
-// {
-//     type Future = Box<dyn Future<Output = R> + Unpin + Send>;
-//     type Responder = R;
-//
-//     #[inline]
-//     fn handle<'h>(&self, ctx: &'h HttpContext) -> Self::Future {
-//         Box::new(Box::pin((*self)(ctx)))
-//     }
-// }
-//
-// impl<Fun, Fut> FileMiddlewareHandler for Fun
-//     where
-//         Fun: Fn(HttpContext) -> Fut,
-//         Fut: 'static + Future<Output = HttpContext> + Send,
-// {
-//     type Future = Box<dyn Future<Output = Result<HttpContext, SaphirError>> + Unpin + Send>;
-//
-//     #[inline]
-//     fn handle(&self, ctx: HttpContext) -> Self::Future {
-//         Box::new(Box::pin((*self)(ctx).map(|ctx| Ok(ctx))))
-//     }
-// }
 
 pub trait PathExt {
     fn is_hidden(&self) -> bool;

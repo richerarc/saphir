@@ -17,14 +17,21 @@ use std::{
     str::{FromStr, Utf8Error},
     time::SystemTime,
 };
+use crate::handler::DynHandler;
 
 const DEFAULT_CACHE_MAX_FILE_SIZE: u64 = 2_097_152;
 const DEFAULT_CACHE_MAX_CAPACITY: u64 = 536_870_912;
+const DEFAULT_INDEX_FILES: [&str; 2] = ["index.html", "index.htm"];
+const DEFAULT_TRY_FILES: [&str; 2] = ["$uri", "$uri/"];
+
 
 pub struct FileMiddleware {
     base_path: PathBuf,
     www_path: PathBuf,
+    index_files: Vec<String>,
+    try_files: Vec<String>,
     cache: FileCache,
+    file_not_found_handler: Option<Box<dyn DynHandler<Body> + 'static + Send + Sync>>,
 }
 
 impl FileMiddleware {
@@ -32,7 +39,10 @@ impl FileMiddleware {
         FileMiddleware {
             base_path: PathBuf::from(base_path.to_string()),
             www_path: PathBuf::from(www_path.to_string()),
+            index_files: DEFAULT_INDEX_FILES.iter().map(|s| s.to_string()).collect(),
+            try_files: DEFAULT_TRY_FILES.iter().map(|s| s.to_string()).collect(),
             cache: FileCache::new(DEFAULT_CACHE_MAX_FILE_SIZE, DEFAULT_CACHE_MAX_CAPACITY),
+            file_not_found_handler: None,
         }
     }
 
@@ -40,37 +50,49 @@ impl FileMiddleware {
         let mut builder = Builder::new();
         let mut cache = self.cache.clone();
         let req = ctx.state.request_unchecked();
-        let path = match self.file_path_from_path(req.uri().path()) {
-            Ok(path) => path,
-            Err(_) => {
-                ctx.after(builder.status(400).build()?);
+        let req_path = req.uri().path();
+
+        let mut file_path = None;
+        'try_files: for path in &self.try_files {
+            let path = path.replace("$uri", req_path);
+            let is_dir = path.ends_with('/');
+
+            let path = match self.file_path_from_path(&path) {
+                Ok(p) => p,
+                Err(_) =>  continue 'try_files,
+            };
+
+            if path.is_hidden() {
+                continue 'try_files;
+            }
+
+            if is_dir {
+                if path.is_dir() {
+                    for index in &self.index_files {
+                        let index_path = path.join(index);
+                        if index_path.is_file() {
+                            file_path = Some(index_path);
+                            break 'try_files;
+                        }
+                    }
+                }
+            } else if path.is_file() {
+                file_path = Some(path);
+                break 'try_files;
+            }
+        }
+
+        let path = match (file_path, &self.file_not_found_handler) {
+            (Some(f), _) => f,
+            (None, Some(handler)) => {
+                let req = ctx.state.take_request().ok_or(SaphirError::RequestMovedBeforeHandler)?;
+                ctx.after((*handler).dyn_handle(req).await.dyn_respond(Builder::new(), &ctx).build()?);
                 return Ok(ctx);
             }
-        };
-
-        let path = match (self.path_exists(&path), path.extension().is_none()) {
-            (false, false) => {
-                info!("Path doesn't exist: {}", path.display());
+            (None, None) => {
                 ctx.after(builder.status(404).build()?);
                 return Ok(ctx);
             }
-            (false, true) => {
-                let index_path = match self.file_path_from_path("/index.html") {
-                    Ok(path) => path,
-                    Err(_) => {
-                        ctx.after(builder.status(400).build()?);
-                        return Ok(ctx);
-                    }
-                };
-                if !self.path_exists(&index_path) {
-                    info!("Path doesn't exist: {}", path.display());
-                    ctx.after(builder.status(404).build()?);
-                    return Ok(ctx);
-                } else {
-                    index_path
-                }
-            }
-            (true, _) => path,
         };
 
         if !self.path_is_under_base_path(&path) {
@@ -85,8 +107,6 @@ impl FileMiddleware {
             ctx.after(builder.status(412).build()?);
             return Ok(ctx);
         }
-
-        let mime_type = Self::guess_path_mime(&path);
 
         if is_fresh(&req, &etag, &last_modified) {
             ctx.after(builder.status(304).header(header::LAST_MODIFIED, format_systemtime(last_modified)).build()?);
@@ -134,7 +154,7 @@ impl FileMiddleware {
 
         builder = builder
             .header(http::header::ACCEPT_RANGES, "bytes")
-            .header(header::CONTENT_TYPE, mime_type.to_string())
+            .header(header::CONTENT_TYPE, Self::guess_path_mime(&path).to_string())
             .header(header::CONTENT_LENGTH, size)
             .header(header::CACHE_CONTROL, "public")
             .header(header::CACHE_CONTROL, "max-age=0")
@@ -156,16 +176,6 @@ impl FileMiddleware {
                 }
             })
             .map(|path| self.www_path.join(path))
-            .map(|path| if path.is_dir() { path.join("index.html") } else { path })
-    }
-
-    fn path_exists<P: AsRef<Path>>(&self, path: P) -> bool {
-        let path = path.as_ref();
-        path.exists() && !self.path_is_hidden(path)
-    }
-
-    fn path_is_hidden<P: AsRef<Path>>(&self, path: P) -> bool {
-        path.as_ref().is_hidden()
     }
 
     fn path_is_under_base_path<P: AsRef<Path>>(&self, path: P) -> bool {
@@ -188,8 +198,11 @@ impl Middleware for FileMiddleware {
 pub struct FileMiddlewareBuilder {
     base_path: PathBuf,
     www_path: PathBuf,
+    index_files: Option<Vec<String>>,
+    try_files: Option<Vec<String>>,
     max_file_size: Option<u64>,
     max_capacity: Option<u64>,
+    file_not_found_handler: Option<Box<dyn 'static + DynHandler<Body> + Send + Sync>>,
 }
 
 impl FileMiddlewareBuilder {
@@ -197,8 +210,11 @@ impl FileMiddlewareBuilder {
         FileMiddlewareBuilder {
             base_path: PathBuf::from(base_path),
             www_path: PathBuf::from(www_path),
+            index_files: None,
+            try_files: None,
             max_file_size: None,
             max_capacity: None,
+            file_not_found_handler: None,
         }
     }
 
@@ -212,17 +228,102 @@ impl FileMiddlewareBuilder {
         self
     }
 
+    pub fn index_files(mut self, index_files: &str) -> Self {
+        self.index_files = Some(index_files.split(' ').map(|s| s.trim().to_string()).collect());
+        self
+    }
+
+    pub fn no_directory_index(mut self) -> Self {
+        self.index_files = Some(Vec::new());
+        self
+    }
+
+    pub fn try_files(mut self, try_files: &str) -> Self {
+        self.try_files = Some(try_files.split(' ').map(|s| s.trim().to_string()).collect());
+        self
+    }
+
+    pub fn file_not_found_handler<H>(mut self, handler: H) -> Self
+    where H: 'static + DynHandler<Body> + Sync + Send {
+        self.file_not_found_handler = Some(Box::new(handler));
+        self
+    }
+
     pub fn build(self) -> Result<FileMiddleware, SaphirError> {
         Ok(FileMiddleware {
             base_path: self.base_path,
             www_path: self.www_path,
+            index_files: self.index_files.unwrap_or(DEFAULT_INDEX_FILES.iter().map(|s| s.to_string()).collect()),
+            try_files: self.try_files.unwrap_or(DEFAULT_TRY_FILES.iter().map(|s| s.to_string()).collect()),
             cache: FileCache::new(
                 self.max_file_size.unwrap_or(DEFAULT_CACHE_MAX_FILE_SIZE),
                 self.max_capacity.unwrap_or(DEFAULT_CACHE_MAX_CAPACITY),
             ),
+            file_not_found_handler: self.file_not_found_handler,
         })
     }
 }
+
+// #[doc(hidden)]
+// pub trait DynFileMiddlewareHandler {
+//     fn dyn_handle(&self, ctx: &HttpContext) -> Pin<Box<dyn Future<Output = Box<dyn DynResponder + Send>> + Unpin + Send>>;
+// }
+//
+// impl<H, Fut, R> DynFileMiddlewareHandler for H
+//     where
+//         R: 'static + Responder + Send,
+//         Fut: 'static + Future<Output = R> + Unpin + Send,
+//         H: FileMiddlewareHandler<Future = Fut, Responder = R> + Send + Sync,
+// {
+//     #[inline]
+//     fn dyn_handle(&self, ctx: &HttpContext) -> Pin<Box<dyn Future<Output = Box<dyn DynResponder + Send>> + Unpin + Send>> {
+//         Box::pin(self.handle(ctx).map(|r| Box::new(Some(r)) as Box<dyn DynResponder + Send>))
+//     }
+// }
+//
+// /// Define a Handler of a potential http request
+// ///
+// /// Implementing this trait on any type will allow the router to route request
+// /// towards it. Implemented by default on Controllers and on any `async
+// /// fn(Request<Body>) -> impl Responder`
+// pub trait FileMiddlewareHandler {
+//     // /// Responder returned by the handler
+//     // type Responder: Responder;
+//     // /// Specific future returning the responder
+//     type Future: Future<Output = Self::Responder>;
+//     type Responder: Responder;
+//
+//     /// Handle the http request, returning a future of a responder
+//     fn handle<'h>(&self, ctx: &'h HttpContext) -> Self::Future;
+// }
+//
+// impl<Fun, Fut, R> FileMiddlewareHandler for Fun
+//     where
+//         Fun: for<'h> Fn(&'h HttpContext) -> Fut,
+//         Fut: 'static + Future<Output = R> + Send,
+//         R: Responder,
+// {
+//     type Future = Box<dyn Future<Output = R> + Unpin + Send>;
+//     type Responder = R;
+//
+//     #[inline]
+//     fn handle<'h>(&self, ctx: &'h HttpContext) -> Self::Future {
+//         Box::new(Box::pin((*self)(ctx)))
+//     }
+// }
+//
+// impl<Fun, Fut> FileMiddlewareHandler for Fun
+//     where
+//         Fun: Fn(HttpContext) -> Fut,
+//         Fut: 'static + Future<Output = HttpContext> + Send,
+// {
+//     type Future = Box<dyn Future<Output = Result<HttpContext, SaphirError>> + Unpin + Send>;
+//
+//     #[inline]
+//     fn handle(&self, ctx: HttpContext) -> Self::Future {
+//         Box::new(Box::pin((*self)(ctx).map(|ctx| Ok(ctx))))
+//     }
+// }
 
 pub trait PathExt {
     fn is_hidden(&self) -> bool;

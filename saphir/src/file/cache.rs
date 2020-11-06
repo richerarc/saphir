@@ -88,7 +88,7 @@ impl FileCache {
             }
         } else {
             let file = File::open(path_str).await?;
-            let file_size = file.get_path().size();
+            let file_size = file.get_size();
             if file_size + self.get_size().await <= self.max_capacity && file_size <= self.max_file_size {
                 let mime = file.get_mime().cloned();
                 let compressed_file = compress_file(Box::pin(file), Encoder::None, compression).await?;

@@ -301,7 +301,7 @@ by using the --package flag."
                     }
 
                     for response in &mut handler.responses {
-                        let mut content = HashMap::new();
+                        let mut content = BTreeMap::new();
                         let as_ref = self.args.schema_granularity != SchemaGranularity::None;
                         if let Some(schema) = response
                             .anonymous_type
@@ -428,7 +428,7 @@ by using the --package flag."
         } else {
             OpenApiSchema::Inline(OpenApiType::anonymous_input_object())
         };
-        let mut content: HashMap<OpenApiMimeType, OpenApiContent> = HashMap::new();
+        let mut content: BTreeMap<OpenApiMimeType, OpenApiContent> = BTreeMap::new();
         content.insert(body_info.openapi_type.clone(), OpenApiContent { schema });
         Some(OpenApiRequestBody {
             description: body_info.type_info.name.clone(),
@@ -501,7 +501,7 @@ by using the --package flag."
     }
 
     fn get_open_api_type_from_struct<'b>(&mut self, name: &str, item: &'b Item<'b>, s: &ItemStruct, as_ref: bool) -> Option<OpenApiSchema> {
-        let mut properties = HashMap::new();
+        let mut properties = BTreeMap::new();
         let mut required = Vec::new();
         for field in &s.fields {
             if let Some(field_name) = field.ident.as_ref().map(|i| get_serde_field(i.to_string(), &field.attrs, &s.attrs)).flatten() {
@@ -622,7 +622,7 @@ by using the --package flag."
         match first_char {
             '{' => {
                 let mut cur_key: Option<&str> = None;
-                let mut properties = HashMap::new();
+                let mut properties = BTreeMap::new();
                 let mut required = Vec::new();
 
                 let mut s = 1;
@@ -641,16 +641,9 @@ by using the --package flag."
                             s = e + 1;
                         }
                         '{' | '[' => {
-                            let (mut t, _, end) = self._openapitype_from_raw(scope, &raw[s..(len - 1)])?;
+                            let (t, _, end) = self._openapitype_from_raw(scope, &raw[s..(len - 1)])?;
                             e += end + 1;
                             if let Some(key) = cur_key {
-                                if char == '[' {
-                                    t = OpenApiSchema::Inline(OpenApiType::Array {
-                                        items: Box::new(t),
-                                        min_items: None,
-                                        max_items: None,
-                                    });
-                                }
                                 properties.insert(key.to_string(), Box::new(t));
                                 required.push(key.to_string());
                                 s = e + 1;

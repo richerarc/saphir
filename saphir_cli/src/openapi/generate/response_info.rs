@@ -137,18 +137,20 @@ impl Gen {
                                 let mime = mime.map(OpenApiMimeType::from);
 
                                 for (code, type_name) in pairs {
-                                    if let Some(mut anonymous_type) = self.openapitype_from_raw(method.impl_item.im.item.scope, type_name.as_str()) {
-                                        anonymous_type.name = name.clone();
-                                        vec.push((
-                                            Some(code),
-                                            ResponseInfo {
-                                                code,
-                                                mime: mime.clone().unwrap_or(OpenApiMimeType::Any),
-                                                type_info: None,
-                                                anonymous_type: Some(anonymous_type),
-                                            },
-                                        ));
-                                        continue;
+                                    if !type_name.is_empty() {
+                                        if let Some(mut anonymous_type) = self.openapitype_from_raw(method.impl_item.im.item.scope, type_name.as_str()) {
+                                            anonymous_type.name = name.clone();
+                                            vec.push((
+                                                Some(code),
+                                                ResponseInfo {
+                                                    code,
+                                                    mime: mime.clone().unwrap_or(OpenApiMimeType::Any),
+                                                    type_info: None,
+                                                    anonymous_type: Some(anonymous_type),
+                                                },
+                                            ));
+                                            continue;
+                                        }
                                     }
 
                                     let path = match syn::parse_str::<Path>(type_name.as_str()) {

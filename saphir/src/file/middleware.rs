@@ -21,6 +21,7 @@ use std::{
 
 const DEFAULT_CACHE_MAX_FILE_SIZE: u64 = 2_097_152;
 const DEFAULT_CACHE_MAX_CAPACITY: u64 = 536_870_912;
+const DEFAULT_MAX_AGE: i64 = 0;
 const DEFAULT_INDEX_FILES: [&str; 2] = ["index.html", "index.htm"];
 const DEFAULT_TRY_FILES: [&str; 2] = ["$uri", "$uri/"];
 
@@ -31,6 +32,7 @@ pub struct FileMiddleware {
     try_files: Vec<String>,
     cache: FileCache,
     file_not_found_handler: Option<Box<dyn DynHandler<Body> + 'static + Send + Sync>>,
+    max_age: i64,
 }
 
 impl FileMiddleware {
@@ -42,6 +44,7 @@ impl FileMiddleware {
             try_files: DEFAULT_TRY_FILES.iter().map(|s| s.to_string()).collect(),
             cache: FileCache::new(DEFAULT_CACHE_MAX_FILE_SIZE, DEFAULT_CACHE_MAX_CAPACITY),
             file_not_found_handler: None,
+            max_age: DEFAULT_MAX_AGE,
         }
     }
 
@@ -52,7 +55,16 @@ impl FileMiddleware {
         let req_path = req.uri().path();
 
         let mut file_path = None;
+        let mut response_code: Option<u16> = None;
         'try_files: for path in &self.try_files {
+            if path.len() == 4 && path.starts_with('=') {
+                let code = path[1..]
+                    .parse()
+                    .unwrap_or_else(|_| panic!("Invalid token provided to `FileMiddleware::try_files`: {}", path));
+                response_code = Some(code);
+                break 'try_files;
+            }
+
             let path = path.replace("$uri", req_path);
             let is_dir = path.ends_with('/');
 
@@ -89,7 +101,7 @@ impl FileMiddleware {
                 return Ok(ctx);
             }
             (None, None) => {
-                ctx.after(builder.status(404).build()?);
+                ctx.after(builder.status(response_code.unwrap_or(404)).build()?);
                 return Ok(ctx);
             }
         };
@@ -155,7 +167,7 @@ impl FileMiddleware {
             .header(http::header::ACCEPT_RANGES, "bytes")
             .header(header::CONTENT_TYPE, Self::guess_path_mime(&path).to_string())
             .header(header::CONTENT_LENGTH, size)
-            .header(header::CACHE_CONTROL, "public, max-age=86400")
+            .header(header::CACHE_CONTROL, format!("public, max-age={}", self.max_age))
             .header(header::ETAG, etag.get_tag());
         ctx.after(builder.build()?);
 
@@ -201,6 +213,7 @@ pub struct FileMiddlewareBuilder {
     max_file_size: Option<u64>,
     max_capacity: Option<u64>,
     file_not_found_handler: Option<Box<dyn 'static + DynHandler<Body> + Send + Sync>>,
+    max_age: i64,
 }
 
 impl FileMiddlewareBuilder {
@@ -213,34 +226,70 @@ impl FileMiddlewareBuilder {
             max_file_size: None,
             max_capacity: None,
             file_not_found_handler: None,
+            max_age: DEFAULT_MAX_AGE,
         }
     }
 
+    /// Maximum size of a single file for the in-memory cache.
+    /// Files exceeding this size won't be cached, regardless of the specified
+    /// cache max capacity.
+    ///
+    /// Default: 2MB
     pub fn max_file_size(mut self, size: u64) -> Self {
         self.max_file_size = Some(size);
         self
     }
 
+    /// Maximum total capacity for the in-memory cache.
+    /// All fetched files will be kept cached in memory until reaching this
+    /// maximum capacity.
+    ///
+    /// Default: 512MB
     pub fn max_capacity(mut self, size: u64) -> Self {
         self.max_capacity = Some(size);
         self
     }
 
+    /// Specify the `Cache-Control: max-age` header returned by this middleware.
+    ///
+    /// Default: `Cache-Control: max-age=0`
+    pub fn max_age(mut self, max_age: i64) -> Self {
+        self.max_age = max_age;
+        self
+    }
+
+    /// Specify a list of index files which will be tried in order when
+    /// reaching a directory. This behave similarly to nginx's [index]
+    /// directive.
+    ///
+    /// Default: `"index.html index.htm"`.
+    ///
+    /// [index]: https://docs.nginx.com/nginx/admin-guide/web-server/serving-static-content/#root
     pub fn index_files(mut self, index_files: &str) -> Self {
         self.index_files = Some(index_files.split(' ').map(|s| s.trim().to_string()).collect());
         self
     }
 
+    /// Specify that no index file should be looked up when pointing to a
+    /// directory. This effectively remove the default `index.html` and
+    /// `index.htm` index files.
     pub fn no_directory_index(mut self) -> Self {
         self.index_files = Some(Vec::new());
         self
     }
 
+    /// List of files to try. This should be construced using the `$uri` token.
+    /// This behave similarly to nginx's [try_files] directive.
+    ///
+    /// Default: `"$uri $uri"`.
+    ///
+    /// [try_files]: https://docs.nginx.com/nginx/admin-guide/web-server/serving-static-content/#options
     pub fn try_files(mut self, try_files: &str) -> Self {
         self.try_files = Some(try_files.split(' ').map(|s| s.trim().to_string()).collect());
         self
     }
 
+    /// Attach a handler to be called when the requested file is not found.
     pub fn file_not_found_handler<H>(mut self, handler: H) -> Self
     where
         H: 'static + DynHandler<Body> + Sync + Send,
@@ -260,6 +309,7 @@ impl FileMiddlewareBuilder {
                 self.max_capacity.unwrap_or(DEFAULT_CACHE_MAX_CAPACITY),
             ),
             file_not_found_handler: self.file_not_found_handler,
+            max_age: self.max_age,
         })
     }
 }

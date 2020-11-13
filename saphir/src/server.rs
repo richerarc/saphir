@@ -356,7 +356,6 @@ impl Future for ServerShutdown {
                 Poll::Pending
             }
         } else {
-            // self.map_unchecked_mut(|s| s.signal).poll(cx)
             match Pin::as_mut(&mut self.signal).poll(cx) {
                 Poll::Ready(()) => {
                     if !self.graceful {

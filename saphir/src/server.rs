@@ -201,15 +201,23 @@ impl ListenerBuilder {
             server_name,
             request_timeout_ms,
             request_body_max,
+            shutdown_signal,
+            graceful_shutdown,
         } = self;
 
         let iface = iface.unwrap_or_else(|| DEFAULT_LISTENER_IFACE.to_string());
+        let shutdown = if let Some(sig) = shutdown_signal {
+            ServerShutdown::new(graceful_shutdown, sig)
+        } else {
+            ServerShutdown::pending()
+        };
 
         ListenerConfig {
             iface,
             request_timeout_ms,
             server_name: server_name.unwrap_or_else(|| DEFAULT_SERVER_NAME.to_string()),
             request_body_max,
+            shutdown
         }
     }
 }
@@ -231,6 +239,7 @@ pub struct ListenerConfig {
     request_timeout_ms: Option<u64>,
     request_body_max: Option<usize>,
     server_name: String,
+    shutdown: ServerShutdown,
 }
 
 #[cfg(feature = "https")]

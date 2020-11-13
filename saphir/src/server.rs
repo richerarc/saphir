@@ -27,12 +27,16 @@ use crate::{
     response::Response,
     router::{Builder as RouterBuilder, Router, RouterChain, RouterChainEnd},
 };
+use futures::future::pending;
 use http::{HeaderValue, Request as RawRequest, Response as RawResponse};
-use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
-use std::sync::Arc;
-use futures::future::{pending};
-use std::time::Duration;
+use std::{
+    pin::Pin,
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 /// Default time for request handling is 30 seconds
 pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
@@ -72,7 +76,7 @@ pub struct ListenerBuilder {
     cert_config: Option<SslConfig>,
     #[cfg(feature = "https")]
     key_config: Option<SslConfig>,
-    shutdown_signal: Option<Box<dyn Future<Output=()> + Unpin + 'static>>,
+    shutdown_signal: Option<Box<dyn Future<Output = ()> + Unpin + 'static>>,
     graceful_shutdown: bool,
 }
 
@@ -123,10 +127,11 @@ impl ListenerBuilder {
 
     /// Set a shutdown signal to terminate the server.
     ///
-    /// If `graceful` is set to `true`, the server will wait for all ongoing request to be completed
-    /// before shutting down but will stop accepting new requests.
+    /// If `graceful` is set to `true`, the server will wait for all ongoing
+    /// request to be completed before shutting down but will stop accepting
+    /// new requests.
     #[inline]
-    pub fn shutdown<F: Future<Output=()> + Unpin + 'static>(mut self, signal: F, graceful: bool) -> Self {
+    pub fn shutdown<F: Future<Output = ()> + Unpin + 'static>(mut self, signal: F, graceful: bool) -> Self {
         self.shutdown_signal = Some(Box::new(signal));
         self.graceful_shutdown = graceful;
         self
@@ -183,7 +188,7 @@ impl ListenerBuilder {
             request_body_max,
             cert_config,
             key_config,
-            shutdown
+            shutdown,
         }
     }
 
@@ -217,7 +222,7 @@ pub struct ListenerConfig {
     server_name: String,
     cert_config: Option<SslConfig>,
     key_config: Option<SslConfig>,
-    shutdown: ServerShutdown
+    shutdown: ServerShutdown,
 }
 
 #[cfg(not(feature = "https"))]
@@ -316,15 +321,15 @@ impl SeverShutdownState {
 struct ServerShutdown {
     graceful: bool,
     state: Arc<SeverShutdownState>,
-    signal: Pin<Box<dyn Future<Output=()> + Unpin + 'static>>,
+    signal: Pin<Box<dyn Future<Output = ()> + Unpin + 'static>>,
 }
 
 impl ServerShutdown {
-    pub fn new<F: Future<Output=()> + Unpin + 'static>(graceful: bool, signal: F) -> Self {
+    pub fn new<F: Future<Output = ()> + Unpin + 'static>(graceful: bool, signal: F) -> Self {
         ServerShutdown {
             graceful,
             state: Arc::new(Default::default()),
-            signal: Box::pin(signal)
+            signal: Box::pin(signal),
         }
     }
 
@@ -332,7 +337,7 @@ impl ServerShutdown {
         ServerShutdown {
             graceful: false,
             state: Arc::new(Default::default()),
-            signal: Box::pin(pending())
+            signal: Box::pin(pending()),
         }
     }
 }
@@ -378,29 +383,25 @@ impl<I, S> ServerFuture<I, S> {
     pub fn new(incoming: I, shutdown: S) -> Self {
         ServerFuture {
             incoming: Box::pin(incoming),
-            shutdown: Box::pin(shutdown)
+            shutdown: Box::pin(shutdown),
         }
     }
 }
 
-impl<I, S> Future for ServerFuture<I, S> where I: Future<Output=()>, S: Future<Output=()> {
+impl<I, S> Future for ServerFuture<I, S>
+where
+    I: Future<Output = ()>,
+    S: Future<Output = ()>,
+{
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match Pin::as_mut(&mut self.shutdown).poll(cx) {
-            Poll::Ready(()) => {
-                Poll::Ready(())
-            }
-            Poll::Pending => {
-                match Pin::as_mut(&mut self.incoming).poll(cx) {
-                    Poll::Ready(()) => {
-                        Poll::Ready(())
-                    }
-                    Poll::Pending => {
-                        Poll::Pending
-                    }
-                }
-            }
+            Poll::Ready(()) => Poll::Ready(()),
+            Poll::Pending => match Pin::as_mut(&mut self.incoming).poll(cx) {
+                Poll::Ready(()) => Poll::Ready(()),
+                Poll::Pending => Poll::Pending,
+            },
         }
     }
 }
@@ -497,50 +498,48 @@ impl Server {
         let state = shutdown.state.clone();
 
         if let Some(timeout_ms) = listener_config.request_timeout_ms {
-            let inc = incoming
-                .for_each_concurrent(None, |client_socket| async {
-                    if !state.draining() {
-                        match client_socket {
-                            Ok(client_socket) => {
-                                let peer_addr = client_socket.peer_addr().ok();
-                                let http = http.clone();
-                                tokio::spawn(async move {
-                                    if let Err(e) = http.serve_connection(client_socket, stack.new_timeout_handler(timeout_ms, peer_addr)).await {
-                                        error!("An error occurred while treating a request: {:?}", e);
-                                    }
-                                });
-                            }
-                            Err(e) => {
-                                warn!("incoming connection encountered an error: {}", e);
-                            }
+            let inc = incoming.for_each_concurrent(None, |client_socket| async {
+                if !state.draining() {
+                    match client_socket {
+                        Ok(client_socket) => {
+                            let peer_addr = client_socket.peer_addr().ok();
+                            let http = http.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = http.serve_connection(client_socket, stack.new_timeout_handler(timeout_ms, peer_addr)).await {
+                                    error!("An error occurred while treating a request: {:?}", e);
+                                }
+                            });
                         }
-                    } else {
-                        debug!("Skipping incoming connection due to shutdown");
+                        Err(e) => {
+                            warn!("incoming connection encountered an error: {}", e);
+                        }
                     }
-                });
+                } else {
+                    debug!("Skipping incoming connection due to shutdown");
+                }
+            });
             ServerFuture::new(inc, shutdown).await;
         } else {
-            let inc = incoming
-                .for_each_concurrent(None, |client_socket| async {
-                    if !state.draining() {
-                        match client_socket {
-                            Ok(client_socket) => {
-                                let peer_addr = client_socket.peer_addr().ok();
-                                let http = http.clone();
-                                tokio::spawn(async move {
-                                    if let Err(e) = http.serve_connection(client_socket, stack.new_handler(peer_addr)).await {
-                                        error!("An error occurred while treating a request: {:?}", e);
-                                    }
-                                });
-                            }
-                            Err(e) => {
-                                warn!("incoming connection encountered an error: {}", e);
-                            }
+            let inc = incoming.for_each_concurrent(None, |client_socket| async {
+                if !state.draining() {
+                    match client_socket {
+                        Ok(client_socket) => {
+                            let peer_addr = client_socket.peer_addr().ok();
+                            let http = http.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = http.serve_connection(client_socket, stack.new_handler(peer_addr)).await {
+                                    error!("An error occurred while treating a request: {:?}", e);
+                                }
+                            });
                         }
-                    } else {
-                        debug!("Skipping incoming connection due to shutdown");
+                        Err(e) => {
+                            warn!("incoming connection encountered an error: {}", e);
+                        }
                     }
-                });
+                } else {
+                    debug!("Skipping incoming connection due to shutdown");
+                }
+            });
             ServerFuture::new(inc, shutdown).await;
         }
 
@@ -574,7 +573,8 @@ impl Stack {
         let ctx = HttpContext::new(req, self.router.clone(), meta);
         let err_ctx = ctx.clone_with_empty_state();
 
-        let res = self.middlewares
+        let res = self
+            .middlewares
             .next(ctx)
             .await
             .and_then(|mut ctx| ctx.state.take_response().ok_or(SaphirError::ResponseMoved))
@@ -591,7 +591,7 @@ impl Stack {
     }
 
     async fn invoke_with_timeout(&self, mut req: Request<Body>, timeout_ms: u64) -> Result<Response<Body>, SaphirError> {
-        use tokio::time::{timeout, Duration};
+        use tokio::time::timeout;
 
         let meta = self.router.resolve_metadata(&mut req);
         let ctx = HttpContext::new(req, self.router.clone(), meta);

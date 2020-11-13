@@ -112,11 +112,7 @@ async fn main() -> Result<(), SaphirError> {
 
     let file_middleware = FileMiddlewareBuilder::new("op", "./saphir/examples/files_to_serve").build()?;
     let server = Server::builder()
-        .configure_listener(|l| {
-            l.interface("127.0.0.1:3000")
-                .server_name("MacroExample")
-                .request_timeout(None)
-        })
+        .configure_listener(|l| l.interface("127.0.0.1:3000").server_name("MacroExample").request_timeout(None))
         .configure_middlewares(|m| {
             m.apply(ApiKeyMiddleware::new("secure-key"), vec!["/"], None)
                 .apply(file_middleware, vec!["/op/"], None)

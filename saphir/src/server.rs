@@ -27,8 +27,16 @@ use crate::{
     response::Response,
     router::{Builder as RouterBuilder, Router, RouterChain, RouterChainEnd},
 };
+use futures::future::pending;
 use http::{HeaderValue, Request as RawRequest, Response as RawResponse};
-use std::pin::Pin;
+use std::{
+    pin::Pin,
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 /// Default time for request handling is 30 seconds
 pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
@@ -42,6 +50,8 @@ static mut STACK: MaybeUninit<Stack> = MaybeUninit::uninit();
 static mut SERVER_NAME: MaybeUninit<HeaderValue> = MaybeUninit::uninit();
 #[doc(hidden)]
 static INIT_STACK: Once = Once::new();
+#[doc(hidden)]
+static REQUEST_FUTURE_COUNT: AtomicU64 = AtomicU64::new(0);
 
 /// Using Feature `https`
 ///
@@ -66,6 +76,8 @@ pub struct ListenerBuilder {
     cert_config: Option<SslConfig>,
     #[cfg(feature = "https")]
     key_config: Option<SslConfig>,
+    shutdown_signal: Option<Box<dyn Future<Output = ()> + Unpin + 'static>>,
+    graceful_shutdown: bool,
 }
 
 impl ListenerBuilder {
@@ -113,6 +125,18 @@ impl ListenerBuilder {
         self
     }
 
+    /// Set a shutdown signal to terminate the server.
+    ///
+    /// If `graceful` is set to `true`, the server will wait for all ongoing
+    /// request to be completed before shutting down but will stop accepting
+    /// new requests.
+    #[inline]
+    pub fn shutdown<F: Future<Output = ()> + Unpin + 'static>(mut self, signal: F, graceful: bool) -> Self {
+        self.shutdown_signal = Some(Box::new(signal));
+        self.graceful_shutdown = graceful;
+        self
+    }
+
     /// Using Feature `https`
     ///
     /// Set the listener ssl certificates files. The cert needs to be PEM
@@ -146,9 +170,16 @@ impl ListenerBuilder {
             request_body_max,
             cert_config,
             key_config,
+            shutdown_signal,
+            graceful_shutdown,
         } = self;
 
         let iface = iface.unwrap_or_else(|| DEFAULT_LISTENER_IFACE.to_string());
+        let shutdown = if let Some(sig) = shutdown_signal {
+            ServerShutdown::new(graceful_shutdown, sig)
+        } else {
+            ServerShutdown::pending()
+        };
 
         ListenerConfig {
             iface,
@@ -157,6 +188,7 @@ impl ListenerBuilder {
             request_body_max,
             cert_config,
             key_config,
+            shutdown,
         }
     }
 
@@ -190,6 +222,7 @@ pub struct ListenerConfig {
     server_name: String,
     cert_config: Option<SslConfig>,
     key_config: Option<SslConfig>,
+    shutdown: ServerShutdown,
 }
 
 #[cfg(not(feature = "https"))]
@@ -273,6 +306,105 @@ where
     }
 }
 
+#[derive(Default)]
+struct SeverShutdownState {
+    draining: AtomicBool,
+}
+
+impl SeverShutdownState {
+    #[inline]
+    pub fn draining(&self) -> bool {
+        self.draining.load(Ordering::SeqCst)
+    }
+}
+
+struct ServerShutdown {
+    graceful: bool,
+    state: Arc<SeverShutdownState>,
+    signal: Pin<Box<dyn Future<Output = ()> + Unpin + 'static>>,
+}
+
+impl ServerShutdown {
+    pub fn new<F: Future<Output = ()> + Unpin + 'static>(graceful: bool, signal: F) -> Self {
+        ServerShutdown {
+            graceful,
+            state: Arc::new(Default::default()),
+            signal: Box::pin(signal),
+        }
+    }
+
+    pub fn pending() -> Self {
+        ServerShutdown {
+            graceful: false,
+            state: Arc::new(Default::default()),
+            signal: Box::pin(pending()),
+        }
+    }
+}
+
+impl Future for ServerShutdown {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if self.state.draining() {
+            let count = REQUEST_FUTURE_COUNT.load(Ordering::SeqCst);
+            if count == 0 {
+                Poll::Ready(())
+            } else {
+                let waker = cx.waker().clone();
+                tokio::spawn(tokio::time::delay_for(Duration::from_millis(100)).map(move |_| waker.wake()));
+                Poll::Pending
+            }
+        } else {
+            match Pin::as_mut(&mut self.signal).poll(cx) {
+                Poll::Ready(()) => {
+                    if !self.graceful {
+                        Poll::Ready(())
+                    } else {
+                        self.state.draining.store(true, Ordering::SeqCst);
+                        let waker = cx.waker().clone();
+                        tokio::spawn(tokio::time::delay_for(Duration::from_secs(1)).map(move |_| waker.wake()));
+                        Poll::Pending
+                    }
+                }
+                Poll::Pending => Poll::Pending,
+            }
+        }
+    }
+}
+
+struct ServerFuture<I, S> {
+    incoming: Pin<Box<I>>,
+    shutdown: Pin<Box<S>>,
+}
+
+impl<I, S> ServerFuture<I, S> {
+    pub fn new(incoming: I, shutdown: S) -> Self {
+        ServerFuture {
+            incoming: Box::pin(incoming),
+            shutdown: Box::pin(shutdown),
+        }
+    }
+}
+
+impl<I, S> Future for ServerFuture<I, S>
+where
+    I: Future<Output = ()>,
+    S: Future<Output = ()>,
+{
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match Pin::as_mut(&mut self.shutdown).poll(cx) {
+            Poll::Ready(()) => Poll::Ready(()),
+            Poll::Pending => match Pin::as_mut(&mut self.incoming).poll(cx) {
+                Poll::Ready(()) => Poll::Ready(()),
+                Poll::Pending => Poll::Pending,
+            },
+        }
+    }
+}
+
 pub struct Server {
     listener_config: ListenerConfig,
     stack: Stack,
@@ -327,7 +459,6 @@ impl Server {
                 match listener_config.ssl_config() {
                     (Some(cert_config), Some(key_config)) => {
                         use crate::server::ssl_loading_utils::*;
-                        use std::sync::Arc;
                         use tokio_rustls::TlsAcceptor;
 
                         let certs = load_certs(&cert_config);
@@ -362,34 +493,53 @@ impl Server {
             }
         };
 
+        let shutdown = listener_config.shutdown;
+        let state = shutdown.state.clone();
+
         if let Some(timeout_ms) = listener_config.request_timeout_ms {
-            incoming
-                .for_each_concurrent(None, |client_socket| async {
+            let inc = incoming.for_each_concurrent(None, |client_socket| async {
+                if !state.draining() {
                     match client_socket {
                         Ok(client_socket) => {
                             let peer_addr = client_socket.peer_addr().ok();
-                            tokio::spawn(http.serve_connection(client_socket, stack.new_timeout_handler(timeout_ms, peer_addr)));
+                            let http = http.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = http.serve_connection(client_socket, stack.new_timeout_handler(timeout_ms, peer_addr)).await {
+                                    error!("An error occurred while treating a request: {:?}", e);
+                                }
+                            });
                         }
                         Err(e) => {
                             warn!("incoming connection encountered an error: {}", e);
                         }
                     }
-                })
-                .await;
+                } else {
+                    debug!("Skipping incoming connection due to shutdown");
+                }
+            });
+            ServerFuture::new(inc, shutdown).await;
         } else {
-            incoming
-                .for_each_concurrent(None, |client_socket| async {
+            let inc = incoming.for_each_concurrent(None, |client_socket| async {
+                if !state.draining() {
                     match client_socket {
                         Ok(client_socket) => {
                             let peer_addr = client_socket.peer_addr().ok();
-                            tokio::spawn(http.serve_connection(client_socket, stack.new_handler(peer_addr)));
+                            let http = http.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = http.serve_connection(client_socket, stack.new_handler(peer_addr)).await {
+                                    error!("An error occurred while treating a request: {:?}", e);
+                                }
+                            });
                         }
                         Err(e) => {
                             warn!("incoming connection encountered an error: {}", e);
                         }
                     }
-                })
-                .await;
+                } else {
+                    debug!("Skipping incoming connection due to shutdown");
+                }
+            });
+            ServerFuture::new(inc, shutdown).await;
         }
 
         Ok(())
@@ -422,7 +572,8 @@ impl Stack {
         let ctx = HttpContext::new(req, self.router.clone(), meta);
         let err_ctx = ctx.clone_with_empty_state();
 
-        self.middlewares
+        let res = self
+            .middlewares
             .next(ctx)
             .await
             .and_then(|mut ctx| ctx.state.take_response().ok_or(SaphirError::ResponseMoved))
@@ -433,17 +584,19 @@ impl Stack {
                     e2.log(&err_ctx);
                     e2
                 })
-            })
+            });
+        REQUEST_FUTURE_COUNT.fetch_sub(1, Ordering::SeqCst);
+        res
     }
 
     async fn invoke_with_timeout(&self, mut req: Request<Body>, timeout_ms: u64) -> Result<Response<Body>, SaphirError> {
-        use tokio::time::{timeout, Duration};
+        use tokio::time::timeout;
 
         let meta = self.router.resolve_metadata(&mut req);
         let ctx = HttpContext::new(req, self.router.clone(), meta);
         let err_ctx = ctx.clone_with_empty_state();
 
-        match timeout(Duration::from_millis(timeout_ms), async move {
+        let res = match timeout(Duration::from_millis(timeout_ms), async move {
             self.middlewares
                 .next(ctx)
                 .await
@@ -461,7 +614,9 @@ impl Stack {
                     e2
                 })
             }
-        }
+        };
+        REQUEST_FUTURE_COUNT.fetch_sub(1, Ordering::SeqCst);
+        res
     }
 }
 
@@ -484,6 +639,7 @@ impl Service<hyper::Request<hyper::Body>> for StackHandler {
     }
 
     fn call(&mut self, req: hyper::Request<hyper::Body>) -> Self::Future {
+        REQUEST_FUTURE_COUNT.fetch_add(1, Ordering::SeqCst);
         let req = Request::new(req.map(Body::from_raw), self.peer_addr.take());
         Box::pin(self.stack.invoke(req).map(|r| {
             r.and_then(|mut r| {
@@ -516,6 +672,7 @@ impl Service<hyper::Request<hyper::Body>> for TimeoutStackHandler {
     }
 
     fn call(&mut self, req: hyper::Request<hyper::Body>) -> Self::Future {
+        REQUEST_FUTURE_COUNT.fetch_add(1, Ordering::SeqCst);
         let req = Request::new(req.map(Body::from_raw), self.peer_addr.take());
         Box::pin(self.stack.invoke_with_timeout(req, self.timeout_ms).map(|r| {
             r.and_then(|mut r| {
@@ -712,6 +869,7 @@ pub async fn inject_raw(req: RawRequest<RawBody>) -> Result<RawResponse<RawBody>
     let stack = unsafe { STACK.as_ptr().as_ref().expect("Memory has been initialized above.") };
 
     let saphir_req = Request::new(req.map(Body::from_raw), None);
+    REQUEST_FUTURE_COUNT.fetch_add(1, Ordering::SeqCst);
     let saphir_res = stack.invoke(saphir_req).await?;
     Ok(saphir_res.into_raw().map(|r| r.map(|b| b.into_raw()))?)
 }

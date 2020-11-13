@@ -32,6 +32,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
 use std::sync::Arc;
 use futures::future::{pending};
+use std::time::Duration;
 
 /// Default time for request handling is 30 seconds
 pub const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 30_000;
@@ -306,6 +307,7 @@ struct SeverShutdownState {
 }
 
 impl SeverShutdownState {
+    #[inline]
     pub fn draining(&self) -> bool {
         self.draining.load(Ordering::SeqCst)
     }
@@ -344,8 +346,8 @@ impl Future for ServerShutdown {
             if count == 0 {
                 Poll::Ready(())
             } else {
-                cx.waker().wake_by_ref();
-                println!("Called waker! {}", count);
+                let waker = cx.waker().clone();
+                tokio::spawn(tokio::time::delay_for(Duration::from_millis(100)).map(move |_| waker.wake()));
                 Poll::Pending
             }
         } else {
@@ -356,8 +358,8 @@ impl Future for ServerShutdown {
                         Poll::Ready(())
                     } else {
                         self.state.draining.store(true, Ordering::SeqCst);
-                        cx.waker().wake_by_ref();
-                        println!("Called waker!!!!!!");
+                        let waker = cx.waker().clone();
+                        tokio::spawn(tokio::time::delay_for(Duration::from_secs(1)).map(move |_| waker.wake()));
                         Poll::Pending
                     }
                 }

@@ -76,7 +76,7 @@ pub struct ListenerBuilder {
     cert_config: Option<SslConfig>,
     #[cfg(feature = "https")]
     key_config: Option<SslConfig>,
-    shutdown_signal: Option<Box<dyn Future<Output = ()> + Unpin + 'static>>,
+    shutdown_signal: Option<Box<dyn Future<Output = ()> + Unpin + Send + 'static>>,
     graceful_shutdown: bool,
 }
 
@@ -131,7 +131,7 @@ impl ListenerBuilder {
     /// request to be completed before shutting down but will stop accepting
     /// new requests.
     #[inline]
-    pub fn shutdown<F: Future<Output = ()> + Unpin + 'static>(mut self, signal: F, graceful: bool) -> Self {
+    pub fn shutdown<F: Future<Output = ()> + Unpin + Send + 'static>(mut self, signal: F, graceful: bool) -> Self {
         self.shutdown_signal = Some(Box::new(signal));
         self.graceful_shutdown = graceful;
         self
@@ -330,11 +330,11 @@ impl SeverShutdownState {
 struct ServerShutdown {
     graceful: bool,
     state: Arc<SeverShutdownState>,
-    signal: Pin<Box<dyn Future<Output = ()> + Unpin + 'static>>,
+    signal: Pin<Box<dyn Future<Output = ()> + Unpin + Send + 'static>>,
 }
 
 impl ServerShutdown {
-    pub fn new<F: Future<Output = ()> + Unpin + 'static>(graceful: bool, signal: F) -> Self {
+    pub fn new<F: Future<Output = ()> + Unpin + Send + 'static>(graceful: bool, signal: F) -> Self {
         ServerShutdown {
             graceful,
             state: Arc::new(Default::default()),

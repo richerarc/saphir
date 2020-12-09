@@ -171,7 +171,7 @@ impl MiddlewareChain for MiddleChainEnd {
     #[inline]
     fn next(&self, mut ctx: HttpContext) -> BoxFuture<'static, Result<HttpContext, SaphirError>> {
         async {
-            let router = ctx.router.take().ok_or_else(|| SaphirError::Internal(InternalError::Stack))?;
+            let router = ctx.router.take().ok_or(SaphirError::Internal(InternalError::Stack))?;
             router.dispatch(ctx).await
         }
         .boxed()

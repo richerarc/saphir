@@ -132,8 +132,7 @@ fn headers(input: &[u8]) -> IResult<&[u8], FieldHeaders> {
         }
     }
 
-    let (content_disposition_name, content_disposition_filename) =
-        content_disposition.ok_or_else(|| nom::Err::Error((input, nom::error::ErrorKind::MapOpt)))?;
+    let (content_disposition_name, content_disposition_filename) = content_disposition.ok_or(nom::Err::Error((input, nom::error::ErrorKind::MapOpt)))?;
 
     Ok((
         input,

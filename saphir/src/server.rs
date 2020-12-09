@@ -217,7 +217,7 @@ impl ListenerBuilder {
             request_timeout_ms,
             server_name: server_name.unwrap_or_else(|| DEFAULT_SERVER_NAME.to_string()),
             request_body_max,
-            shutdown
+            shutdown,
         }
     }
 }

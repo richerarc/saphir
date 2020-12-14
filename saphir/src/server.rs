@@ -53,6 +53,31 @@ static INIT_STACK: Once = Once::new();
 #[doc(hidden)]
 static REQUEST_FUTURE_COUNT: AtomicU64 = AtomicU64::new(0);
 
+struct StackAlreadyInitialized;
+
+fn write_into_static(stack: Stack, server_value: HeaderValue, request_body_max: Option<usize>) -> Result<&'static Stack, StackAlreadyInitialized> {
+    if INIT_STACK.state() != OnceState::New {
+        return Err(StackAlreadyInitialized);
+    }
+
+    INIT_STACK.call_once(|| {
+        // # SAFETY #
+        // We write only once in the static memory. No override.
+        // Above check also make sure there is no second server.
+        unsafe {
+            STACK.as_mut_ptr().write(stack);
+            SERVER_NAME.as_mut_ptr().write(server_value);
+            crate::body::REQUEST_BODY_BYTES_LIMIT = request_body_max;
+        }
+    });
+
+    // # SAFETY #
+    // Memory has been initialized above.
+    let stack = unsafe { STACK.as_ptr().as_ref().expect("Memory has been initialized above.") };
+
+    Ok(stack)
+}
+
 /// Using Feature `https`
 ///
 /// A struct representing certificate or private key configuration.
@@ -313,6 +338,26 @@ where
             },
         }
     }
+
+    #[doc(hidden)]
+    pub fn build_stack_only(self) -> Result<(), SaphirError> {
+        let stack = Stack {
+            router: self.router.build(),
+            middlewares: self.middlewares.build(),
+        };
+
+        let (server_name, request_body_max) = if let Some(listener_builder) = self.listener {
+            (listener_builder.server_name, listener_builder.request_body_max)
+        } else {
+            (None, None)
+        };
+
+        let server_value = HeaderValue::from_str(&server_name.unwrap_or_else(|| DEFAULT_SERVER_NAME.to_string()))?;
+
+        write_into_static(stack, server_value, request_body_max).map_err(|_| SaphirError::Other("cannot build stack twice".to_owned()))?;
+
+        Ok(())
+    }
 }
 
 #[derive(Default)]
@@ -437,24 +482,7 @@ impl Server {
         let server_value = HeaderValue::from_str(&listener_config.server_name)?;
         let request_body_max = listener_config.request_body_max;
 
-        if INIT_STACK.state() != OnceState::New {
-            return Err(SaphirError::Other("cannot run a second server".to_owned()));
-        }
-
-        INIT_STACK.call_once(|| {
-            // # SAFETY #
-            // We write only once in the static memory. No override.
-            // Above check also make sure there is no second server.
-            unsafe {
-                STACK.as_mut_ptr().write(stack);
-                SERVER_NAME.as_mut_ptr().write(server_value);
-                crate::body::REQUEST_BODY_BYTES_LIMIT = request_body_max;
-            }
-        });
-
-        // # SAFETY #
-        // Memory has been initialized above.
-        let stack = unsafe { STACK.as_ptr().as_ref().expect("Memory has been initialized above.") };
+        let stack = write_into_static(stack, server_value, request_body_max).map_err(|_| SaphirError::Other("cannot run a second server".to_owned()))?;
 
         let http = Http::new();
 

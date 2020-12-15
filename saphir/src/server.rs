@@ -53,11 +53,9 @@ static INIT_STACK: Once = Once::new();
 #[doc(hidden)]
 static REQUEST_FUTURE_COUNT: AtomicU64 = AtomicU64::new(0);
 
-struct StackAlreadyInitialized;
-
-fn write_into_static(stack: Stack, server_value: HeaderValue, request_body_max: Option<usize>) -> Result<&'static Stack, StackAlreadyInitialized> {
+fn write_into_static(stack: Stack, server_value: HeaderValue, request_body_max: Option<usize>) -> Result<&'static Stack, SaphirError> {
     if INIT_STACK.state() != OnceState::New {
-        return Err(StackAlreadyInitialized);
+        return Err(SaphirError::StackAlreadyInitialized);
     }
 
     INIT_STACK.call_once(|| {
@@ -354,7 +352,7 @@ where
 
         let server_value = HeaderValue::from_str(&server_name.unwrap_or_else(|| DEFAULT_SERVER_NAME.to_string()))?;
 
-        write_into_static(stack, server_value, request_body_max).map_err(|_| SaphirError::Other("cannot build stack twice".to_owned()))?;
+        write_into_static(stack, server_value, request_body_max)?;
 
         Ok(())
     }
@@ -482,7 +480,7 @@ impl Server {
         let server_value = HeaderValue::from_str(&listener_config.server_name)?;
         let request_body_max = listener_config.request_body_max;
 
-        let stack = write_into_static(stack, server_value, request_body_max).map_err(|_| SaphirError::Other("cannot run a second server".to_owned()))?;
+        let stack = write_into_static(stack, server_value, request_body_max)?;
 
         let http = Http::new();
 

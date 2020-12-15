@@ -58,6 +58,8 @@ pub enum SaphirError {
     InvalidParameter(String, bool),
     ///
     RequestTimeout,
+    /// Attempted to build stack twice
+    StackAlreadyInitialized,
 }
 
 impl Debug for SaphirError {
@@ -80,6 +82,7 @@ impl Debug for SaphirError {
             SaphirError::MissingParameter(d, _) => std::fmt::Debug::fmt(d, f),
             SaphirError::InvalidParameter(d, _) => std::fmt::Debug::fmt(d, f),
             SaphirError::RequestTimeout => f.write_str("RequestTimeout"),
+            SaphirError::StackAlreadyInitialized => f.write_str("StackAlreadyInitialized"),
         }
     }
 }
@@ -108,6 +111,7 @@ impl SaphirError {
             SaphirError::ResponseMoved => builder.status(500),
             SaphirError::Responder(mut r) => r.dyn_respond(builder, ctx),
             SaphirError::RequestTimeout => builder.status(408),
+            SaphirError::StackAlreadyInitialized => builder.status(500),
         }
     }
 
@@ -180,6 +184,9 @@ impl SaphirError {
                 warn!("{}Request timed out", op_id);
             }
             SaphirError::Responder(_) => {}
+            SaphirError::StackAlreadyInitialized => {
+                warn!("{}Attempted to initialize stack twice", op_id);
+            }
         }
     }
 }

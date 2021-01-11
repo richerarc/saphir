@@ -149,11 +149,12 @@ impl Command for Gen {
     type Args = GenArgs;
 
     fn new(args: Self::Args) -> Self {
-        let mut doc = OpenApi::default();
-        doc.openapi_version = "3.0.3".to_string();
         Self {
             args,
-            doc,
+            doc: OpenApi {
+                openapi_version: "3.0.3".to_string(),
+                ..OpenApi::default()
+            },
             operation_ids: RefCell::new(Default::default()),
             generated_schema_names: Default::default(),
         }

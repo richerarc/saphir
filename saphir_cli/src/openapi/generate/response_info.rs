@@ -91,7 +91,7 @@ impl Gen {
                                                         Ok(c) => c,
                                                         _ => continue,
                                                     };
-                                                    if c < 100 || c >= 600 {
+                                                    if !(100..600).contains(&c) {
                                                         continue;
                                                     }
                                                     codes.push(c);
@@ -214,7 +214,7 @@ impl Gen {
                                                         Ok(c) => c,
                                                         _ => continue,
                                                     };
-                                                    if c < 100 || c >= 600 {
+                                                    if !(100..600).contains(&c) {
                                                         continue;
                                                     }
                                                     codes.push(c);

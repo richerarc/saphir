@@ -426,6 +426,7 @@ impl UriPathMatcher {
 }
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum UriPathSegmentMatcher {
     Static { segment: String },
     Variable { name: Option<String> },

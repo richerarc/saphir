@@ -433,7 +433,7 @@ impl HandlerAttrs {
                                                                                 let c: u16 = i
                                                                                     .base10_parse()
                                                                                     .map_err(|_| Error::new_spanned(i, "Invalid status code"))?;
-                                                                                if c < 100 || c >= 600 {
+                                                                                if !(100..600).contains(&c) {
                                                                                     return Err(Error::new_spanned(i, "Invalid status code"));
                                                                                 }
                                                                                 nb_code += 1;
@@ -522,7 +522,7 @@ impl HandlerAttrs {
                                                                                 let c: u16 = i
                                                                                     .base10_parse()
                                                                                     .map_err(|_| Error::new_spanned(i, "Invalid status code"))?;
-                                                                                if c < 100 || c >= 600 {
+                                                                                if !(100..600).contains(&c) {
                                                                                     return Err(Error::new_spanned(i, "Invalid status code"));
                                                                                 }
                                                                                 nb_code += 1;

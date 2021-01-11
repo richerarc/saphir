@@ -148,7 +148,7 @@ impl FromStr for Range {
                 }
                 Ok(Range::Bytes(ranges))
             }
-            (Some(unit), Some(range_str)) if unit != "" && range_str != "" => Ok(Range::Unregistered(unit.to_owned(), range_str.to_owned())),
+            (Some(unit), Some(range_str)) if !unit.is_empty() && !range_str.is_empty() => Ok(Range::Unregistered(unit.to_owned(), range_str.to_owned())),
             _ => Err(SaphirError::Other("Bad Format".to_owned())),
         }
     }

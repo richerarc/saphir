@@ -1,9 +1,9 @@
 use super::Module;
 use crate::openapi::generate::crate_syn_browser::UseScope;
 use lazycell::LazyCell;
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 use syn::{
-    export::Formatter, ImplItem as SynImplItem, ImplItemMethod as SynImplItemMethod, Item as SynItem, ItemEnum as SynItemEnum, ItemImpl as SynItemImpl,
+    ImplItem as SynImplItem, ImplItemMethod as SynImplItemMethod, Item as SynItem, ItemEnum as SynItemEnum, ItemImpl as SynItemImpl,
     ItemStruct as SynItemStruct, ItemUse as SynItemUse,
 };
 

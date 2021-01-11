@@ -2,10 +2,10 @@ use std::str::FromStr;
 
 use http::Method;
 use proc_macro2::{Ident, TokenStream};
-use quote::quote_spanned;
+use quote::{quote_spanned, ToTokens};
 use syn::{
-    export::ToTokens, spanned::Spanned, Attribute, Error, Expr, FnArg, GenericArgument, ImplItem, ImplItemMethod, ItemImpl, Lit, Meta, MetaNameValue,
-    NestedMeta, Pat, PatIdent, PatType, Path, PathArguments, PathSegment, Result, ReturnType, Type, TypePath,
+    spanned::Spanned, Attribute, Error, Expr, FnArg, GenericArgument, ImplItem, ImplItemMethod, ItemImpl, Lit, Meta, MetaNameValue, NestedMeta, Pat, PatIdent,
+    PatType, Path, PathArguments, PathSegment, Result, ReturnType, Type, TypePath,
 };
 
 #[derive(Clone, Debug)]

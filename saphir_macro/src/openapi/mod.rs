@@ -1,5 +1,6 @@
 use proc_macro2::TokenStream;
-use syn::{export::ToTokens, AttributeArgs, Error, Item, Lit, Meta, NestedMeta, Result};
+use quote::ToTokens;
+use syn::{AttributeArgs, Error, Item, Lit, Meta, NestedMeta, Result};
 
 const MISSING_ATRIBUTE: &str = "openapi macro require at least one of the following attributes :
 - mime

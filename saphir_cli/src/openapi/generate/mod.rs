@@ -19,6 +19,7 @@ use serde_derive::Deserialize;
 use std::{
     cell::RefCell,
     collections::{BTreeMap, HashMap, HashSet},
+    fmt::{Display, Formatter},
     fs::File as FsFile,
     io::Read,
     path::PathBuf,
@@ -26,10 +27,7 @@ use std::{
     time::Instant,
 };
 use structopt::StructOpt;
-use syn::{
-    export::{fmt::Display, Formatter},
-    Attribute, Fields, Item as SynItem, ItemEnum, ItemStruct, Lit, Meta, NestedMeta, Signature,
-};
+use syn::{Attribute, Fields, Item as SynItem, ItemEnum, ItemStruct, Lit, Meta, NestedMeta, Signature};
 
 mod controller_info;
 mod crate_syn_browser;
@@ -151,11 +149,12 @@ impl Command for Gen {
     type Args = GenArgs;
 
     fn new(args: Self::Args) -> Self {
-        let mut doc = OpenApi::default();
-        doc.openapi_version = "3.0.3".to_string();
         Self {
             args,
-            doc,
+            doc: OpenApi {
+                openapi_version: "3.0.3".to_string(),
+                ..OpenApi::default()
+            },
             operation_ids: RefCell::new(Default::default()),
             generated_schema_names: Default::default(),
         }

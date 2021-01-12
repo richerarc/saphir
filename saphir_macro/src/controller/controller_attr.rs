@@ -2,8 +2,7 @@ use crate::controller::handler::{HandlerAttrs, HandlerRepr};
 use proc_macro2::{Ident, TokenStream};
 use syn::{AttributeArgs, Error, ItemImpl, Lit, Meta, MetaNameValue, NestedMeta, Result};
 
-use quote::quote;
-use syn::export::ToTokens;
+use quote::{quote, ToTokens};
 
 #[derive(Debug)]
 pub struct ControllerAttr {

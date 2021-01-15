@@ -10,6 +10,7 @@ pub(crate) struct RouteInfo {
     pub(crate) uri: String,
     pub(crate) uri_params: Vec<String>,
     pub(crate) operation_id: String,
+    pub(crate) operation_name: String,
 }
 
 impl Gen {
@@ -26,11 +27,13 @@ impl Gen {
             return None;
         }
         let operation_id = self.handler_operation_id_from_sig(&m.syn.sig);
+        let operation_name = self.handler_operation_name_from_sig(&m.syn.sig);
         Some(RouteInfo {
             method,
             uri: full_path,
             uri_params,
             operation_id,
+            operation_name,
         })
     }
 }

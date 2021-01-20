@@ -285,6 +285,7 @@ by using the --package flag."
                         parameters: handler.parameters.clone(),
                         description: description.clone(),
                         operation_id: route.operation_id.clone(),
+                        operation_name: route.operation_name.clone(),
                         tags: tags.iter().map(|t| t.name.clone()).collect(),
                         ..Default::default()
                     };
@@ -560,6 +561,10 @@ by using the --package flag."
 
         let path = item.scope.path();
         Some(self.get_schema(name, Some(path), ty, as_ref))
+    }
+
+    fn handler_operation_name_from_sig(&self, sig: &Signature) -> String {
+        sig.ident.to_string()
     }
 
     fn handler_operation_id_from_sig(&self, sig: &Signature) -> String {

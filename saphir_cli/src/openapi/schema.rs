@@ -321,6 +321,8 @@ pub struct OpenApiPath {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) description: Option<String>,
     pub(crate) operation_id: String,
+    #[serde(rename = "x-operation-name")]
+    pub(crate) operation_name: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) parameters: Vec<OpenApiParameter>,
     #[serde(skip_serializing_if = "Option::is_none")]

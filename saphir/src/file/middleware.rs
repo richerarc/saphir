@@ -53,6 +53,7 @@ impl FileMiddleware {
         let mut cache = self.cache.clone();
         let req = ctx.state.request_unchecked();
         let req_path = req.uri().path();
+        let is_head_request = matches!(req.method(), &Method::HEAD);
 
         let mut file_path = None;
         let mut response_code: Option<u16> = None;
@@ -142,9 +143,11 @@ impl FileMiddleware {
         {
             if let (true, Some(content_range)) = (is_range_fresh(&req, &etag, &last_modified), is_satisfiable_range(&range, size as u64)) {
                 if let Some(range) = extract_range(&content_range) {
-                    let file = cache.open_file_with_range(&path, range).await?;
-                    size = file.get_size();
-                    builder = builder.file(file);
+                    if !is_head_request {
+                        let file = cache.open_file_with_range(&path, range).await?;
+                        size = file.get_size();
+                        builder = builder.file(file);
+                    }
                 }
                 builder = builder
                     .header(http::header::CONTENT_RANGE, content_range.to_string())
@@ -153,7 +156,7 @@ impl FileMiddleware {
             }
         }
 
-        if !is_partial_content {
+        if !is_partial_content && !is_head_request {
             let file = cache.open_file(&path, compression).await?;
             size = file.get_size();
             builder = builder.file(file);

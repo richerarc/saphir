@@ -145,7 +145,7 @@ impl FileMiddleware {
                 if let Some(range) = extract_range(&content_range) {
                     if !is_head_request {
                         let file = cache.open_file_with_range(&path, range).await?;
-                        size = file.get_size();
+                        size = (range.1 - range.0) + 1;
                         builder = builder.file(file);
                     }
                 }

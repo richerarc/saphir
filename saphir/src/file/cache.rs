@@ -112,11 +112,7 @@ impl FileCache {
             file_stream.set_range(range).await?;
             Ok(file_stream)
         } else {
-            let mut file_stream = FileStream::new(FileCacher::new(
-                (path_str.to_string(), Compression::Raw),
-                Box::pin(File::open(path_str).await?),
-                self.clone(),
-            ));
+            let mut file_stream = FileStream::new(File::open(path_str).await?);
             file_stream.set_range(range).await?;
             Ok(file_stream)
         }

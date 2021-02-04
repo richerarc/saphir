@@ -327,7 +327,7 @@ impl FileStream {
     pub async fn set_range(&mut self, range: (u64, u64)) -> io::Result<()> {
         let (start, end) = range;
         self.inner.seek(SeekFrom::Start(start)).await?;
-        self.range_len = Some(end - start);
+        self.range_len = Some((end - start) + 1);
         Ok(())
     }
 

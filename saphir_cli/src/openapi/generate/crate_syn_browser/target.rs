@@ -23,7 +23,7 @@ impl<'b> Target<'b> {
 
     pub fn entrypoint(&'b self) -> Result<&'b Module<'b>, Error> {
         if !self.entrypoint.filled() {
-            let module = Module::new_crate(self)?;
+            let module = Module::new_crate(self);
             self.entrypoint.fill(module).expect("We should never be filling this twice");
             let module = self.entrypoint.borrow().unwrap();
             module.init_crate(self)?;

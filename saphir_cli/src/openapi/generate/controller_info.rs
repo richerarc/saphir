@@ -31,7 +31,7 @@ impl Gen {
     /// Retrieve ControllerInfo from an implementation block.
     /// Saphir does not currently support multiple implementation blocks for the
     /// same controller.
-    pub(crate) fn extract_controller_info<'b>(&mut self, im: &'b Impl<'b>) -> Result<Option<ControllerInfo>, String> {
+    pub(crate) fn extract_controller_info<'b>(&mut self, im: &'b Impl<'b>) -> Option<ControllerInfo> {
         for attr in &im.syn.attrs {
             if let Some(first_seg) = attr.path.segments.first() {
                 let t = im.syn.self_ty.as_ref();
@@ -75,17 +75,17 @@ impl Gen {
                                 .items()
                                 .iter()
                                 .filter_map(|i| match i.kind() {
-                                    ImplItemKind::Method(m) => self.extract_handler_info(controller.base_path().as_str(), m).transpose(),
+                                    ImplItemKind::Method(m) => self.extract_handler_info(controller.base_path().as_str(), m),
                                     _ => None,
                                 })
-                                .collect::<Result<Vec<_>, _>>()?;
+                                .collect::<Vec<_>>();
                             std::mem::swap(&mut controller.handlers, &mut handlers);
-                            return Ok(Some(controller));
+                            return Some(controller);
                         }
                     }
                 }
             }
         }
-        Ok(None)
+        None
     }
 }

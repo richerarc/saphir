@@ -109,17 +109,16 @@ pub struct InlineModule<'b> {
 }
 
 impl<'b> Module<'b> {
-    pub(crate) fn new_crate(target: &'b Target<'b>) -> Result<Module<'b>, Error> {
+    pub(crate) fn new_crate(target: &'b Target<'b>) -> Module<'b> {
         let name = target.package.name.clone();
-        let module = Module {
+        Module {
             name: name.clone(),
             path: name,
             items: LazyCell::new(),
             modules: LazyCell::new(),
             uses: LazyCell::new(),
             kind: LazyCell::new(),
-        };
-        Ok(module)
+        }
     }
 
     pub(crate) fn init_crate(&'b self, target: &'b Target<'b>) -> Result<(), Error> {
@@ -132,18 +131,17 @@ impl<'b> Module<'b> {
         Ok(())
     }
 
-    pub(crate) fn new(parent: &'b Module<'b>, syn_mod: &'b SynItemMod) -> Result<Self, Error> {
+    pub(crate) fn new(parent: &'b Module<'b>, syn_mod: &'b SynItemMod) -> Self {
         let name = syn_mod.ident.to_string();
         let path = format!("{}::{}", parent.path(), &name);
-        let module = Module {
+        Module {
             kind: LazyCell::new(),
             name,
             path,
             items: LazyCell::new(),
             modules: LazyCell::new(),
             uses: LazyCell::new(),
-        };
-        Ok(module)
+        }
     }
 
     pub(crate) fn init_new(&'b self, parent: &'b Module<'b>, syn_mod: &'b SynItemMod) -> Result<(), Error> {
@@ -226,7 +224,7 @@ impl<'b> Module<'b> {
                     syn_modules.push(m);
                     Module::new(self, m)
                 })
-                .collect::<Result<Vec<_>, _>>()?;
+                .collect();
             cell.fill(modules).expect("We should never be filling this twice");
             for (i, m) in cell.borrow().expect("We just filled this").iter().enumerate() {
                 m.init_new(self, syn_modules.get(i).expect("mapped above"))?;

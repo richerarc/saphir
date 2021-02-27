@@ -167,7 +167,7 @@ impl Command for Gen {
         let browser = unsafe { &*(&browser as *const Browser) }; // FIXME: Definitely find a better way to handle the lifetime issue here
         let entrypoint = self.get_crate_entrypoint(self.args.package_name.as_ref(), browser)?;
         let controllers = self.load_controllers(entrypoint)?;
-        self.fill_openapi_with_controllers(entrypoint, controllers)?;
+        self.fill_openapi_with_controllers(entrypoint, controllers);
         self.doc.sort_and_dedup_tags();
         let file = self.write_doc_file()?;
         println!("Succesfully created `{}` in {}ms", file, now.elapsed().as_millis());
@@ -240,14 +240,14 @@ by using the --package flag."
             .map_err(|e| format!("{}", e))?
             .iter()
             .filter_map(|i| match i.kind() {
-                ItemKind::Impl(im) => self.extract_controller_info(im).transpose(),
+                ItemKind::Impl(im) => self.extract_controller_info(im),
                 _ => None,
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Vec<_>>();
         Ok(controllers)
     }
 
-    fn fill_openapi_with_controllers<'b>(&mut self, entrypoint: &'b Module<'b>, controllers: Vec<ControllerInfo>) -> CommandResult {
+    fn fill_openapi_with_controllers<'b>(&mut self, entrypoint: &'b Module<'b>, controllers: Vec<ControllerInfo>) {
         for controller in controllers {
             let controller_name = controller.controller_name.as_str();
             let controller_model_name = controller.name.as_str();
@@ -296,7 +296,7 @@ by using the --package flag."
                             let parameters = self.get_open_api_parameters_from_body_info(entrypoint, body_info);
                             data.parameters.extend(parameters);
                         } else {
-                            data.request_body = self.get_open_api_body_param(entrypoint, body_info);
+                            data.request_body = Some(self.get_open_api_body_param(entrypoint, body_info));
                         }
                     }
 
@@ -358,7 +358,6 @@ by using the --package flag."
                 }
             }
         }
-        Ok(())
     }
 
     fn get_schema(&mut self, name: &str, full_path: Option<&str>, ty: OpenApiType, as_ref: bool) -> OpenApiSchema {
@@ -418,7 +417,7 @@ by using the --package flag."
         }
     }
 
-    fn get_open_api_body_param<'b>(&mut self, entrypoint: &'b Module<'b>, body_info: &mut BodyParamInfo) -> Option<OpenApiRequestBody> {
+    fn get_open_api_body_param<'b>(&mut self, entrypoint: &'b Module<'b>, body_info: &mut BodyParamInfo) -> OpenApiRequestBody {
         let schema = if body_info.type_info.is_type_deserializable {
             let ty = &mut body_info.type_info;
             let name = ty.rename.as_deref().unwrap_or_else(|| ty.name.as_str());
@@ -430,11 +429,11 @@ by using the --package flag."
         };
         let mut content: BTreeMap<OpenApiMimeType, OpenApiContent> = BTreeMap::new();
         content.insert(body_info.openapi_type.clone(), OpenApiContent { schema });
-        Some(OpenApiRequestBody {
+        OpenApiRequestBody {
             description: body_info.type_info.name.clone(),
             required: !body_info.type_info.is_optional,
             content,
-        })
+        }
     }
 
     fn get_open_api_parameters_from_body_info<'b>(&mut self, entrypoint: &'b Module<'b>, body_info: &BodyParamInfo) -> Vec<OpenApiParameter> {
@@ -482,25 +481,24 @@ by using the --package flag."
         let type_path = type_info.type_path.as_ref()?;
         let type_mod = scope.target().module_by_use_path(type_path).ok().flatten()?;
         let type_impl = type_mod.find_type_definition(type_info.name.as_str()).ok().flatten()?;
-        match type_impl.item {
+        let schema = match type_impl.item {
             SynItem::Struct(s) => self.get_open_api_type_from_struct(type_info.name.as_str(), type_impl, &s, as_ref),
             SynItem::Enum(e) => self.get_open_api_type_from_enum(type_info.name.as_str(), type_impl, e, as_ref),
             _ => unreachable!(),
+        };
+
+        if type_info.is_array {
+            Some(OpenApiSchema::Inline(OpenApiType::Array {
+                items: Box::new(schema),
+                min_items: type_info.min_array_len,
+                max_items: type_info.max_array_len,
+            }))
+        } else {
+            Some(schema)
         }
-        .map(|schema| {
-            if type_info.is_array {
-                OpenApiSchema::Inline(OpenApiType::Array {
-                    items: Box::new(schema),
-                    min_items: type_info.min_array_len,
-                    max_items: type_info.max_array_len,
-                })
-            } else {
-                schema
-            }
-        })
     }
 
-    fn get_open_api_type_from_struct<'b>(&mut self, name: &str, item: &'b Item<'b>, s: &ItemStruct, as_ref: bool) -> Option<OpenApiSchema> {
+    fn get_open_api_type_from_struct<'b>(&mut self, name: &str, item: &'b Item<'b>, s: &ItemStruct, as_ref: bool) -> OpenApiSchema {
         let mut properties = BTreeMap::new();
         let mut required = Vec::new();
         for field in &s.fields {
@@ -541,10 +539,10 @@ by using the --package flag."
         } else {
             OpenApiType::anonymous_input_object()
         };
-        Some(self.get_schema(name, Some(path), object, as_ref))
+        self.get_schema(name, Some(path), object, as_ref)
     }
 
-    fn get_open_api_type_from_enum<'b>(&mut self, name: &str, item: &Item<'b>, e: &'b ItemEnum, as_ref: bool) -> Option<OpenApiSchema> {
+    fn get_open_api_type_from_enum<'b>(&mut self, name: &str, item: &Item<'b>, e: &'b ItemEnum, as_ref: bool) -> OpenApiSchema {
         let ty = if e.variants.iter().all(|v| v.fields == Fields::Unit) {
             let mut values: Vec<String> = Vec::new();
             for variant in &e.variants {
@@ -560,7 +558,7 @@ by using the --package flag."
         };
 
         let path = item.scope.path();
-        Some(self.get_schema(name, Some(path), ty, as_ref))
+        self.get_schema(name, Some(path), ty, as_ref)
     }
 
     fn handler_operation_name_from_sig(&self, sig: &Signature) -> String {

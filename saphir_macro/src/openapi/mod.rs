@@ -18,29 +18,27 @@ pub fn validate_openapi(args: AttributeArgs, input: Item) -> Result<TokenStream>
     let mut mime: Option<String> = None;
     let mut name: Option<String> = None;
     for arg in args.into_iter() {
-        if let NestedMeta::Meta(m) = arg {
-            if let Meta::NameValue(nv) = m {
-                match nv.path.get_ident().map(|i| i.to_string()).as_deref() {
-                    Some("mime") => {
-                        if mime.is_some() {
-                            return Err(Error::new_spanned(nv, "Cannot specify `mime` twice"));
-                        }
-                        mime = match nv.lit {
-                            Lit::Str(s) => Some(s.value()),
-                            _ => None,
-                        }
+        if let NestedMeta::Meta(Meta::NameValue(nv)) = arg {
+            match nv.path.get_ident().map(|i| i.to_string()).as_deref() {
+                Some("mime") => {
+                    if mime.is_some() {
+                        return Err(Error::new_spanned(nv, "Cannot specify `mime` twice"));
                     }
-                    Some("name") => {
-                        if name.is_some() {
-                            return Err(Error::new_spanned(nv, "Cannot specify `name` twice"));
-                        }
-                        name = match nv.lit {
-                            Lit::Str(s) => Some(s.value()),
-                            _ => None,
-                        }
+                    mime = match nv.lit {
+                        Lit::Str(s) => Some(s.value()),
+                        _ => None,
                     }
-                    _ => return Err(Error::new_spanned(nv, "Unrecognized parameter")),
                 }
+                Some("name") => {
+                    if name.is_some() {
+                        return Err(Error::new_spanned(nv, "Cannot specify `name` twice"));
+                    }
+                    name = match nv.lit {
+                        Lit::Str(s) => Some(s.value()),
+                        _ => None,
+                    }
+                }
+                _ => return Err(Error::new_spanned(nv, "Unrecognized parameter")),
             }
         }
     }

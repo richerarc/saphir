@@ -69,119 +69,116 @@ impl Gen {
 
         for openapi_paths in &meta.nested {
             match openapi_paths {
-                NestedMeta::Meta(m) => match m {
-                    Meta::List(nl) => {
-                        let i = nl.path.get_ident().map(|i| i.to_string());
-                        match i.as_deref() {
-                            Some("return") => {
-                                let mut codes: Vec<u16> = Vec::new();
-                                let mut types: Vec<String> = Vec::new();
-                                let mut mime: Option<String> = None;
-                                let mut name: Option<String> = None;
-                                if nl.nested.is_empty() {
-                                    continue;
-                                }
-                                for n in &nl.nested {
-                                    if let NestedMeta::Meta(Meta::NameValue(nv)) = n {
-                                        let r = nv.path.get_ident().map(|i| i.to_string());
-                                        match r.as_deref() {
-                                            Some("code") => {
-                                                if let Lit::Int(i) = &nv.lit {
-                                                    let c: u16 = match i.base10_parse() {
-                                                        Ok(c) => c,
-                                                        _ => continue,
-                                                    };
-                                                    if !(100..600).contains(&c) {
-                                                        continue;
-                                                    }
-                                                    codes.push(c);
+                NestedMeta::Meta(Meta::List(nl)) => {
+                    let i = nl.path.get_ident().map(|i| i.to_string());
+                    match i.as_deref() {
+                        Some("return") => {
+                            let mut codes: Vec<u16> = Vec::new();
+                            let mut types: Vec<String> = Vec::new();
+                            let mut mime: Option<String> = None;
+                            let mut name: Option<String> = None;
+                            if nl.nested.is_empty() {
+                                continue;
+                            }
+                            for n in &nl.nested {
+                                if let NestedMeta::Meta(Meta::NameValue(nv)) = n {
+                                    let r = nv.path.get_ident().map(|i| i.to_string());
+                                    match r.as_deref() {
+                                        Some("code") => {
+                                            if let Lit::Int(i) = &nv.lit {
+                                                let c: u16 = match i.base10_parse() {
+                                                    Ok(c) => c,
+                                                    _ => continue,
+                                                };
+                                                if !(100..600).contains(&c) {
+                                                    continue;
                                                 }
+                                                codes.push(c);
                                             }
-                                            Some("type") => {
-                                                if let Lit::Str(s) = &nv.lit {
-                                                    types.push(s.value());
-                                                }
+                                        }
+                                        Some("type") => {
+                                            if let Lit::Str(s) = &nv.lit {
+                                                types.push(s.value());
                                             }
-                                            Some("mime") => {
-                                                if let Lit::Str(s) = &nv.lit {
-                                                    mime = Some(s.value());
-                                                }
+                                        }
+                                        Some("mime") => {
+                                            if let Lit::Str(s) = &nv.lit {
+                                                mime = Some(s.value());
                                             }
-                                            Some("name") => {
-                                                if let Lit::Str(s) = &nv.lit {
-                                                    name = Some(s.value());
-                                                }
+                                        }
+                                        Some("name") => {
+                                            if let Lit::Str(s) = &nv.lit {
+                                                name = Some(s.value());
                                             }
-                                            _ => {}
                                         }
+                                        _ => {}
                                     }
-                                }
-
-                                let mut pairs = Vec::new();
-                                let nb_codes = codes.len();
-                                let nb_types = types.len();
-                                if nb_codes == 1 && nb_types == 1 {
-                                    pairs.push((codes.remove(0), types.remove(0)));
-                                } else if nb_codes == 1 && nb_types > 0 {
-                                    let code = codes.remove(0);
-                                    for t in types {
-                                        pairs.push((code, t));
-                                    }
-                                } else if nb_codes > 1 && nb_types == 1 {
-                                    let t = types.remove(0);
-                                    for code in codes {
-                                        pairs.push((code, t.clone()));
-                                    }
-                                }
-
-                                let mime = mime.map(OpenApiMimeType::from);
-
-                                for (code, type_name) in pairs {
-                                    if !type_name.is_empty() {
-                                        if let Some(mut anonymous_type) = self.openapitype_from_raw(method.impl_item.im.item.scope, type_name.as_str()) {
-                                            anonymous_type.name = name.clone();
-                                            vec.push((
-                                                Some(code),
-                                                ResponseInfo {
-                                                    code,
-                                                    mime: mime.clone().unwrap_or(OpenApiMimeType::Any),
-                                                    type_info: None,
-                                                    anonymous_type: Some(anonymous_type),
-                                                },
-                                            ));
-                                            continue;
-                                        }
-                                    }
-
-                                    let path = match syn::parse_str::<Path>(type_name.as_str()) {
-                                        Ok(path) => path,
-                                        _ => {
-                                            vec.push((
-                                                Some(code),
-                                                ResponseInfo {
-                                                    code,
-                                                    mime: mime.clone().unwrap_or(OpenApiMimeType::Any),
-                                                    ..Default::default()
-                                                },
-                                            ));
-                                            continue;
-                                        }
-                                    };
-
-                                    vec.extend(self.response_info_from_type_path(method, &path).into_iter().map(|(_, mut r)| {
-                                        r.code = code;
-                                        if let Some(m) = &mime {
-                                            r.mime = m.clone();
-                                        }
-                                        (Some(code), r)
-                                    }));
                                 }
                             }
-                            _ => continue,
+
+                            let mut pairs = Vec::new();
+                            let nb_codes = codes.len();
+                            let nb_types = types.len();
+                            if nb_codes == 1 && nb_types == 1 {
+                                pairs.push((codes.remove(0), types.remove(0)));
+                            } else if nb_codes == 1 && nb_types > 0 {
+                                let code = codes.remove(0);
+                                for t in types {
+                                    pairs.push((code, t));
+                                }
+                            } else if nb_codes > 1 && nb_types == 1 {
+                                let t = types.remove(0);
+                                for code in codes {
+                                    pairs.push((code, t.clone()));
+                                }
+                            }
+
+                            let mime = mime.map(OpenApiMimeType::from);
+
+                            for (code, type_name) in pairs {
+                                if !type_name.is_empty() {
+                                    if let Some(mut anonymous_type) = self.openapitype_from_raw(method.impl_item.im.item.scope, type_name.as_str()) {
+                                        anonymous_type.name = name.clone();
+                                        vec.push((
+                                            Some(code),
+                                            ResponseInfo {
+                                                code,
+                                                mime: mime.clone().unwrap_or(OpenApiMimeType::Any),
+                                                type_info: None,
+                                                anonymous_type: Some(anonymous_type),
+                                            },
+                                        ));
+                                        continue;
+                                    }
+                                }
+
+                                let path = match syn::parse_str::<Path>(type_name.as_str()) {
+                                    Ok(path) => path,
+                                    _ => {
+                                        vec.push((
+                                            Some(code),
+                                            ResponseInfo {
+                                                code,
+                                                mime: mime.clone().unwrap_or(OpenApiMimeType::Any),
+                                                ..Default::default()
+                                            },
+                                        ));
+                                        continue;
+                                    }
+                                };
+
+                                vec.extend(self.response_info_from_type_path(method, &path).into_iter().map(|(_, mut r)| {
+                                    r.code = code;
+                                    if let Some(m) = &mime {
+                                        r.mime = m.clone();
+                                    }
+                                    (Some(code), r)
+                                }));
+                            }
                         }
+                        _ => continue,
                     }
-                    _ => continue,
-                },
+                }
                 _ => continue,
             }
         }
@@ -193,86 +190,83 @@ impl Gen {
         let mut extra_responses: Vec<(Option<u16>, ResponseInfo)> = Vec::new();
         for openapi_paths in &meta.nested {
             match openapi_paths {
-                NestedMeta::Meta(m) => match m {
-                    Meta::List(nl) => {
-                        let i = nl.path.get_ident().map(|i| i.to_string());
-                        match i.as_deref() {
-                            Some("return_override") => {
-                                let mut codes: Vec<u16> = Vec::new();
-                                let mut type_path: Option<String> = None;
-                                let mut mime: Option<String> = None;
-                                if nl.nested.is_empty() {
-                                    continue;
-                                }
-                                for n in &nl.nested {
-                                    if let NestedMeta::Meta(Meta::NameValue(nv)) = n {
-                                        let r = nv.path.get_ident().map(|i| i.to_string());
-                                        match r.as_deref() {
-                                            Some("code") => {
-                                                if let Lit::Int(i) = &nv.lit {
-                                                    let c: u16 = match i.base10_parse() {
-                                                        Ok(c) => c,
-                                                        _ => continue,
-                                                    };
-                                                    if !(100..600).contains(&c) {
-                                                        continue;
-                                                    }
-                                                    codes.push(c);
+                NestedMeta::Meta(Meta::List(nl)) => {
+                    let i = nl.path.get_ident().map(|i| i.to_string());
+                    match i.as_deref() {
+                        Some("return_override") => {
+                            let mut codes: Vec<u16> = Vec::new();
+                            let mut type_path: Option<String> = None;
+                            let mut mime: Option<String> = None;
+                            if nl.nested.is_empty() {
+                                continue;
+                            }
+                            for n in &nl.nested {
+                                if let NestedMeta::Meta(Meta::NameValue(nv)) = n {
+                                    let r = nv.path.get_ident().map(|i| i.to_string());
+                                    match r.as_deref() {
+                                        Some("code") => {
+                                            if let Lit::Int(i) = &nv.lit {
+                                                let c: u16 = match i.base10_parse() {
+                                                    Ok(c) => c,
+                                                    _ => continue,
+                                                };
+                                                if !(100..600).contains(&c) {
+                                                    continue;
                                                 }
+                                                codes.push(c);
                                             }
-                                            Some("type") => {
-                                                if let Lit::Str(s) = &nv.lit {
-                                                    type_path = Some(s.value());
-                                                }
-                                            }
-                                            Some("mime") => {
-                                                if let Lit::Str(s) = &nv.lit {
-                                                    mime = Some(s.value());
-                                                }
-                                            }
-                                            _ => {}
                                         }
+                                        Some("type") => {
+                                            if let Lit::Str(s) = &nv.lit {
+                                                type_path = Some(s.value());
+                                            }
+                                        }
+                                        Some("mime") => {
+                                            if let Lit::Str(s) = &nv.lit {
+                                                mime = Some(s.value());
+                                            }
+                                        }
+                                        _ => {}
                                     }
                                 }
+                            }
 
-                                let type_path = match type_path {
-                                    Some(t) => t,
-                                    None => return,
-                                };
+                            let type_path = match type_path {
+                                Some(t) => t,
+                                None => return,
+                            };
 
-                                let mime = mime.map(OpenApiMimeType::from);
-                                let res = responses.iter_mut().find(|(_, ri)| {
-                                    if let Some(ti) = &ri.type_info {
-                                        // TODO: clever-er match
-                                        return ti.name == type_path;
-                                    }
-                                    false
-                                });
+                            let mime = mime.map(OpenApiMimeType::from);
+                            let res = responses.iter_mut().find(|(_, ri)| {
+                                if let Some(ti) = &ri.type_info {
+                                    // TODO: clever-er match
+                                    return ti.name == type_path;
+                                }
+                                false
+                            });
 
-                                if let Some(res) = res {
-                                    if let Some(mime) = mime {
-                                        res.1.mime = mime;
-                                    }
+                            if let Some(res) = res {
+                                if let Some(mime) = mime {
+                                    res.1.mime = mime;
+                                }
 
-                                    if let Some(first_code) = codes.first() {
-                                        res.1.code = *first_code;
-                                        res.0 = Some(*first_code);
+                                if let Some(first_code) = codes.first() {
+                                    res.1.code = *first_code;
+                                    res.0 = Some(*first_code);
 
-                                        if codes.len() > 1 {
-                                            for code in codes.iter().skip(1) {
-                                                let mut new_res = (Some(*code), res.1.clone());
-                                                new_res.1.code = *code;
-                                                extra_responses.push(new_res);
-                                            }
+                                    if codes.len() > 1 {
+                                        for code in codes.iter().skip(1) {
+                                            let mut new_res = (Some(*code), res.1.clone());
+                                            new_res.1.code = *code;
+                                            extra_responses.push(new_res);
                                         }
                                     }
                                 }
                             }
-                            _ => continue,
                         }
+                        _ => continue,
                     }
-                    _ => continue,
-                },
+                }
                 _ => continue,
             }
         }

@@ -14,7 +14,7 @@ pub(crate) struct HandlerInfo {
 }
 
 impl Gen {
-    pub(crate) fn extract_handler_info<'b>(&mut self, controller_path: &str, method: &'b Method<'b>) -> Result<Option<HandlerInfo>, String> {
+    pub(crate) fn extract_handler_info<'b>(&mut self, controller_path: &str, method: &'b Method<'b>) -> Option<HandlerInfo> {
         let mut consume_cookies: bool = self.handler_has_cookies(&method.syn);
 
         let routes: Vec<RouteInfo> = method
@@ -25,7 +25,7 @@ impl Gen {
             .collect();
 
         if routes.is_empty() {
-            return Ok(None);
+            return None;
         }
 
         let parameters_info = self.parse_handler_parameters(method, &routes[0].uri_params);
@@ -35,13 +35,13 @@ impl Gen {
 
         let responses = self.extract_response_info(method);
 
-        Ok(Some(HandlerInfo {
+        Some(HandlerInfo {
             use_cookies: consume_cookies,
             parameters: parameters_info.parameters.clone(),
             body_info: parameters_info.body_info,
             routes,
             responses,
-        }))
+        })
     }
 
     fn handler_has_cookies(&self, m: &ImplItemMethod) -> bool {

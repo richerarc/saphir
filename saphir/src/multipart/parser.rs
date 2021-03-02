@@ -123,7 +123,10 @@ fn headers(input: &[u8]) -> IResult<&[u8], FieldHeaders> {
                     }
                 }
             }
-            Err(nom::Err::Error((_, ErrorKind::Tag))) => {
+            Err(nom::Err::Error(nom::error::Error {
+                input: _,
+                code: ErrorKind::Tag,
+            })) => {
                 let (i, _) = do_parse!(input, call!(until_line_end) >> line_ending >> ())?;
                 input = i;
                 continue;
@@ -132,7 +135,10 @@ fn headers(input: &[u8]) -> IResult<&[u8], FieldHeaders> {
         }
     }
 
-    let (content_disposition_name, content_disposition_filename) = content_disposition.ok_or(nom::Err::Error((input, nom::error::ErrorKind::MapOpt)))?;
+    let (content_disposition_name, content_disposition_filename) = content_disposition.ok_or(nom::Err::Error(nom::error::Error {
+        input,
+        code: nom::error::ErrorKind::MapOpt,
+    }))?;
 
     Ok((
         input,
@@ -151,9 +157,11 @@ fn field<'a>(input: &'a [u8], bound: &'a str) -> Result<(&'a [u8], FieldHeaders<
     match res {
         Ok((i, Some(f))) => Ok((i, f)),
         Ok((_i, None)) => Err(ParseFieldError::Finished),
-        Err(nom::Err::Incomplete(Needed::Size(size))) => Err(ParseFieldError::MissingData(size)),
+        Err(nom::Err::Incomplete(Needed::Size(size))) => Err(ParseFieldError::MissingData(size.get())),
         Err(nom::Err::Incomplete(Needed::Unknown)) => Err(ParseFieldError::MissingData(1024)),
-        Err(nom::Err::Error((_, k))) | Err(nom::Err::Failure((_, k))) => Err(ParseFieldError::NomError(k)),
+        Err(nom::Err::Error(nom::error::Error { input: _, code: k })) | Err(nom::Err::Failure(nom::error::Error { input: _, code: k })) => {
+            Err(ParseFieldError::NomError(k))
+        }
     }
 }
 
@@ -301,6 +309,7 @@ pub async fn parse_field_data(mut stream: FieldStream, boundary: &str) -> Result
 #[cfg(test)]
 mod tests {
     use nom::Needed;
+    use std::num::NonZeroUsize;
     use std::str::FromStr;
 
     use super::*;
@@ -313,7 +322,10 @@ mod tests {
         let boundary_partial = &b"------AaB"[..];
         let empty = &b""[..];
 
-        assert_eq!(tag_boundary(boundary)(boundary_partial), Err(nom::Err::Incomplete(Needed::Size(10))));
+        assert_eq!(
+            tag_boundary(boundary)(boundary_partial),
+            Err(nom::Err::Incomplete(Needed::Size(NonZeroUsize::new(3).unwrap())))
+        );
         assert_eq!(tag_boundary(boundary)(boundary_no_ending), Ok((&b"Content-Type: text/plain\r\n"[..], false)));
         assert_eq!(tag_boundary(boundary)(boundary_ending), Ok((empty, true)));
     }

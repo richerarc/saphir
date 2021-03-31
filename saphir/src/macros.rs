@@ -15,7 +15,7 @@
 //!
 //! # Function Attributes
 //! We also parse several function attributes that can be placed above a
-//! controller function (endpoint)
+//! controller function (endpoint).
 //!
 //! ## The `#[<method>("/<path>")]` Attribute
 //! This one is the attribute to add a endpoint to your controller, simply add a
@@ -58,9 +58,9 @@
 //!
 //!
 //! ### `return_override(type = "<type_path>", code = <code>[, mime = <mime>])`
-//! Saphir provide some default API informations for built-in types.
-//! For example, a `Result::Ok` result have by default a status code of 200, a
-//! `Result::Err` have a status code of 500, and a `Option::None` have a code of
+//! Saphir provide some default API information for built-in types.
+//! For example, a `Result::Ok` result has a status code of 200 by default, a
+//! `Result::Err` a status code of 500, and a `Option::None` a status code of
 //! 404. So, the following handler :
 //! ```rust
 //! # #[macro_use] extern crate saphir_macro;
@@ -112,7 +112,7 @@
 //! ```
 //!
 //! If you want to start with these defaults and override the return of a single
-//! type in the composed result, for example specyfing that `MyError` is
+//! type in the composed result, for example specifying that `MyError` is
 //! rendered as a json document, then you can use `return_override` like this :
 //! ```rust
 //! # #[macro_use] extern crate saphir_macro;
@@ -144,7 +144,7 @@
 //! `req.cookies().get("<cookie_name>")`.
 //!
 //! ## The `#[guard] Attribute`
-//! This will add a request guard before your endpoint. it has two parameters:
+//! This will add a request guard before your endpoint. It has two parameters:
 //! - `fn="path::to::your::guard_fn"` : *REQUIRED* This is used to specify what
 //!   guard function is to be called before your endpoint
 //! - `data="path::to::initializer"`  : _Optional_ This is used to instantiate

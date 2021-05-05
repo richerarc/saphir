@@ -13,8 +13,10 @@ use std::pin::Pin;
 pub use hyper::body::Bytes;
 
 #[cfg(feature = "form")]
+#[cfg_attr(docsrs, doc(cfg(feature = "form")))]
 pub use form::Form;
 #[cfg(feature = "json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "json")))]
 pub use json::Json;
 use std::ops::DerefMut;
 use tokio::stream::StreamExt;
@@ -256,6 +258,7 @@ impl FromBytes for Vec<u8> {
 }
 
 #[cfg(feature = "json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "json")))]
 pub mod json {
     use crate::{body::FromBytes, error::SaphirError};
     use hyper::body::Bytes;
@@ -333,6 +336,7 @@ pub mod json {
 }
 
 #[cfg(feature = "form")]
+#[cfg_attr(docsrs, doc(cfg(feature = "form")))]
 pub mod form {
     use crate::{body::FromBytes, error::SaphirError};
     use hyper::body::Bytes;

@@ -65,6 +65,7 @@ impl<T> Request<T> {
     /// Return the OperationId of the request
     #[inline]
     #[cfg(feature = "operation")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "operation")))]
     pub fn operation_id(&self) -> &OperationId {
         &self.operation_id
     }
@@ -72,6 +73,7 @@ impl<T> Request<T> {
     /// Return the mutable OperationId of the request
     #[inline]
     #[cfg(feature = "operation")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "operation")))]
     pub fn operation_id_mut(&mut self) -> &mut OperationId {
         &mut self.operation_id
     }
@@ -358,6 +360,7 @@ impl<T> Request<Option<T>> {
 }
 
 #[cfg(feature = "json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "json")))]
 mod json {
     use serde::Deserialize;
 
@@ -376,6 +379,7 @@ mod json {
 }
 
 #[cfg(feature = "form")]
+#[cfg_attr(docsrs, doc(cfg(feature = "form")))]
 mod form {
     use serde::Deserialize;
 

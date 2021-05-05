@@ -137,6 +137,7 @@ impl Responder for Builder {
 }
 
 #[cfg(feature = "json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "json")))]
 mod json {
     use super::*;
     use crate::body::Json;
@@ -154,6 +155,7 @@ mod json {
 }
 
 #[cfg(feature = "form")]
+#[cfg_attr(docsrs, doc(cfg(feature = "form")))]
 mod form {
     use super::*;
     use crate::body::Form;

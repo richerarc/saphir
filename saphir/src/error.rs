@@ -45,12 +45,15 @@ pub enum SaphirError {
     Other(String),
     /// Error from (de)serializing json data
     #[cfg(feature = "json")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "json")))]
     SerdeJson(serde_json::error::Error),
     /// Error from deserializing form data
     #[cfg(feature = "form")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "form")))]
     SerdeUrlDe(serde_urlencoded::de::Error),
     /// Error from serializing form data
     #[cfg(feature = "form")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "form")))]
     SerdeUrlSer(serde_urlencoded::ser::Error),
     ///
     MissingParameter(String, bool),
@@ -192,6 +195,7 @@ impl SaphirError {
 }
 
 #[cfg(feature = "json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "json")))]
 impl From<serde_json::error::Error> for SaphirError {
     fn from(e: serde_json::error::Error) -> Self {
         SaphirError::SerdeJson(e)
@@ -199,6 +203,7 @@ impl From<serde_json::error::Error> for SaphirError {
 }
 
 #[cfg(feature = "form")]
+#[cfg_attr(docsrs, doc(cfg(feature = "form")))]
 impl From<serde_urlencoded::de::Error> for SaphirError {
     fn from(e: serde_urlencoded::de::Error) -> Self {
         SaphirError::SerdeUrlDe(e)
@@ -206,6 +211,7 @@ impl From<serde_urlencoded::de::Error> for SaphirError {
 }
 
 #[cfg(feature = "form")]
+#[cfg_attr(docsrs, doc(cfg(feature = "form")))]
 impl From<serde_urlencoded::ser::Error> for SaphirError {
     fn from(e: serde_urlencoded::ser::Error) -> Self {
         SaphirError::SerdeUrlSer(e)

@@ -338,6 +338,7 @@ impl Responder for Redirect {
 }
 
 #[cfg(feature = "post-redirect")]
+#[cfg_attr(docsrs, doc(cfg(feature = "post-redirect")))]
 mod post_redirect {
     use super::*;
 

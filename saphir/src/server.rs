@@ -11,7 +11,6 @@ use std::{future::Future, mem::MaybeUninit, net::SocketAddr};
 
 use futures::{
     prelude::*,
-    stream::StreamExt,
     task::{Context, Poll},
 };
 use hyper::{body::Body as RawBody, server::conn::Http, service::Service};
@@ -404,7 +403,7 @@ impl Future for ServerShutdown {
                 Poll::Ready(())
             } else {
                 let waker = cx.waker().clone();
-                tokio::spawn(tokio::time::delay_for(Duration::from_millis(100)).map(move |_| waker.wake()));
+                tokio::spawn(tokio::time::sleep(Duration::from_millis(100)).map(move |_| waker.wake()));
                 Poll::Pending
             }
         } else {
@@ -415,7 +414,7 @@ impl Future for ServerShutdown {
                     } else {
                         self.state.draining.store(true, Ordering::SeqCst);
                         let waker = cx.waker().clone();
-                        tokio::spawn(tokio::time::delay_for(Duration::from_secs(1)).map(move |_| waker.wake()));
+                        tokio::spawn(tokio::time::sleep(Duration::from_secs(1)).map(move |_| waker.wake()));
                         Poll::Pending
                     }
                 }
@@ -484,7 +483,7 @@ impl Server {
 
         let http = Http::new();
 
-        let mut listener = TcpListener::bind(listener_config.iface.clone()).await?;
+        let listener = TcpListener::bind(listener_config.iface.clone()).await?;
         let local_addr = listener.local_addr()?;
 
         let incoming = {
@@ -504,7 +503,7 @@ impl Server {
 
                         let acceptor = TlsAcceptor::from(arc_config);
 
-                        let inc = listener.incoming().and_then(move |stream| acceptor.accept(stream));
+                        let inc = acceptor.accept(listener);
 
                         info!("Saphir started and listening on : https://{}", local_addr);
 
@@ -514,9 +513,8 @@ impl Server {
                         return Err(SaphirError::Other("Invalid SSL configuration, missing cert or key".to_string()));
                     }
                     _ => {
-                        let incoming = listener.incoming();
                         info!("{} started and listening on : http://{}", &listener_config.server_name, local_addr);
-                        MaybeTlsAcceptor::Plain(Box::pin(incoming))
+                        MaybeTlsAcceptor::Plain(Box::pin(listener))
                     }
                 }
             }
@@ -524,7 +522,7 @@ impl Server {
             #[cfg(not(feature = "https"))]
             {
                 info!("{} started and listening on : http://{}", &listener_config.server_name, local_addr);
-                listener.incoming()
+                listener
             }
         };
 
@@ -532,48 +530,55 @@ impl Server {
         let state = shutdown.state.clone();
 
         if let Some(timeout_ms) = listener_config.request_timeout_ms {
-            let inc = incoming.for_each_concurrent(None, |client_socket| async {
-                if !state.draining() {
-                    match client_socket {
-                        Ok(client_socket) => {
-                            let peer_addr = client_socket.peer_addr().ok();
-                            let http = http.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = http.serve_connection(client_socket, stack.new_timeout_handler(timeout_ms, peer_addr)).await {
-                                    error!("An error occurred while treating a request: {:?}", e);
-                                }
-                            });
+            let inc = async {
+                loop {
+                    let client = incoming.accept().await;
+                    if !state.draining() {
+                        match client {
+                            Ok((client_socket, peer_addr)) => {
+                                let http = http.clone();
+                                tokio::spawn(async move {
+                                    if let Err(e) = http
+                                        .serve_connection(client_socket, stack.new_timeout_handler(timeout_ms, Some(peer_addr)))
+                                        .await
+                                    {
+                                        error!("An error occurred while treating a request: {:?}", e);
+                                    }
+                                });
+                            }
+                            Err(e) => {
+                                warn!("incoming connection encountered an error: {}", e);
+                            }
                         }
-                        Err(e) => {
-                            warn!("incoming connection encountered an error: {}", e);
-                        }
+                    } else {
+                        debug!("Skipping incoming connection due to shutdown");
                     }
-                } else {
-                    debug!("Skipping incoming connection due to shutdown");
                 }
-            });
+            };
             ServerFuture::new(inc, shutdown).await;
         } else {
-            let inc = incoming.for_each_concurrent(None, |client_socket| async {
-                if !state.draining() {
-                    match client_socket {
-                        Ok(client_socket) => {
-                            let peer_addr = client_socket.peer_addr().ok();
-                            let http = http.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = http.serve_connection(client_socket, stack.new_handler(peer_addr)).await {
-                                    error!("An error occurred while treating a request: {:?}", e);
-                                }
-                            });
+            let inc = async {
+                loop {
+                    let client = incoming.accept().await;
+                    if !state.draining() {
+                        match client {
+                            Ok((client_socket, peer_addr)) => {
+                                let http = http.clone();
+                                tokio::spawn(async move {
+                                    if let Err(e) = http.serve_connection(client_socket, stack.new_handler(Some(peer_addr))).await {
+                                        error!("An error occurred while treating a request: {:?}", e);
+                                    }
+                                });
+                            }
+                            Err(e) => {
+                                warn!("incoming connection encountered an error: {}", e);
+                            }
                         }
-                        Err(e) => {
-                            warn!("incoming connection encountered an error: {}", e);
-                        }
+                    } else {
+                        debug!("Skipping incoming connection due to shutdown");
                     }
-                } else {
-                    debug!("Skipping incoming connection due to shutdown");
                 }
-            });
+            };
             ServerFuture::new(inc, shutdown).await;
         }
 
@@ -732,7 +737,7 @@ mod ssl_loading_utils {
         stream::Stream,
         task::{Context, Poll},
     };
-    use tokio::io::{AsyncRead, AsyncWrite};
+    use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
     use crate::server::SslConfig;
 
@@ -753,8 +758,20 @@ mod ssl_loading_utils {
     impl AsyncRead for MaybeTlsStream {
         fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<Result<usize, Error>> {
             match self.get_mut() {
-                MaybeTlsStream::Tls(t) => t.as_mut().poll_read(cx, buf),
-                MaybeTlsStream::Plain(p) => p.as_mut().poll_read(cx, buf),
+                MaybeTlsStream::Tls(t) => {
+                    let buf_len = buf.len();
+                    match t.as_mut().poll_read(cx, &mut ReadBuf::new(buf)) {
+                        Poll::Ready(r) => Poll::Ready(r.map(|_| buf.len() - buf_len)),
+                        Poll::Pending => Poll::Pending,
+                    }
+                }
+                MaybeTlsStream::Plain(p) => {
+                    let buf_len = buf.len();
+                    match p.as_mut().poll_read(cx, &mut ReadBuf::new(buf)) {
+                        Poll::Ready(r) => Poll::Ready(r.map(|_| buf.len() - buf_len)),
+                        Poll::Pending => Poll::Pending,
+                    }
+                }
             }
         }
     }
@@ -782,12 +799,12 @@ mod ssl_loading_utils {
         }
     }
 
-    pub enum MaybeTlsAcceptor<'a, S: Stream<Item = Result<tokio_rustls::server::TlsStream<tokio::net::TcpStream>, tokio::io::Error>>> {
+    pub enum MaybeTlsAcceptor<S: Stream<Item = Result<tokio_rustls::server::TlsStream<tokio::net::TcpStream>, tokio::io::Error>>> {
         Tls(Pin<Box<S>>),
-        Plain(Pin<Box<tokio::net::tcp::Incoming<'a>>>),
+        Plain(Pin<Box<tokio::net::TcpListener>>),
     }
 
-    impl<'a, S: Stream<Item = Result<tokio_rustls::server::TlsStream<tokio::net::TcpStream>, tokio::io::Error>>> Stream for MaybeTlsAcceptor<'a, S> {
+    impl<'a, S: Stream<Item = Result<tokio_rustls::server::TlsStream<tokio::net::TcpStream>, tokio::io::Error>>> Stream for MaybeTlsAcceptor<S> {
         type Item = Result<MaybeTlsStream, tokio::io::Error>;
 
         fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {

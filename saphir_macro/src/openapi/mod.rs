@@ -2,7 +2,7 @@ use proc_macro2::TokenStream;
 use quote::ToTokens;
 use syn::{AttributeArgs, Error, Item, Lit, Meta, NestedMeta, Result};
 
-const MISSING_ATRIBUTE: &str = "openapi macro require at least one of the following attributes :
+const MISSING_ATTRIBUTE: &str = "openapi macro require at least one of the following attributes :
 - mime
 - name";
 
@@ -10,7 +10,7 @@ pub fn validate_openapi(args: AttributeArgs, input: Item) -> Result<TokenStream>
     match &input {
         Item::Struct(_) | Item::Enum(_) => {
             if args.is_empty() {
-                panic!(MISSING_ATRIBUTE);
+                panic!("{}", MISSING_ATTRIBUTE);
             }
         }
         _ => panic!("openapi attribute can only be placed on Struct and Enum"),
@@ -44,7 +44,7 @@ pub fn validate_openapi(args: AttributeArgs, input: Item) -> Result<TokenStream>
     }
 
     if mime.is_none() && name.is_none() {
-        panic!(MISSING_ATRIBUTE);
+        panic!("{}", MISSING_ATTRIBUTE);
     }
 
     Ok(input.to_token_stream())

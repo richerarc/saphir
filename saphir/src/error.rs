@@ -7,7 +7,7 @@ use http::{
     header::{InvalidHeaderValue, ToStrError},
     Error as HttpCrateError,
 };
-use hyper::error::Error as HyperError;
+use hyper::Error as HyperError;
 use std::{
     error::Error as StdError,
     fmt::{Debug, Display, Error as FmtError, Formatter},

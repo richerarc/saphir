@@ -11,9 +11,16 @@ readme = "../README.md"
 keywords = ["hyper", "http", "server", "web", "async"]
 license = "MIT"
 
+[[example]]
+name = "basic"
+
+[[example]]
+name = "macro"
+required-features = ["json", "file", "multipart", "form"]
+
 [features]
-default = ["macro"]
-full = ["macro", "json", "form", "https", "multipart", "operation", "post-redirect", "file"]
+default = ["macro", "http1"]
+full = ["macro", "json", "form", "https", "multipart", "operation", "post-redirect", "file", "http1", "http2"]
 post-redirect = ["redirect", "json"]
 redirect = ["mime", "form"]
 https = ["base64", "rustls", "tokio-rustls"]
@@ -23,11 +30,13 @@ macro = ["saphir_macro"]
 multipart = ["mime", "nom"]
 file = ["mime", "mime_guess", "percent-encoding", "chrono", "flate2", "brotli"]
 operation = ["serde", "uuid"]
+http1 = ["hyper/http1"]
+http2 = ["hyper/http2"]
 
 [dependencies]
 log = "0.4"
-hyper = { version = "0.13.6", features = ["stream"] }
-tokio = { version = "0.2.13", features = ["full"] }
+hyper = { version = "0.14.7", features = ["stream", "server"] }
+tokio = { version = "1.5.0", features = ["full"] }
 futures = "0.3"
 futures-util = "0.3"
 tower-service = "0.3"

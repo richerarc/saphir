@@ -32,7 +32,7 @@ pub enum MultipartError {
     AlreadyConsumed,
     MissingBoundary,
     Finished,
-    Hyper(hyper::error::Error),
+    Hyper(hyper::Error),
     Io(std::io::Error),
     #[cfg(feature = "json")]
     Json(serde_json::error::Error),
@@ -45,6 +45,7 @@ impl Responder for MultipartError {
         let op_id = {
             #[cfg(not(feature = "operation"))]
             {
+                let _ = ctx;
                 String::new()
             }
 

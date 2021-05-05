@@ -309,8 +309,7 @@ pub async fn parse_field_data(mut stream: FieldStream, boundary: &str) -> Result
 #[cfg(test)]
 mod tests {
     use nom::Needed;
-    use std::num::NonZeroUsize;
-    use std::str::FromStr;
+    use std::{num::NonZeroUsize, str::FromStr};
 
     use super::*;
 

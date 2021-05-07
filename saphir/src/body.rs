@@ -3,11 +3,10 @@
 use crate::error::SaphirError;
 use futures::{
     task::{Context, Poll},
-    Future,
+    Future, StreamExt,
 };
 use http::HeaderMap;
-use http_body::SizeHint;
-use hyper::body::{Body as RawBody, Buf, HttpBody};
+use hyper::body::{Body as RawBody, Buf, HttpBody, SizeHint};
 use std::pin::Pin;
 
 pub use hyper::body::Bytes;
@@ -17,7 +16,6 @@ pub use form::Form;
 #[cfg(feature = "json")]
 pub use json::Json;
 use std::ops::DerefMut;
-use tokio::stream::StreamExt;
 
 #[doc(hidden)]
 pub(crate) static mut REQUEST_BODY_BYTES_LIMIT: Option<usize> = None;
@@ -459,7 +457,7 @@ impl HttpBody for BodyInner {
     fn poll_data(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Result<Self::Data, SaphirError>>> {
         if let BodyInner::Memory(b) = self.deref_mut() {
             if !b.is_empty() {
-                Poll::Ready(Some(Ok(b.to_bytes())))
+                Poll::Ready(Some(Ok(b.slice(..))))
             } else {
                 Poll::Ready(None)
             }

@@ -766,10 +766,7 @@ mod ssl_loading_utils {
     use std::{fs, io::BufReader, pin::Pin};
 
     use futures::io::Error;
-    use futures_util::{
-        stream::Stream,
-        task::{Context, Poll},
-    };
+    use futures_util::task::{Context, Poll};
     use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
     use crate::server::SslConfig;

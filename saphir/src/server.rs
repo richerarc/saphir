@@ -558,7 +558,6 @@ impl Server {
             ServerFuture::new(inc, shutdown).await;
         } else {
             let inc = stream.for_each_concurrent(None, |client| async {
-                warn!("a");
                 if !state.draining() {
                     match client {
                         Ok((client_socket, peer_addr)) => {

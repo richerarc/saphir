@@ -610,7 +610,7 @@ fn accept_client(listener: ssl_loading_utils::MaybeTlsAcceptor) -> impl Stream<I
     })
 }
 #[cfg(not(feature = "https"))]
-fn accept_client(listener: TcpListener) -> impl Stream<Item = tokio::io::Result<(TcpStream, SocketAddr)>> {
+fn accept_client(listener: TcpListener) -> impl Stream<Item = tokio::io::Result<(tokio::net::TcpStream, SocketAddr)>> {
     let (mut __yield_tx, __yield_rx) = ::async_stream::yielder::pair();
     async_stream::AsyncStream::new(__yield_rx, async move {
         loop {

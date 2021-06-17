@@ -347,6 +347,7 @@ pub struct OpenApiParameter {
 pub struct OpenApiRequestBody {
     pub(crate) description: String,
     pub(crate) required: bool,
+    pub(crate) nullable: bool,
     pub(crate) content: BTreeMap<OpenApiMimeType, OpenApiContent>,
 }
 

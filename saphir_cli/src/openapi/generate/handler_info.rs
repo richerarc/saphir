@@ -126,6 +126,7 @@ impl Gen {
             parameters.push(OpenApiParameter {
                 name: param_name,
                 required: !optional,
+                nullable: optional,
                 location,
                 schema: OpenApiSchema::Inline(param_type),
                 ..Default::default()

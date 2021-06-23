@@ -530,6 +530,7 @@ where
     }
 }
 
+#[allow(clippy::from_over_into)]
 impl<T: FromBytes> Into<RawBody> for Body<T> {
     #[inline]
     fn into(self) -> RawBody {

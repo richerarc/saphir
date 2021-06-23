@@ -10,7 +10,7 @@ pub fn validate_openapi(args: AttributeArgs, input: Item) -> Result<TokenStream>
     match &input {
         Item::Struct(_) | Item::Enum(_) => {
             if args.is_empty() {
-                panic!(MISSING_ATRIBUTE);
+                panic!("{}", MISSING_ATRIBUTE);
             }
         }
         _ => panic!("openapi attribute can only be placed on Struct and Enum"),
@@ -44,7 +44,7 @@ pub fn validate_openapi(args: AttributeArgs, input: Item) -> Result<TokenStream>
     }
 
     if mime.is_none() && name.is_none() {
-        panic!(MISSING_ATRIBUTE);
+        panic!("{}", MISSING_ATRIBUTE);
     }
 
     Ok(input.to_token_stream())

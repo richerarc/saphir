@@ -277,7 +277,7 @@ pub mod operation {
             OperationId(Uuid::new_v4())
         }
 
-        pub fn as_u128(&self) -> u128 {
+        pub fn to_u128(self) -> u128 {
             self.0.as_u128()
         }
     }

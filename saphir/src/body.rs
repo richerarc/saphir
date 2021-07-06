@@ -530,10 +530,10 @@ where
     }
 }
 
-impl<T: FromBytes> Into<RawBody> for Body<T> {
+impl<T: FromBytes> From<Body<T>> for RawBody {
     #[inline]
-    fn into(self) -> RawBody {
-        let Body { inner, .. } = self;
+    fn from(body: Body<T>) -> Self {
+        let Body { inner, .. } = body;
         inner.unwrap_or_else(BodyInner::empty).into_raw()
     }
 }

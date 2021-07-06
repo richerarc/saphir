@@ -144,9 +144,9 @@ fn headers(input: &[u8]) -> IResult<&[u8], FieldHeaders> {
         input,
         FieldHeaders {
             content_disposition_name,
+            content_disposition_filename,
             content_type,
             content_transfer_encoding,
-            content_disposition_filename,
         },
     ))
 }
@@ -309,8 +309,7 @@ pub async fn parse_field_data(mut stream: FieldStream, boundary: &str) -> Result
 #[cfg(test)]
 mod tests {
     use nom::Needed;
-    use std::num::NonZeroUsize;
-    use std::str::FromStr;
+    use std::{num::NonZeroUsize, str::FromStr};
 
     use super::*;
 

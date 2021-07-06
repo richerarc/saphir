@@ -14,6 +14,7 @@ use crate::{
     },
     Command, CommandResult,
 };
+use convert_case::Casing;
 use http::StatusCode;
 use serde_derive::Deserialize;
 use std::{
@@ -28,7 +29,6 @@ use std::{
 };
 use structopt::StructOpt;
 use syn::{Attribute, Fields, Item as SynItem, ItemEnum, ItemStruct, Lit, Meta, NestedMeta, Signature};
-use convert_case::Casing;
 
 mod controller_info;
 mod crate_syn_browser;
@@ -48,6 +48,12 @@ enum Case {
     ScreamingSnake,
     Kebab,
     Cobol,
+}
+
+impl Default for Case {
+    fn default() -> Self {
+        Case::Camel
+    }
 }
 
 #[derive(Debug)]
@@ -79,20 +85,35 @@ impl FromStr for Case {
     }
 }
 
-impl Into<convert_case::Case> for Case {
-    fn into(self) -> convert_case::Case {
-        match self {
-            Self::Lower => convert_case::Case::Lower,
-            Self::Upper => convert_case::Case::Upper,
-            Self::Pascal => convert_case::Case::Pascal,
-            Self::Camel => convert_case::Case::Camel,
-            Self::Snake => convert_case::Case::Snake,
-            Self::ScreamingSnake => convert_case::Case::ScreamingSnake,
-            Self::Kebab => convert_case::Case::Kebab,
-            Self::Cobol => convert_case::Case::Cobol,
+impl From<&Case> for convert_case::Case {
+    fn from(case: &Case) -> Self {
+        match case {
+            Case::Lower => convert_case::Case::Lower,
+            Case::Upper => convert_case::Case::Upper,
+            Case::Pascal => convert_case::Case::Pascal,
+            Case::Camel => convert_case::Case::Camel,
+            Case::Snake => convert_case::Case::Snake,
+            Case::ScreamingSnake => convert_case::Case::ScreamingSnake,
+            Case::Kebab => convert_case::Case::Kebab,
+            Case::Cobol => convert_case::Case::Cobol,
         }
     }
 }
+
+// impl Into<convert_case::Case> for &Case {
+//     fn into(&self) -> convert_case::Case {
+//         match self {
+//             Case::Lower => convert_case::Case::Lower,
+//             Case::Upper => convert_case::Case::Upper,
+//             Case::Pascal => convert_case::Case::Pascal,
+//             Case::Camel => convert_case::Case::Camel,
+//             Case::Snake => convert_case::Case::Snake,
+//             Case::ScreamingSnake => convert_case::Case::ScreamingSnake,
+//             Case::Kebab => convert_case::Case::Kebab,
+//             Case::Cobol => convert_case::Case::Cobol,
+//         }
+//     }
+// }
 
 #[derive(Debug, Eq, PartialEq)]
 enum SchemaGranularity {
@@ -633,7 +654,7 @@ by using the --package flag."
     }
 
     fn handler_operation_name_from_sig(&self, sig: &Signature) -> String {
-        sig.ident.to_string().to_case(self.args.operation_name_case.into())
+        sig.ident.to_string().to_case((&self.args.operation_name_case).into())
     }
 
     fn handler_operation_id_from_sig(&self, sig: &Signature) -> String {

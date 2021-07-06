@@ -28,6 +28,7 @@ use std::{
 };
 use structopt::StructOpt;
 use syn::{Attribute, Fields, Item as SynItem, ItemEnum, ItemStruct, Lit, Meta, NestedMeta, Signature};
+use convert_case::Casing;
 
 mod controller_info;
 mod crate_syn_browser;
@@ -36,6 +37,62 @@ mod response_info;
 mod route_info;
 mod type_info;
 mod utils;
+
+#[derive(Debug, Eq, PartialEq)]
+enum Case {
+    Lower,
+    Upper,
+    Pascal,
+    Camel,
+    Snake,
+    ScreamingSnake,
+    Kebab,
+    Cobol,
+}
+
+#[derive(Debug)]
+enum CasesError {
+    UnknownCase,
+}
+
+impl Display for CasesError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Not a known case convention")
+    }
+}
+
+impl FromStr for Case {
+    type Err = CasesError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "lowercase" => Ok(Case::Lower),
+            "UPPERCASE" => Ok(Case::Upper),
+            "PascalCase" => Ok(Case::Pascal),
+            "camelCase" => Ok(Case::Camel),
+            "snake_case" => Ok(Case::Snake),
+            "SCREAMING_SNAKE_CASE" => Ok(Case::ScreamingSnake),
+            "kebab-case" => Ok(Case::Kebab),
+            "SCREAMING-KEBAB-CASE" => Ok(Case::Cobol),
+            _ => Err(CasesError::UnknownCase),
+        }
+    }
+}
+
+impl Into<convert_case::Case> for Case {
+    fn into(self) -> convert_case::Case {
+        match self {
+            Self::Lower => convert_case::Case::Lower,
+            Self::Upper => convert_case::Case::Upper,
+            Self::Pascal => convert_case::Case::Pascal,
+            Self::Camel => convert_case::Case::Camel,
+            Self::Snake => convert_case::Case::Snake,
+            Self::ScreamingSnake => convert_case::Case::ScreamingSnake,
+            Self::Kebab => convert_case::Case::Kebab,
+            Self::Cobol => convert_case::Case::Cobol,
+        }
+    }
+}
 
 #[derive(Debug, Eq, PartialEq)]
 enum SchemaGranularity {
@@ -136,6 +193,20 @@ pub(crate) struct GenArgs {
     /// file, or a dir, which would then contain a openapi.yaml
     #[structopt(parse(from_os_str), default_value = ".")]
     output_file: PathBuf,
+
+    /// (Optional) Casing of the operation names.
+    /// Accepted case names matches serde's :
+    ///
+    /// - lowercase
+    /// - UPPERCASE
+    /// - PascalCase
+    /// - camelCase
+    /// - snake_case
+    /// - SCREAMING_SNAKE_CASE
+    /// - kebab-case
+    /// - SCREAMING-KEBAB-CASE
+    #[structopt(short = "c", long = "operation-name-case", default_value = "camelCase", verbatim_doc_comment)]
+    operation_name_case: Case,
 }
 
 pub(crate) struct Gen {
@@ -562,7 +633,7 @@ by using the --package flag."
     }
 
     fn handler_operation_name_from_sig(&self, sig: &Signature) -> String {
-        sig.ident.to_string()
+        sig.ident.to_string().to_case(self.args.operation_name_case.into())
     }
 
     fn handler_operation_id_from_sig(&self, sig: &Signature) -> String {

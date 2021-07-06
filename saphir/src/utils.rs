@@ -544,11 +544,13 @@ impl MethodExtension for Method {
 }
 
 #[cfg(feature = "form")]
+#[cfg_attr(docsrs, doc(cfg(feature = "form")))]
 pub fn read_query_string_to_hashmap(query_str: &str) -> Result<HashMap<String, String>, serde_urlencoded::de::Error> {
     serde_urlencoded::from_str::<HashMap<String, String>>(query_str)
 }
 
 #[cfg(feature = "form")]
+#[cfg_attr(docsrs, doc(cfg(feature = "form")))]
 pub fn read_query_string_to_type<T>(query_str: &str) -> Result<T, serde_urlencoded::de::Error>
 where
     T: for<'a> serde::Deserialize<'a>,

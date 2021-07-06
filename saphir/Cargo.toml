@@ -11,6 +11,10 @@ readme = "../README.md"
 keywords = ["hyper", "http", "server", "web", "async"]
 license = "MIT"
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [features]
 default = ["macro"]
 full = ["macro", "json", "form", "https", "multipart", "operation", "post-redirect", "file"]

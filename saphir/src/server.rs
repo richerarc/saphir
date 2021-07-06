@@ -80,6 +80,7 @@ fn write_into_static(stack: Stack, server_value: HeaderValue, request_body_max: 
 ///
 /// A struct representing certificate or private key configuration.
 #[cfg(feature = "https")]
+#[cfg_attr(docsrs, doc(cfg(feature = "https")))]
 #[derive(Clone)]
 pub enum SslConfig {
     /// File path
@@ -96,8 +97,10 @@ pub struct ListenerBuilder {
     request_timeout_ms: Option<u64>,
     request_body_max: Option<usize>,
     #[cfg(feature = "https")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "https")))]
     cert_config: Option<SslConfig>,
     #[cfg(feature = "https")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "https")))]
     key_config: Option<SslConfig>,
     shutdown_signal: Option<Box<dyn Future<Output = ()> + Unpin + Send + 'static>>,
     graceful_shutdown: bool,
@@ -166,6 +169,7 @@ impl ListenerBuilder {
     /// encoded while the key can be either RSA or PKCS8
     #[inline]
     #[cfg(feature = "https")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "https")))]
     pub fn set_ssl_certificates(self, cert_path: &str, key_path: &str) -> Self {
         self.set_ssl_config(SslConfig::FilePath(cert_path.to_string()), SslConfig::FilePath(key_path.to_string()))
     }
@@ -177,6 +181,7 @@ impl ListenerBuilder {
     /// the file content directly where all \n and space have been removed.
     #[inline]
     #[cfg(feature = "https")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "https")))]
     pub fn set_ssl_config(mut self, cert_config: SslConfig, key_config: SslConfig) -> Self {
         self.cert_config = Some(cert_config);
         self.key_config = Some(key_config);
@@ -266,6 +271,7 @@ pub struct ListenerConfig {
 }
 
 #[cfg(feature = "https")]
+#[cfg_attr(docsrs, doc(cfg(feature = "https")))]
 impl ListenerConfig {
     pub(crate) fn ssl_config(&self) -> (Option<&SslConfig>, Option<&SslConfig>) {
         (self.cert_config.as_ref(), self.key_config.as_ref())

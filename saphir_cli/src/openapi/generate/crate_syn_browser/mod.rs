@@ -34,7 +34,7 @@ impl From<cargo_metadata::Error> for Error {
 }
 
 impl From<Error> for String {
-    fn from(e: Error) -> Self {
+    fn from(e: Error) -> String {
         format!("{}", e)
     }
 }

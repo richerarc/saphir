@@ -340,6 +340,7 @@ pub struct OpenApiParameter {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) description: Option<String>,
     pub(crate) required: bool,
+    pub(crate) nullable: bool,
     pub(crate) schema: OpenApiSchema,
 }
 
@@ -347,6 +348,7 @@ pub struct OpenApiParameter {
 pub struct OpenApiRequestBody {
     pub(crate) description: String,
     pub(crate) required: bool,
+    pub(crate) nullable: bool,
     pub(crate) content: BTreeMap<OpenApiMimeType, OpenApiContent>,
 }
 

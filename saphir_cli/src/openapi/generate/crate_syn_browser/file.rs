@@ -18,11 +18,12 @@ pub struct File<'b> {
 
 impl<'b> File<'b> {
     pub fn new(target: &'b Target<'b>, dir: &Path, path: String) -> Result<File<'b>, Error> {
-        let mut f = FsFile::open(dir).map_err(|e| FileIoError(Box::new(dir.to_owned()), Box::new(e)))?;
+        let mut f = FsFile::open(dir).map_err(|e| FileIoError(Box::new(dir.to_path_buf()), Box::new(e)))?;
         let mut buffer = String::new();
-        f.read_to_string(&mut buffer).map_err(|e| FileIoError(Box::new(dir.to_owned()), Box::new(e)))?;
+        f.read_to_string(&mut buffer)
+            .map_err(|e| FileIoError(Box::new(dir.to_path_buf()), Box::new(e)))?;
 
-        let file = syn::parse_file(buffer.as_str()).map_err(|e| FileParseError(Box::new(dir.to_owned()), Box::new(e)))?;
+        let file = syn::parse_file(buffer.as_str()).map_err(|e| FileParseError(Box::new(dir.to_path_buf()), Box::new(e)))?;
 
         let file = Self {
             target,

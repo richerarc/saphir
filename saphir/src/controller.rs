@@ -3,9 +3,8 @@
 //!
 //! More specifically a Controller defines a list of endpoint (Handlers) that
 //! handle a request and return a Future of a
-//! [`Responder`](../responder/trait.Responder.html). The [`Responder`](../
-//! responder/trait.Responder.html) is responsible for the [`Response`](../
-//! response/struct.Response.html) being generated
+//! [`Responder`](crate::responder::Responder). The Responder is responsible for
+//! the [`Response`](crate::response::Response) being generated.
 //!
 //! To create a controller, simply implement the
 //! [Controller](trait.Controller.html) trait on a struct:
@@ -86,8 +85,8 @@ pub trait DynControllerHandler<C, B> {
     fn dyn_handle(&self, controller: &'static C, req: Request<B>) -> BoxFuture<'static, Box<dyn DynResponder + Send>>;
 }
 
-/// Builder to simplify returning a list of endpoint in the `handlers` method of
-/// the controller trait
+/// Builder to simplify returning a list of endpoints in the `handlers` method
+/// of the controller trait
 #[derive(Default)]
 pub struct EndpointsBuilder<C: Controller> {
     handlers: Vec<ControllerEndpoint<C>>,

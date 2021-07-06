@@ -1,6 +1,7 @@
 use crate::{request::Request, response::Response, router::Router};
 
 #[cfg(feature = "operation")]
+#[cfg_attr(docsrs, doc(cfg(feature = "operation")))]
 pub static OPERATION_ID_HEADER: &str = "Operation-Id";
 
 /// State of the Http context. It represent whether the context is used
@@ -200,6 +201,7 @@ pub struct HttpContext {
     /// The outgoing response `After` the request was handled by the router
     pub state: State,
     #[cfg(feature = "operation")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "operation")))]
     /// Unique Identifier of the current request->response chain
     pub operation_id: crate::http_context::operation::OperationId,
     pub metadata: HandlerMetadata,
@@ -259,6 +261,7 @@ impl HttpContext {
 }
 
 #[cfg(feature = "operation")]
+#[cfg_attr(docsrs, doc(cfg(feature = "operation")))]
 pub mod operation {
     use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
     use std::{

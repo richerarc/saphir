@@ -524,6 +524,7 @@ by using the --package flag."
         OpenApiRequestBody {
             description: body_info.type_info.name.clone(),
             required: !body_info.type_info.is_optional,
+            nullable: body_info.type_info.is_optional,
             content,
         }
     }

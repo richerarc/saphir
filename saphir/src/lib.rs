@@ -67,6 +67,7 @@
 //!
 //! *_More feature will be added in the future_*
 #![allow(clippy::match_like_matches_macro)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 #[macro_use]
 extern crate log;
@@ -83,6 +84,7 @@ pub mod error;
 pub mod extension;
 ///
 #[cfg(feature = "file")]
+#[cfg_attr(docsrs, doc(cfg(feature = "file")))]
 pub mod file;
 ///
 pub mod guard;
@@ -92,14 +94,17 @@ pub mod handler;
 pub mod http_context;
 /// Saphir macro for code generation
 #[cfg(feature = "macro")]
+#[cfg_attr(docsrs, doc(cfg(feature = "macro")))]
 pub mod macros;
 ///
 pub mod middleware;
 /// The async Multipart Form-Data representation
 #[cfg(feature = "multipart")]
+#[cfg_attr(docsrs, doc(cfg(feature = "multipart")))]
 pub mod multipart;
 ///
 #[cfg(feature = "redirect")]
+#[cfg_attr(docsrs, doc(cfg(feature = "redirect")))]
 pub mod redirect;
 /// The Http Request type
 pub mod request;
@@ -132,9 +137,11 @@ pub mod prelude {
     pub use crate::body::Bytes;
     ///
     #[cfg(feature = "form")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "form")))]
     pub use crate::body::Form;
     ///
     #[cfg(feature = "json")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "json")))]
     pub use crate::body::Json;
     ///
     pub use crate::controller::Controller;
@@ -156,17 +163,20 @@ pub mod prelude {
     pub use crate::extension::Extensions;
     ///
     #[cfg(feature = "file")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "file")))]
     pub use crate::file::File;
     ///
     pub use crate::guard::Guard;
     ///
     pub use crate::handler::Handler;
     #[cfg(feature = "operation")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "operation")))]
     pub use crate::http_context::operation::OperationId;
     ///
     pub use crate::http_context::HttpContext;
     ///
     #[cfg(feature = "macro")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "macro")))]
     pub use crate::macros::*;
     ///
     pub use crate::middleware::Middleware;
@@ -174,9 +184,11 @@ pub mod prelude {
     pub use crate::middleware::MiddlewareChain;
     ///
     #[cfg(feature = "multipart")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "multipart")))]
     pub use crate::multipart::Multipart;
     ///
     #[cfg(feature = "redirect")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "redirect")))]
     pub use crate::redirect::Redirect;
     ///
     pub use crate::request::FromRequest;

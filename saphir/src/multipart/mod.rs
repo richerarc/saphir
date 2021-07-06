@@ -35,8 +35,10 @@ pub enum MultipartError {
     Hyper(hyper::error::Error),
     Io(std::io::Error),
     #[cfg(feature = "json")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "json")))]
     Json(serde_json::error::Error),
     #[cfg(feature = "form")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "form")))]
     Form(serde_urlencoded::de::Error),
 }
 
@@ -187,6 +189,7 @@ impl Field {
     /// Loads the entire field into memory and parses it as JSON data *IF* the
     /// content-type is `application/json`
     #[cfg(feature = "json")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "json")))]
     pub async fn as_json<T>(&mut self) -> Result<Option<T>, MultipartError>
     where
         T: for<'a> serde::Deserialize<'a>,
@@ -202,6 +205,7 @@ impl Field {
     /// Loads the entire field into memory and parses it as Form urlencoded data
     /// *IF* the content-type is `application/x-www-form-urlencoded`
     #[cfg(feature = "form")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "form")))]
     pub async fn as_form<T>(&mut self) -> Result<Option<T>, MultipartError>
     where
         T: for<'a> serde::Deserialize<'a>,

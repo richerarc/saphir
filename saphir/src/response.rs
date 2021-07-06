@@ -345,6 +345,7 @@ impl Default for Builder {
 }
 
 #[cfg(feature = "json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "json")))]
 mod json {
     use serde::Serialize;
 
@@ -361,6 +362,7 @@ mod json {
 }
 
 #[cfg(feature = "form")]
+#[cfg_attr(docsrs, doc(cfg(feature = "form")))]
 mod form {
     use serde::Serialize;
 
@@ -377,6 +379,7 @@ mod form {
 }
 
 #[cfg(feature = "file")]
+#[cfg_attr(docsrs, doc(cfg(feature = "file")))]
 mod file {
     use super::*;
     use crate::{file::FileStream, prelude::Bytes};

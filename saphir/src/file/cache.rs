@@ -11,13 +11,12 @@ use std::{
     collections::HashMap,
     io,
     io::SeekFrom,
-    path::PathBuf,
+    path::{Path, PathBuf},
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
 };
 use tokio::sync::RwLock;
-use std::path::Path;
 
 #[derive(Default)]
 struct CacheInner {

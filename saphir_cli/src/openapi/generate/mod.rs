@@ -100,21 +100,6 @@ impl From<&Case> for convert_case::Case {
     }
 }
 
-// impl Into<convert_case::Case> for &Case {
-//     fn into(&self) -> convert_case::Case {
-//         match self {
-//             Case::Lower => convert_case::Case::Lower,
-//             Case::Upper => convert_case::Case::Upper,
-//             Case::Pascal => convert_case::Case::Pascal,
-//             Case::Camel => convert_case::Case::Camel,
-//             Case::Snake => convert_case::Case::Snake,
-//             Case::ScreamingSnake => convert_case::Case::ScreamingSnake,
-//             Case::Kebab => convert_case::Case::Kebab,
-//             Case::Cobol => convert_case::Case::Cobol,
-//         }
-//     }
-// }
-
 #[derive(Debug, Eq, PartialEq)]
 enum SchemaGranularity {
     None,

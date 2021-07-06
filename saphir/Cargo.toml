@@ -25,7 +25,7 @@ json = ["serde", "serde_json"]
 form = ["serde", "serde_urlencoded"]
 macro = ["saphir_macro"]
 multipart = ["mime", "nom"]
-file = ["mime", "mime_guess", "percent-encoding", "chrono", "flate2", "brotli"]
+file = ["mime", "mime_guess", "percent-encoding", "chrono", "flate2", "brotli", "nom"]
 operation = ["serde", "uuid"]
 
 [dependencies]

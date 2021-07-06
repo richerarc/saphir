@@ -31,7 +31,7 @@ operation = ["serde", "uuid"]
 [dependencies]
 log = "0.4"
 hyper = { version = "0.13.6", features = ["stream"] }
-tokio = { version = "0.2.13", features = ["full"] }
+tokio = { version = "1.0.3", features = ["full"] }
 futures = "0.3"
 futures-util = "0.3"
 tower-service = "0.3"

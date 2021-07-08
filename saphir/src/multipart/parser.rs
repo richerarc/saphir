@@ -144,9 +144,9 @@ fn headers(input: &[u8]) -> IResult<&[u8], FieldHeaders> {
         input,
         FieldHeaders {
             content_disposition_name,
+            content_disposition_filename,
             content_type,
             content_transfer_encoding,
-            content_disposition_filename,
         },
     ))
 }

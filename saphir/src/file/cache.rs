@@ -1,6 +1,6 @@
 use crate::{
     error::SaphirError,
-    file::{compress_file, middleware::PathExt, Compression, Encoder, File, FileCursor, FileInfo, FileStream, SaphirFile, MAX_BUFFER},
+    file::{compress_file, Compression, Encoder, File, FileCursor, FileInfo, FileStream, SaphirFile, MAX_BUFFER},
 };
 use futures::{
     io::{AsyncRead, AsyncSeek, Cursor},
@@ -11,7 +11,7 @@ use std::{
     collections::HashMap,
     io,
     io::SeekFrom,
-    path::PathBuf,
+    path::{Path, PathBuf},
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
@@ -67,45 +67,31 @@ impl FileCache {
         self.inner.read().await.size
     }
 
-    pub async fn open_file(&mut self, path: &PathBuf, compression: Compression) -> Result<FileStream, SaphirError> {
+    pub async fn open_file(&mut self, path: &Path, compression: Compression) -> Result<FileStream, SaphirError> {
         let path_str = path.to_str().unwrap_or_default();
         if let Some(cached_file) = self.get((path_str.to_string(), compression)).await {
             Ok(FileStream::new(cached_file))
-        } else if let Some(cached_raw_file) = self.get((path_str.to_string(), Compression::Raw)).await {
-            let file_size = cached_raw_file.get_path().size();
-            if file_size + self.get_size().await <= self.max_capacity && file_size <= self.max_file_size {
-                let mime = cached_raw_file.get_mime().cloned();
-                let compressed_file = compress_file(Box::pin(cached_raw_file), Encoder::None, compression).await?;
-                Ok(FileStream::new(FileCacher::new(
-                    (path_str.to_string(), compression),
-                    Box::pin(FileCursor::new(compressed_file, mime, path.clone())) as Pin<Box<dyn SaphirFile>>,
-                    self.clone(),
-                )))
-            } else {
-                let mime = cached_raw_file.get_mime().cloned();
-                let compressed_file = compress_file(Box::pin(cached_raw_file), Encoder::None, compression).await?;
-                Ok(FileStream::new(FileCursor::new(compressed_file, mime, path.clone())))
-            }
         } else {
-            let file = File::open(path_str).await?;
+            let file: Pin<Box<dyn SaphirFile>> = match self.get((path_str.to_string(), Compression::Raw)).await {
+                Some(file) => Box::pin(file),
+                None => Box::pin(File::open(path_str).await?),
+            };
             let file_size = file.get_size();
+            let mime = file.get_mime().cloned();
+            let compressed_file = compress_file(file, Encoder::None, compression).await?;
             if file_size + self.get_size().await <= self.max_capacity && file_size <= self.max_file_size {
-                let mime = file.get_mime().cloned();
-                let compressed_file = compress_file(Box::pin(file), Encoder::None, compression).await?;
                 Ok(FileStream::new(FileCacher::new(
                     (path_str.to_string(), compression),
-                    Box::pin(FileCursor::new(compressed_file, mime, path.clone())) as Pin<Box<dyn SaphirFile>>,
+                    Box::pin(FileCursor::new(compressed_file, mime, path.to_owned())) as Pin<Box<dyn SaphirFile>>,
                     self.clone(),
                 )))
             } else {
-                let mime = file.get_mime().cloned();
-                let compressed_file = compress_file(Box::pin(file), Encoder::None, compression).await?;
-                Ok(FileStream::new(FileCursor::new(compressed_file, mime, path.clone())))
+                Ok(FileStream::new(FileCursor::new(compressed_file, mime, path.to_owned())))
             }
         }
     }
 
-    pub async fn open_file_with_range(&mut self, path: &PathBuf, range: (u64, u64)) -> Result<FileStream, SaphirError> {
+    pub async fn open_file_with_range(&mut self, path: &Path, range: (u64, u64)) -> Result<FileStream, SaphirError> {
         let path_str = path.to_str().unwrap_or_default();
         if let Some(cached_file) = self.get((path_str.to_string(), Compression::Raw)).await {
             let mut file_stream = FileStream::new(cached_file);

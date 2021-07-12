@@ -408,6 +408,13 @@ by using the --package flag."
                                                 min_items: t.min_array_len,
                                                 max_items: t.max_array_len,
                                             }
+                                        } else if t.is_dictionary {
+                                            OpenApiType::Object {
+                                                object: OpenApiObjectType::Dictionary {
+                                                    properties: Default::default(),
+                                                    additional_properties: Box::new(OpenApiSchema::Inline(raw_type)),
+                                                },
+                                            }
                                         } else {
                                             raw_type
                                         })
@@ -571,6 +578,13 @@ by using the --package flag."
                 min_items: type_info.min_array_len,
                 max_items: type_info.max_array_len,
             }))
+        } else if type_info.is_dictionary {
+            Some(OpenApiSchema::Inline(OpenApiType::Object {
+                object: OpenApiObjectType::Dictionary {
+                    properties: Default::default(),
+                    additional_properties: Box::new(schema),
+                },
+            }))
         } else {
             Some(schema)
         }
@@ -593,6 +607,13 @@ by using the --package flag."
                                     items: Box::new(OpenApiSchema::Inline(raw_type)),
                                     min_items: field_type_info.min_array_len,
                                     max_items: field_type_info.max_array_len,
+                                })
+                            } else if field_type_info.is_dictionary {
+                                OpenApiSchema::Inline(OpenApiType::Object {
+                                    object: OpenApiObjectType::Dictionary {
+                                        properties: Default::default(),
+                                        additional_properties: Box::new(OpenApiSchema::Inline(raw_type)),
+                                    },
                                 })
                             } else {
                                 OpenApiSchema::Inline(raw_type)

@@ -15,6 +15,7 @@ pub(crate) struct TypeInfo {
     pub(crate) is_type_deserializable: bool,
     pub(crate) is_array: bool,
     pub(crate) is_optional: bool,
+    pub(crate) is_dictionary: bool,
     pub(crate) min_array_len: Option<u32>,
     pub(crate) max_array_len: Option<u32>,
     pub(crate) mime: Option<String>,
@@ -53,7 +54,7 @@ impl TypeInfo {
     pub fn new_from_path<'b>(scope: &'b dyn UseScope<'b>, path: &Path) -> Option<TypeInfo> {
         if let Some(s) = path.segments.last() {
             let name = s.ident.to_string();
-            if name == "Vec" || name == "Option" {
+            if name == "Vec" || name == "Option" || name == "HashMap" {
                 let ag = match &s.arguments {
                     PathArguments::AngleBracketed(ag) => ag,
                     _ => {
@@ -64,12 +65,12 @@ impl TypeInfo {
                         return None;
                     }
                 };
-                let t2 = match ag.args.iter().find_map(|a| match a {
-                    GenericArgument::Type(t) => Some(t),
-                    _ => None,
+                let t2 = match ag.args.iter().rfind(|a| match a {
+                    GenericArgument::Type(_) => true,
+                    _ => false,
                 }) {
-                    Some(t) => t,
-                    None => {
+                    Some(GenericArgument::Type(t)) => t,
+                    _ => {
                         println!("{} should be provided a type in angle-bracketed format. Faulty type : {:?}", name, path);
                         return None;
                     }
@@ -79,6 +80,7 @@ impl TypeInfo {
                     match name.as_str() {
                         "Vec" => type_info.is_array = true,
                         "Option" => type_info.is_optional = true,
+                        "HashMap" => type_info.is_dictionary = true,
                         _ => unreachable!(),
                     }
                     return Some(type_info);
@@ -128,6 +130,7 @@ impl TypeInfo {
                     is_type_deserializable,
                     is_array: false,
                     is_optional: false,
+                    is_dictionary: false,
                     min_array_len: None,
                     max_array_len: None,
                     mime,

@@ -149,7 +149,7 @@ pub enum OpenApiObjectType {
         #[serde(skip_serializing_if = "BTreeMap::is_empty")]
         properties: BTreeMap<String, Box<OpenApiSchema>>,
         #[serde(rename = "additionalProperties")]
-        additional_properties: Box<OpenApiObjectType>,
+        additional_properties: Box<OpenApiSchema>,
     },
     Ref {
         #[serde(rename = "$ref")]

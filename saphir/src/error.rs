@@ -63,6 +63,8 @@ pub enum SaphirError {
     RequestTimeout,
     /// Attempted to build stack twice
     StackAlreadyInitialized,
+    ///
+    TooManyRequests,
 }
 
 impl Debug for SaphirError {
@@ -86,6 +88,7 @@ impl Debug for SaphirError {
             SaphirError::InvalidParameter(d, _) => std::fmt::Debug::fmt(d, f),
             SaphirError::RequestTimeout => f.write_str("RequestTimeout"),
             SaphirError::StackAlreadyInitialized => f.write_str("StackAlreadyInitialized"),
+            SaphirError::TooManyRequests => f.write_str("TooManyRequests"),
         }
     }
 }
@@ -115,6 +118,7 @@ impl SaphirError {
             SaphirError::Responder(mut r) => r.dyn_respond(builder, ctx),
             SaphirError::RequestTimeout => builder.status(408),
             SaphirError::StackAlreadyInitialized => builder.status(500),
+            SaphirError::TooManyRequests => builder.status(429),
         }
     }
 
@@ -189,6 +193,9 @@ impl SaphirError {
             SaphirError::Responder(_) => {}
             SaphirError::StackAlreadyInitialized => {
                 warn!("{}Attempted to initialize stack twice", op_id);
+            }
+            SaphirError::TooManyRequests => {
+                warn!("{}Made too many requests", op_id);
             }
         }
     }

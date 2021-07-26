@@ -410,3 +410,9 @@ impl<T> DerefMut for Request<T> {
         &mut self.inner
     }
 }
+
+impl<T> From<Request<T>> for RawRequest<T> {
+    fn from(request: Request<T>) -> Self {
+        request.inner
+    }
+}

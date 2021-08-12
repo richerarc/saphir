@@ -11,12 +11,16 @@ use std::{future::Future, mem::MaybeUninit, net::SocketAddr};
 
 use futures::{
     prelude::*,
-    stream::StreamExt,
     task::{Context, Poll},
+    StreamExt as _,
 };
 use hyper::{body::Body as RawBody, server::conn::Http, service::Service};
 use parking_lot::{Once, OnceState};
-use tokio::net::TcpListener;
+use tokio::{
+    net::TcpListener,
+    time::{sleep, Duration},
+};
+use tokio_stream::wrappers::TcpListenerStream;
 
 use crate::{
     body::Body,
@@ -35,7 +39,6 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
-    time::Duration,
 };
 
 /// Default time for request handling is 30 seconds
@@ -410,7 +413,7 @@ impl Future for ServerShutdown {
                 Poll::Ready(())
             } else {
                 let waker = cx.waker().clone();
-                tokio::spawn(tokio::time::delay_for(Duration::from_millis(100)).map(move |_| waker.wake()));
+                tokio::spawn(sleep(Duration::from_millis(100)).map(move |_| waker.wake()));
                 Poll::Pending
             }
         } else {
@@ -421,7 +424,7 @@ impl Future for ServerShutdown {
                     } else {
                         self.state.draining.store(true, Ordering::SeqCst);
                         let waker = cx.waker().clone();
-                        tokio::spawn(tokio::time::delay_for(Duration::from_secs(1)).map(move |_| waker.wake()));
+                        tokio::spawn(sleep(Duration::from_secs(1)).map(move |_| waker.wake()));
                         Poll::Pending
                     }
                 }
@@ -490,7 +493,7 @@ impl Server {
 
         let http = Http::new();
 
-        let mut listener = TcpListener::bind(listener_config.iface.clone()).await?;
+        let listener = TcpListener::bind(listener_config.iface.clone()).await?;
         let local_addr = listener.local_addr()?;
 
         let incoming = {
@@ -504,13 +507,13 @@ impl Server {
 
                         let certs = load_certs(&cert_config);
                         let key = load_private_key(&key_config);
-                        let mut cfg = ::rustls::ServerConfig::new(::rustls::NoClientAuth::new());
+                        let mut cfg = rustls::ServerConfig::new(::rustls::NoClientAuth::new());
                         let _ = cfg.set_single_cert(certs, key);
                         let arc_config = Arc::new(cfg);
 
                         let acceptor = TlsAcceptor::from(arc_config);
 
-                        let inc = listener.incoming().and_then(move |stream| acceptor.accept(stream));
+                        let inc = TcpListenerStream::new(listener).and_then(move |stream| acceptor.accept(stream));
 
                         info!("Saphir started and listening on : https://{}", local_addr);
 
@@ -520,9 +523,8 @@ impl Server {
                         return Err(SaphirError::Other("Invalid SSL configuration, missing cert or key".to_string()));
                     }
                     _ => {
-                        let incoming = listener.incoming();
                         info!("{} started and listening on : http://{}", &listener_config.server_name, local_addr);
-                        MaybeTlsAcceptor::Plain(Box::pin(incoming))
+                        MaybeTlsAcceptor::Plain(Box::pin(TcpListenerStream::new(listener)))
                     }
                 }
             }
@@ -530,7 +532,7 @@ impl Server {
             #[cfg(not(feature = "https"))]
             {
                 info!("{} started and listening on : http://{}", &listener_config.server_name, local_addr);
-                listener.incoming()
+                TcpListenerStream::new(listener)
             }
         };
 
@@ -738,7 +740,8 @@ mod ssl_loading_utils {
         stream::Stream,
         task::{Context, Poll},
     };
-    use tokio::io::{AsyncRead, AsyncWrite};
+    use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+    use tokio_stream::wrappers::TcpListenerStream;
 
     use crate::server::SslConfig;
 
@@ -757,7 +760,7 @@ mod ssl_loading_utils {
     }
 
     impl AsyncRead for MaybeTlsStream {
-        fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<Result<usize, Error>> {
+        fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<Result<(), Error>> {
             match self.get_mut() {
                 MaybeTlsStream::Tls(t) => t.as_mut().poll_read(cx, buf),
                 MaybeTlsStream::Plain(p) => p.as_mut().poll_read(cx, buf),
@@ -788,12 +791,12 @@ mod ssl_loading_utils {
         }
     }
 
-    pub enum MaybeTlsAcceptor<'a, S: Stream<Item = Result<tokio_rustls::server::TlsStream<tokio::net::TcpStream>, tokio::io::Error>>> {
+    pub enum MaybeTlsAcceptor<S: Stream<Item = Result<tokio_rustls::server::TlsStream<tokio::net::TcpStream>, tokio::io::Error>>> {
         Tls(Pin<Box<S>>),
-        Plain(Pin<Box<tokio::net::tcp::Incoming<'a>>>),
+        Plain(Pin<Box<TcpListenerStream>>),
     }
 
-    impl<'a, S: Stream<Item = Result<tokio_rustls::server::TlsStream<tokio::net::TcpStream>, tokio::io::Error>>> Stream for MaybeTlsAcceptor<'a, S> {
+    impl<S: Stream<Item = Result<tokio_rustls::server::TlsStream<tokio::net::TcpStream>, tokio::io::Error>>> Stream for MaybeTlsAcceptor<S> {
         type Item = Result<MaybeTlsStream, tokio::io::Error>;
 
         fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {

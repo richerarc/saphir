@@ -8,9 +8,9 @@ use futures_util::{
 use hyper::body::Bytes;
 use tokio::{
     fs::File as TokioFile,
+    io,
     io::{AsyncRead as TokioAsyncRead, AsyncSeek as TokioAsyncSeek},
     macros::support::Pin,
-    prelude::*,
 };
 
 use crate::{error::SaphirError, file::middleware::PathExt, http_context::HttpContext, responder::Responder, response::Builder};
@@ -79,19 +79,23 @@ impl File {
 
 impl AsyncRead for File {
     fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
-        self.inner.as_mut().poll_read(cx, buf)
+        let mut buf = io::ReadBuf::new(buf);
+        match self.inner.as_mut().poll_read(cx, &mut buf) {
+            Poll::Ready(Ok(())) => Poll::Ready(Ok(buf.filled().len())),
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
 
 impl AsyncSeek for File {
     fn poll_seek(mut self: Pin<&mut Self>, cx: &mut Context<'_>, pos: SeekFrom) -> Poll<io::Result<u64>> {
         if !self.seek_has_started {
-            match self.inner.as_mut().start_seek(cx, pos) {
-                Poll::Ready(Ok(())) => {
+            match self.inner.as_mut().start_seek(pos) {
+                Ok(()) => {
                     self.seek_has_started = true;
                 }
-                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
-                Poll::Pending => return Poll::Pending,
+                Err(e) => return Poll::Ready(Err(e)),
             }
         }
 

@@ -7,7 +7,10 @@ use futures::{
 };
 use saphir::prelude::*;
 use serde_derive::{Deserialize, Serialize};
-use tokio::sync::RwLock;
+use tokio::{
+    sync::RwLock,
+    time::{sleep, Duration},
+};
 
 // == controller == //
 
@@ -52,7 +55,7 @@ impl Controller for MagicController {
 impl MagicController {
     async fn magic_delay(&self, req: Request) -> (u16, String) {
         if let Some(delay) = req.captures().get("delay").and_then(|t| t.parse::<u64>().ok()) {
-            tokio::time::delay_for(tokio::time::Duration::from_secs(delay)).await;
+            sleep(Duration::from_secs(delay)).await;
             (200, format!("Delayed of {} secs: {}", delay, self.label))
         } else {
             (400, "Invalid timeout".to_owned())

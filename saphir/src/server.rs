@@ -12,7 +12,6 @@ use std::{future::Future, mem::MaybeUninit, net::SocketAddr};
 use futures::{
     prelude::*,
     task::{Context, Poll},
-    StreamExt as _,
 };
 use hyper::{body::Body as RawBody, server::conn::Http, service::Service};
 use parking_lot::{Once, OnceState};

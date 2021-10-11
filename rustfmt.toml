@@ -1,6 +1,6 @@
 condense_wildcard_suffixes = true
 reorder_impl_items = true
 reorder_imports = true
-merge_imports = true
+imports_granularity = "Crate"
 max_width = 160
 wrap_comments = true

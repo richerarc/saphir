@@ -21,8 +21,8 @@ impl Gen {
             .syn
             .attrs
             .iter()
-            .filter_map(|attr| self.handler_method_from_attr(&attr).zip(Some(attr)))
-            .filter_map(|(method, attr)| self.handler_path_from_attr(&attr).map(|(path, uri_params)| (method, path, uri_params)))
+            .filter_map(|attr| self.handler_method_from_attr(attr).zip(Some(attr)))
+            .filter_map(|(method, attr)| self.handler_path_from_attr(attr).map(|(path, uri_params)| (method, path, uri_params)))
             .collect();
 
         let multi = routes.len() > 1;

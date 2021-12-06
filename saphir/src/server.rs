@@ -903,6 +903,11 @@ mod ssl_loading_utils {
 
 /// Inject a http request into saphir
 pub async fn inject_raw(req: RawRequest<RawBody>) -> Result<RawResponse<RawBody>, SaphirError> {
+    inject_raw_with_peer_addr(req, None).await
+}
+
+/// Inject a http request into saphir
+pub async fn inject_raw_with_peer_addr(req: RawRequest<RawBody>, peer_addr: Option<SocketAddr>) -> Result<RawResponse<RawBody>, SaphirError> {
     if INIT_STACK.state() != OnceState::Done {
         return Err(SaphirError::Other("Stack is not initialized".to_owned()));
     }
@@ -911,7 +916,7 @@ pub async fn inject_raw(req: RawRequest<RawBody>) -> Result<RawResponse<RawBody>
     // We checked that memory has been initialized above
     let stack = unsafe { STACK.as_ptr().as_ref().expect("Memory has been initialized above.") };
 
-    let saphir_req = Request::new(req.map(Body::from_raw), None);
+    let saphir_req = Request::new(req.map(Body::from_raw), peer_addr);
     REQUEST_FUTURE_COUNT.fetch_add(1, Ordering::SeqCst);
     let saphir_res = stack.invoke(saphir_req).await?;
     Ok(saphir_res.into_raw().map(|r| r.map(|b| b.into_raw()))?)

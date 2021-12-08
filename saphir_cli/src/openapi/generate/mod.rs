@@ -189,12 +189,6 @@ pub(crate) struct GenArgs {
     #[structopt(long = "package")]
     package_name: Option<String>,
 
-    /// (optionnal) Path to the `.cargo` directory. By default, read from the
-    /// current executable's environment, which work when running this
-    /// command as a cargo sub-command.
-    #[structopt(parse(from_os_str), long = "cargo-path", default_value = "~/.cargo")]
-    cargo_path: PathBuf,
-
     /// (Optional) Resulting output path. Either the path to the resulting yaml
     /// file, or a dir, which would then contain a openapi.yaml
     #[structopt(parse(from_os_str), default_value = ".")]

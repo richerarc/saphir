@@ -7,6 +7,7 @@ use futures::{
 };
 use saphir::prelude::*;
 use serde_derive::{Deserialize, Serialize};
+#[cfg(feature = "operation")]
 use tokio::sync::RwLock;
 
 // == controller == //
@@ -52,7 +53,7 @@ impl Controller for MagicController {
 impl MagicController {
     async fn magic_delay(&self, req: Request) -> (u16, String) {
         if let Some(delay) = req.captures().get("delay").and_then(|t| t.parse::<u64>().ok()) {
-            tokio::time::delay_for(tokio::time::Duration::from_secs(delay)).await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(delay)).await;
             (200, format!("Delayed of {} secs: {}", delay, self.label))
         } else {
             (400, "Invalid timeout".to_owned())
@@ -125,14 +126,18 @@ struct User {
 // == middleware == //
 
 struct StatsData {
+    #[cfg(feature = "operation")]
     entered: RwLock<u32>,
+    #[cfg(feature = "operation")]
     exited: RwLock<u32>,
 }
 
 impl StatsData {
     fn new() -> Self {
         Self {
+            #[cfg(feature = "operation")]
             entered: RwLock::new(0),
+            #[cfg(feature = "operation")]
             exited: RwLock::new(0),
         }
     }

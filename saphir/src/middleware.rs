@@ -2,7 +2,7 @@
 //! the router, allowing to continue or stop the processing of a given request
 //! by calling / omitting next.
 //!
-//! ```ignore
+//! ```text
 //!        chain.next(_)       chain.next(_)
 //!              |               |
 //!              |               |

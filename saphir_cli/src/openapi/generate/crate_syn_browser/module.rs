@@ -86,6 +86,7 @@ pub enum ModuleKind<'b> {
 }
 
 #[derive(Debug)]
+#[allow(unused)]
 pub struct CrateModule<'b> {
     module: &'b Module<'b>,
     target: &'b Target<'b>,
@@ -93,6 +94,7 @@ pub struct CrateModule<'b> {
 }
 
 #[derive(Debug)]
+#[allow(unused)]
 pub struct FileModule<'b> {
     module: &'b Module<'b>,
     syn_module: &'b SynItemMod,
@@ -101,6 +103,7 @@ pub struct FileModule<'b> {
 }
 
 #[derive(Debug)]
+#[allow(unused)]
 pub struct InlineModule<'b> {
     module: &'b Module<'b>,
     syn_module: &'b SynItemMod,

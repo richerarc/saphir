@@ -11,9 +11,9 @@ use std::{future::Future, mem::MaybeUninit, net::SocketAddr};
 
 use futures::{
     prelude::*,
-    stream::StreamExt,
     task::{Context, Poll},
 };
+use futures_util::{future::TryFutureExt, stream::Stream};
 use hyper::{body::Body as RawBody, server::conn::Http, service::Service};
 use parking_lot::{Once, OnceState};
 use tokio::net::TcpListener;
@@ -410,7 +410,7 @@ impl Future for ServerShutdown {
                 Poll::Ready(())
             } else {
                 let waker = cx.waker().clone();
-                tokio::spawn(tokio::time::delay_for(Duration::from_millis(100)).map(move |_| waker.wake()));
+                tokio::spawn(tokio::time::sleep(Duration::from_millis(100)).map(move |_| waker.wake()));
                 Poll::Pending
             }
         } else {
@@ -421,7 +421,7 @@ impl Future for ServerShutdown {
                     } else {
                         self.state.draining.store(true, Ordering::SeqCst);
                         let waker = cx.waker().clone();
-                        tokio::spawn(tokio::time::delay_for(Duration::from_secs(1)).map(move |_| waker.wake()));
+                        tokio::spawn(tokio::time::sleep(Duration::from_secs(1)).map(move |_| waker.wake()));
                         Poll::Pending
                     }
                 }
@@ -490,10 +490,10 @@ impl Server {
 
         let http = Http::new();
 
-        let mut listener = TcpListener::bind(listener_config.iface.clone()).await?;
+        let listener = TcpListener::bind(listener_config.iface.clone()).await?;
         let local_addr = listener.local_addr()?;
 
-        let incoming = {
+        let listener = {
             #[cfg(feature = "https")]
             {
                 use crate::server::ssl_loading_utils::MaybeTlsAcceptor;
@@ -510,19 +510,16 @@ impl Server {
 
                         let acceptor = TlsAcceptor::from(arc_config);
 
-                        let inc = listener.incoming().and_then(move |stream| acceptor.accept(stream));
-
                         info!("Saphir started and listening on : https://{}", local_addr);
 
-                        MaybeTlsAcceptor::Tls(Box::pin(inc))
+                        MaybeTlsAcceptor::Tls(acceptor, listener)
                     }
                     (cert_config, key_config) if cert_config.xor(key_config).is_some() => {
                         return Err(SaphirError::Other("Invalid SSL configuration, missing cert or key".to_string()));
                     }
                     _ => {
-                        let incoming = listener.incoming();
                         info!("{} started and listening on : http://{}", &listener_config.server_name, local_addr);
-                        MaybeTlsAcceptor::Plain(Box::pin(incoming))
+                        MaybeTlsAcceptor::Plain(listener)
                     }
                 }
             }
@@ -530,22 +527,27 @@ impl Server {
             #[cfg(not(feature = "https"))]
             {
                 info!("{} started and listening on : http://{}", &listener_config.server_name, local_addr);
-                listener.incoming()
+                listener
             }
         };
 
         let shutdown = listener_config.shutdown;
         let state = shutdown.state.clone();
 
+        let stream = accept_client(listener);
+        futures_util::pin_mut!(stream);
+
         if let Some(timeout_ms) = listener_config.request_timeout_ms {
-            let inc = incoming.for_each_concurrent(None, |client_socket| async {
+            let inc = stream.for_each_concurrent(None, |client| async {
                 if !state.draining() {
-                    match client_socket {
-                        Ok(client_socket) => {
-                            let peer_addr = client_socket.peer_addr().ok();
+                    match client {
+                        Ok((client_socket, peer_addr)) => {
                             let http = http.clone();
                             tokio::spawn(async move {
-                                if let Err(e) = http.serve_connection(client_socket, stack.new_timeout_handler(timeout_ms, peer_addr)).await {
+                                if let Err(e) = http
+                                    .serve_connection(client_socket, stack.new_timeout_handler(timeout_ms, Some(peer_addr)))
+                                    .await
+                                {
                                     error!("An error occurred while treating a request: {:?}", e);
                                 }
                             });
@@ -560,14 +562,13 @@ impl Server {
             });
             ServerFuture::new(inc, shutdown).await;
         } else {
-            let inc = incoming.for_each_concurrent(None, |client_socket| async {
+            let inc = stream.for_each_concurrent(None, |client| async {
                 if !state.draining() {
-                    match client_socket {
-                        Ok(client_socket) => {
-                            let peer_addr = client_socket.peer_addr().ok();
+                    match client {
+                        Ok((client_socket, peer_addr)) => {
                             let http = http.clone();
                             tokio::spawn(async move {
-                                if let Err(e) = http.serve_connection(client_socket, stack.new_handler(peer_addr)).await {
+                                if let Err(e) = http.serve_connection(client_socket, stack.new_handler(Some(peer_addr))).await {
                                     error!("An error occurred while treating a request: {:?}", e);
                                 }
                             });
@@ -586,6 +587,43 @@ impl Server {
         Ok(())
     }
 }
+
+#[cfg(feature = "https")]
+fn accept_client(listener: ssl_loading_utils::MaybeTlsAcceptor) -> impl Stream<Item = tokio::io::Result<(ssl_loading_utils::MaybeTlsStream, SocketAddr)>> {
+    use crate::server::ssl_loading_utils::{MaybeTlsAcceptor, MaybeTlsStream};
+    let (mut __yield_tx, __yield_rx) = async_stream::yielder::pair();
+
+    async_stream::AsyncStream::new(__yield_rx, async move {
+        match listener {
+            MaybeTlsAcceptor::Tls(tls_acceptor, tcp) => loop {
+                match tcp.accept().await {
+                    Ok((socket, addr)) => {
+                        let stream = tls_acceptor.accept(socket).await.map(|stream| (MaybeTlsStream::Tls(Box::pin(stream)), addr));
+                        __yield_tx.send(stream).await;
+                    }
+                    Err(e) => {
+                        warn!("incoming connection encountered an error: {}", e);
+                    }
+                }
+            },
+            MaybeTlsAcceptor::Plain(listener) => loop {
+                let stream = listener.accept().await.map(|(stream, addr)| (MaybeTlsStream::Plain(Box::pin(stream)), addr));
+                __yield_tx.send(stream).await;
+            },
+        }
+    })
+}
+#[cfg(not(feature = "https"))]
+fn accept_client(listener: TcpListener) -> impl Stream<Item = tokio::io::Result<(tokio::net::TcpStream, SocketAddr)>> {
+    let (mut __yield_tx, __yield_rx) = ::async_stream::yielder::pair();
+    async_stream::AsyncStream::new(__yield_rx, async move {
+        loop {
+            __yield_tx.send(listener.accept().await).await
+        }
+    })
+}
+
+
 
 #[doc(hidden)]
 pub struct Stack {
@@ -731,14 +769,13 @@ impl Service<hyper::Request<hyper::Body>> for TimeoutStackHandler {
 #[doc(hidden)]
 #[cfg(feature = "https")]
 mod ssl_loading_utils {
-    use std::{fs, io::BufReader, net::SocketAddr, pin::Pin};
+    use std::{fs, io::BufReader, pin::Pin};
 
     use futures::io::Error;
-    use futures_util::{
-        stream::Stream,
-        task::{Context, Poll},
-    };
-    use tokio::io::{AsyncRead, AsyncWrite};
+    use futures_util::task::{Context, Poll};
+    use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+    use tokio::net::TcpListener;
+    use tokio_rustls::TlsAcceptor;
 
     use crate::server::SslConfig;
 
@@ -747,20 +784,17 @@ mod ssl_loading_utils {
         Plain(Pin<Box<tokio::net::TcpStream>>),
     }
 
-    impl MaybeTlsStream {
-        pub fn peer_addr(&self) -> Result<SocketAddr, tokio::io::Error> {
-            match self {
-                MaybeTlsStream::Tls(t) => t.as_ref().get_ref().get_ref().0.peer_addr(),
-                MaybeTlsStream::Plain(p) => p.as_ref().get_ref().peer_addr(),
-            }
-        }
-    }
-
     impl AsyncRead for MaybeTlsStream {
-        fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<Result<usize, Error>> {
+        fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf) -> Poll<Result<(), Error>> {
             match self.get_mut() {
-                MaybeTlsStream::Tls(t) => t.as_mut().poll_read(cx, buf),
-                MaybeTlsStream::Plain(p) => p.as_mut().poll_read(cx, buf),
+                MaybeTlsStream::Tls(t) => match t.as_mut().poll_read(cx, buf) {
+                    Poll::Ready(r) => Poll::Ready(r),
+                    Poll::Pending => Poll::Pending,
+                },
+                MaybeTlsStream::Plain(p) => match p.as_mut().poll_read(cx, buf) {
+                    Poll::Ready(r) => Poll::Ready(r),
+                    Poll::Pending => Poll::Pending,
+                },
             }
         }
     }
@@ -788,26 +822,9 @@ mod ssl_loading_utils {
         }
     }
 
-    pub enum MaybeTlsAcceptor<'a, S: Stream<Item = Result<tokio_rustls::server::TlsStream<tokio::net::TcpStream>, tokio::io::Error>>> {
-        Tls(Pin<Box<S>>),
-        Plain(Pin<Box<tokio::net::tcp::Incoming<'a>>>),
-    }
-
-    impl<'a, S: Stream<Item = Result<tokio_rustls::server::TlsStream<tokio::net::TcpStream>, tokio::io::Error>>> Stream for MaybeTlsAcceptor<'a, S> {
-        type Item = Result<MaybeTlsStream, tokio::io::Error>;
-
-        fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-            match self.get_mut() {
-                MaybeTlsAcceptor::Tls(tls) => tls
-                    .as_mut()
-                    .poll_next(cx)
-                    .map(|t| t.map(|tls_res| tls_res.map(|tls| MaybeTlsStream::Tls(Box::pin(tls))))),
-                MaybeTlsAcceptor::Plain(plain) => plain
-                    .as_mut()
-                    .poll_next(cx)
-                    .map(|t| t.map(|tls_res| tls_res.map(|tls| MaybeTlsStream::Plain(Box::pin(tls))))),
-            }
-        }
+    pub enum MaybeTlsAcceptor {
+        Tls(TlsAcceptor, TcpListener),
+        Plain(TcpListener),
     }
 
     pub fn load_certs(cert_config: &SslConfig) -> Vec<rustls::Certificate> {

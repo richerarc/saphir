@@ -128,7 +128,7 @@ impl<'b> Module<'b> {
         let kind = ModuleKind::Crate(CrateModule {
             module: &self,
             target,
-            file: File::new(target, &target.target.src_path, self.name.clone())?,
+            file: File::new(target, target.target.src_path.as_std_path(), self.name.clone())?,
         });
         self.kind.fill(kind).expect("init_crate should be called exactly once");
         Ok(())

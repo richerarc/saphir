@@ -504,8 +504,11 @@ impl Server {
 
                         let certs = load_certs(&cert_config);
                         let key = load_private_key(&key_config);
-                        let mut cfg = ::rustls::ServerConfig::new(::rustls::NoClientAuth::new());
-                        let _ = cfg.set_single_cert(certs, key);
+                        let cfg = ::rustls::server::ServerConfig::builder()
+                            .with_safe_defaults()
+                            .with_no_client_auth()
+                            .with_single_cert(certs, key)
+                            .expect("bad certificate/key");
                         let arc_config = Arc::new(cfg);
 
                         let acceptor = TlsAcceptor::from(arc_config);
@@ -832,7 +835,11 @@ mod ssl_loading_utils {
             SslConfig::FilePath(filename) => {
                 let certfile = fs::File::open(filename).expect("cannot open certificate file");
                 let mut reader = BufReader::new(certfile);
-                rustls::internal::pemfile::certs(&mut reader).expect("Unable to load certificate from file")
+                rustls_pemfile::certs(&mut reader)
+                    .expect("Unable to load certificate from file")
+                    .into_iter()
+                    .map(rustls::Certificate)
+                    .collect()
             }
             SslConfig::FileData(data) => extract_der_data(data.to_string(), "-----BEGIN CERTIFICATE-----", "-----END CERTIFICATE-----", &|v| {
                 rustls::Certificate(v)
@@ -862,22 +869,22 @@ mod ssl_loading_utils {
         let rsa_keys = {
             let keyfile = fs::File::open(filename).expect("cannot open private key file");
             let mut reader = BufReader::new(keyfile);
-            rustls::internal::pemfile::rsa_private_keys(&mut reader).expect("file contains invalid rsa private key")
+            rustls_pemfile::rsa_private_keys(&mut reader).expect("file contains invalid rsa private key")
         };
 
         let pkcs8_keys = {
             let keyfile = fs::File::open(filename).expect("cannot open private key file");
             let mut reader = BufReader::new(keyfile);
-            rustls::internal::pemfile::pkcs8_private_keys(&mut reader).expect("file contains invalid pkcs8 private key (encrypted keys not supported)")
+            rustls_pemfile::pkcs8_private_keys(&mut reader).expect("file contains invalid pkcs8 private key (encrypted keys not supported)")
         };
 
         // prefer to load pkcs8 keys
-        if !pkcs8_keys.is_empty() {
+        rustls::PrivateKey(if !pkcs8_keys.is_empty() {
             pkcs8_keys[0].clone()
         } else {
             assert!(!rsa_keys.is_empty(), "Unable to load key");
             rsa_keys[0].clone()
-        }
+        })
     }
 
     fn load_pkcs8_private_key_from_data(data: &str) -> Vec<rustls::PrivateKey> {

@@ -93,7 +93,9 @@ impl AsyncSeek for File {
     fn poll_seek(mut self: Pin<&mut Self>, cx: &mut Context<'_>, pos: SeekFrom) -> Poll<io::Result<u64>> {
         if !self.seek_has_started {
             match self.inner.as_mut().start_seek(pos) {
-                Ok(()) => { self.seek_has_started = true; },
+                Ok(()) => {
+                    self.seek_has_started = true;
+                }
                 Err(e) => return Poll::Ready(Err(e)),
             }
         }

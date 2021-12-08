@@ -3,8 +3,7 @@
 use crate::error::SaphirError;
 use futures::{
     task::{Context, Poll},
-    Future,
-    StreamExt,
+    Future, StreamExt,
 };
 use http::HeaderMap;
 use hyper::body::{Body as RawBody, Buf, HttpBody, SizeHint};

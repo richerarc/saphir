@@ -623,8 +623,6 @@ fn accept_client(listener: TcpListener) -> impl Stream<Item = tokio::io::Result<
     })
 }
 
-
-
 #[doc(hidden)]
 pub struct Stack {
     router: Router,
@@ -773,8 +771,10 @@ mod ssl_loading_utils {
 
     use futures::io::Error;
     use futures_util::task::{Context, Poll};
-    use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-    use tokio::net::TcpListener;
+    use tokio::{
+        io::{AsyncRead, AsyncWrite, ReadBuf},
+        net::TcpListener,
+    };
     use tokio_rustls::TlsAcceptor;
 
     use crate::server::SslConfig;

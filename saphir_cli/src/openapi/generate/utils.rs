@@ -49,7 +49,7 @@ pub(crate) fn find_macro_attribute_flag_from_meta(meta: &Meta, value_name: &str)
             for n in &l.nested {
                 match n {
                     NestedMeta::Meta(nm) => {
-                        if find_macro_attribute_flag_from_meta(&nm, value_name) {
+                        if find_macro_attribute_flag_from_meta(nm, value_name) {
                             return true;
                         }
                     }
@@ -86,7 +86,7 @@ pub(crate) fn find_macro_attribute_value_from_meta(meta: &Meta, value_name: &str
             for n in &l.nested {
                 match n {
                     NestedMeta::Meta(nm) => {
-                        if let Some(s) = find_macro_attribute_value_from_meta(&nm, value_name) {
+                        if let Some(s) = find_macro_attribute_value_from_meta(nm, value_name) {
                             return Some(s);
                         }
                     }

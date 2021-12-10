@@ -22,14 +22,14 @@ pub use self::{
 
 #[derive(Debug)]
 pub enum Error {
-    CargoTomlError(Box<cargo_metadata::Error>),
-    FileIoError(Box<PathBuf>, Box<std::io::Error>),
-    FileParseError(Box<PathBuf>, Box<syn::Error>),
+    CargoToml(Box<cargo_metadata::Error>),
+    FileIo(Box<PathBuf>, Box<std::io::Error>),
+    FileParse(Box<PathBuf>, Box<syn::Error>),
 }
 
 impl From<cargo_metadata::Error> for Error {
     fn from(e: cargo_metadata::Error) -> Self {
-        CargoTomlError(Box::new(e))
+        CargoToml(Box::new(e))
     }
 }
 
@@ -42,9 +42,9 @@ impl From<Error> for String {
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            CargoTomlError(_) => write!(f, "Unable to properly read the crate's metadata from the Cargo.toml manifest."),
-            FileIoError(s, e) => write!(f, "unable to read `{}` : {}", s.to_str().unwrap_or_default(), e),
-            FileParseError(s, e) => write!(f, "unable to parse `{}` : {}", s.to_str().unwrap_or_default(), e),
+            CargoToml(_) => write!(f, "Unable to properly read the crate's metadata from the Cargo.toml manifest."),
+            FileIo(s, e) => write!(f, "unable to read `{}` : {}", s.to_str().unwrap_or_default(), e),
+            FileParse(s, e) => write!(f, "unable to parse `{}` : {}", s.to_str().unwrap_or_default(), e),
         }
     }
 }
@@ -52,9 +52,9 @@ impl Display for Error {
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            CargoTomlError(e) => Some(e),
-            FileIoError(_, e) => Some(e),
-            FileParseError(_, e) => Some(e),
+            CargoToml(e) => Some(e),
+            FileIo(_, e) => Some(e),
+            FileParse(_, e) => Some(e),
         }
     }
 }

@@ -502,8 +502,8 @@ impl Server {
                         use crate::server::ssl_loading_utils::*;
                         use tokio_rustls::TlsAcceptor;
 
-                        let certs = load_certs(&cert_config);
-                        let key = load_private_key(&key_config);
+                        let certs = load_certs(cert_config);
+                        let key = load_private_key(key_config);
                         let cfg = ::rustls::server::ServerConfig::builder()
                             .with_safe_defaults()
                             .with_no_client_auth()
@@ -850,7 +850,7 @@ mod ssl_loading_utils {
 
     pub fn load_private_key(key_config: &SslConfig) -> rustls::PrivateKey {
         match key_config {
-            SslConfig::FilePath(filename) => load_private_key_from_file(&filename),
+            SslConfig::FilePath(filename) => load_private_key_from_file(filename),
             SslConfig::FileData(data) => {
                 let pkcs8_keys = load_pkcs8_private_key_from_data(data);
 

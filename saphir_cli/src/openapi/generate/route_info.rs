@@ -16,8 +16,8 @@ pub(crate) struct RouteInfo {
 impl Gen {
     /// Retrieve RouteInfo from a method with a saphir route macro.
     pub(crate) fn extract_route_info_from_method_macro(&self, controller_path: &str, attr: &Attribute, m: &Method) -> Option<RouteInfo> {
-        let method = self.handler_method_from_attr(&attr)?;
-        let (path, uri_params) = self.handler_path_from_attr(&attr)?;
+        let method = self.handler_method_from_attr(attr)?;
+        let (path, uri_params) = self.handler_path_from_attr(attr)?;
 
         let mut full_path = format!("/{}{}", controller_path, path);
         if full_path.ends_with('/') {

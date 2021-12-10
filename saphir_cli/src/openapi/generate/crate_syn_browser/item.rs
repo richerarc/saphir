@@ -93,7 +93,7 @@ impl<'b> Impl<'b> {
             .items
             .iter()
             .map(|i| ImplItem {
-                im: &self,
+                im: self,
                 syn: i,
                 kind: LazyCell::new(),
             })
@@ -110,7 +110,7 @@ impl<'b> Impl<'b> {
             impl_item
                 .kind
                 .fill(match syn_item {
-                    SynImplItem::Method(syn) => ImplItemKind::Method(Method { syn, impl_item: &impl_item }),
+                    SynImplItem::Method(syn) => ImplItemKind::Method(Method { syn, impl_item }),
                     _ => ImplItemKind::Unsupported,
                 })
                 .expect("should be filled only once")
@@ -142,10 +142,10 @@ impl<'b> Item<'b> {
     pub fn init_new(&'b self) {
         self.kind
             .fill(match self.item {
-                SynItem::Use(syn) => ItemKind::Use(Use { syn, item: &self }),
-                SynItem::Enum(syn) => ItemKind::Enum(Enum { syn, item: &self }),
-                SynItem::Struct(syn) => ItemKind::Struct(Struct { syn, item: &self }),
-                SynItem::Impl(syn) => ItemKind::Impl(Impl::new(syn, &self)),
+                SynItem::Use(syn) => ItemKind::Use(Use { syn, item: self }),
+                SynItem::Enum(syn) => ItemKind::Enum(Enum { syn, item: self }),
+                SynItem::Struct(syn) => ItemKind::Struct(Struct { syn, item: self }),
+                SynItem::Impl(syn) => ItemKind::Impl(Impl::new(syn, self)),
                 _ => ItemKind::Unsupported,
             })
             .expect("init_new should be called only once");

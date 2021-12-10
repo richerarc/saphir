@@ -317,7 +317,7 @@ impl UriPathMatcher {
 
     fn match_start(semgents_matcher: &[UriPathSegmentMatcher], path_segments: &mut VecDeque<&str>) -> bool {
         for segment in semgents_matcher {
-            if let Some(ref s) = path_segments.pop_front() {
+            if let Some(s) = path_segments.pop_front() {
                 if !segment.matches(s) {
                     return false;
                 }
@@ -332,7 +332,7 @@ impl UriPathMatcher {
     fn match_end(semgents_matcher: &VecDeque<UriPathSegmentMatcher>, path_segments: &mut VecDeque<&str>) -> bool {
         let mut s_iter = semgents_matcher.iter();
         while let Some(segment) = s_iter.next_back() {
-            if let Some(ref s) = path_segments.pop_back() {
+            if let Some(s) = path_segments.pop_back() {
                 if !segment.matches(s) {
                     return false;
                 }

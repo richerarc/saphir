@@ -15,7 +15,7 @@ pub(crate) struct HandlerInfo {
 
 impl Gen {
     pub(crate) fn extract_handler_info<'b>(&mut self, controller_path: &str, method: &'b Method<'b>) -> Option<HandlerInfo> {
-        let mut consume_cookies: bool = self.handler_has_cookies(&method.syn);
+        let mut consume_cookies: bool = self.handler_has_cookies(method.syn);
 
         let routes: Vec<RouteInfo> = method
             .syn
@@ -94,7 +94,7 @@ impl Gen {
                             continue;
                         }
                         if param_type.as_str() == "Json" || param_type.as_str() == "Form" {
-                            body_type = Some(&s1);
+                            body_type = Some(s1);
                             continue;
                         }
                         let optional = param_type.as_str() == "Option";

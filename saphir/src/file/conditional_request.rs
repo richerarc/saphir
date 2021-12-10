@@ -42,7 +42,7 @@ fn check_if_unmodified_since(last_modified: &SystemTime, if_unmodified_since: &S
 
 /// Validate precondition of `If-Modified-Since` header.
 fn check_if_modified_since(last_modified: &SystemTime, if_modified_since: &SystemTime) -> bool {
-    !check_if_unmodified_since(last_modified, &if_modified_since)
+    !check_if_unmodified_since(last_modified, if_modified_since)
 }
 
 fn is_method_get_head(method: &Method) -> bool {

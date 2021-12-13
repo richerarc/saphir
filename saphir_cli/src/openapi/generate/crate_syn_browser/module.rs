@@ -86,6 +86,7 @@ pub enum ModuleKind<'b> {
 }
 
 #[derive(Debug)]
+#[allow(unused)]
 pub struct CrateModule<'b> {
     module: &'b Module<'b>,
     target: &'b Target<'b>,
@@ -93,6 +94,7 @@ pub struct CrateModule<'b> {
 }
 
 #[derive(Debug)]
+#[allow(unused)]
 pub struct FileModule<'b> {
     module: &'b Module<'b>,
     syn_module: &'b SynItemMod,
@@ -101,6 +103,7 @@ pub struct FileModule<'b> {
 }
 
 #[derive(Debug)]
+#[allow(unused)]
 pub struct InlineModule<'b> {
     module: &'b Module<'b>,
     syn_module: &'b SynItemMod,
@@ -123,9 +126,9 @@ impl<'b> Module<'b> {
 
     pub(crate) fn init_crate(&'b self, target: &'b Target<'b>) -> Result<(), Error> {
         let kind = ModuleKind::Crate(CrateModule {
-            module: &self,
+            module: self,
             target,
-            file: File::new(target, &target.target.src_path, self.name.clone())?,
+            file: File::new(target, target.target.src_path.as_std_path(), self.name.clone())?,
         });
         self.kind.fill(kind).expect("init_crate should be called exactly once");
         Ok(())
@@ -147,7 +150,7 @@ impl<'b> Module<'b> {
     pub(crate) fn init_new(&'b self, parent: &'b Module<'b>, syn_mod: &'b SynItemMod) -> Result<(), Error> {
         let kind = if let Some((_, items)) = &syn_mod.content {
             ModuleKind::Inline(InlineModule {
-                module: &self,
+                module: self,
                 syn_module: syn_mod,
                 parent_module: parent,
                 items,
@@ -158,7 +161,7 @@ impl<'b> Module<'b> {
                 dir = parent.file().dir.join(format!("{}.rs", &self.name));
             }
             ModuleKind::File(FileModule {
-                module: &self,
+                module: self,
                 parent_module: parent,
                 syn_module: syn_mod,
                 file: File::new(parent.target(), &dir, self.path.clone())?,
@@ -172,7 +175,7 @@ impl<'b> Module<'b> {
         match self.kind.borrow().expect("Kind should always be initialized") {
             ModuleKind::Crate(m) => &m.file,
             ModuleKind::File(m) => &m.file,
-            ModuleKind::Inline(m) => &m.parent_module.file(),
+            ModuleKind::Inline(m) => m.parent_module.file(),
         }
     }
 
@@ -185,9 +188,9 @@ impl<'b> Module<'b> {
             let items = match self.kind.borrow().expect("Kind should always be initialized") {
                 ModuleKind::Crate(m) => &m.file.file.items,
                 ModuleKind::File(m) => &m.file.file.items,
-                ModuleKind::Inline(m) => &m.items,
+                ModuleKind::Inline(m) => m.items,
             };
-            let items = items.iter().map(|i| Item::new(&self, i)).collect();
+            let items = items.iter().map(|i| Item::new(self, i)).collect();
             self.items.fill(items).expect("Should be called only once");
             for i in self.items.borrow().expect("Filled above").iter() {
                 i.init_new();
@@ -228,7 +231,7 @@ impl<'b> Module<'b> {
             cell.fill(modules).expect("We should never be filling this twice");
             for (i, m) in cell.borrow().expect("We just filled this").iter().enumerate() {
                 m.init_new(self, syn_modules.get(i).expect("mapped above"))?;
-                self.target().modules.borrow_mut().insert(m.path().to_string(), &m);
+                self.target().modules.borrow_mut().insert(m.path().to_string(), m);
             }
         }
         Ok(cell.borrow().expect("Should have been initialized by the previous statement"))

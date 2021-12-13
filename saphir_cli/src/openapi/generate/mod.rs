@@ -189,12 +189,6 @@ pub(crate) struct GenArgs {
     #[structopt(long = "package")]
     package_name: Option<String>,
 
-    /// (optionnal) Path to the `.cargo` directory. By default, read from the
-    /// current executable's environment, which work when running this
-    /// command as a cargo sub-command.
-    #[structopt(parse(from_os_str), long = "cargo-path", default_value = "~/.cargo")]
-    cargo_path: PathBuf,
-
     /// (Optional) Resulting output path. Either the path to the resulting yaml
     /// file, or a dir, which would then contain a openapi.yaml
     #[structopt(parse(from_os_str), default_value = ".")]
@@ -400,7 +394,7 @@ by using the --package flag."
                             })
                             .or_else(|| {
                                 response.type_info.as_mut().filter(|t| t.is_type_serializable).map(|t| {
-                                    self.get_open_api_schema_from_type_info(entrypoint, &t, as_ref).unwrap_or_else(|| {
+                                    self.get_open_api_schema_from_type_info(entrypoint, t, as_ref).unwrap_or_else(|| {
                                         let raw_type = OpenApiType::from_rust_type_str(t.name.as_str()).unwrap_or_else(OpenApiType::string);
                                         OpenApiSchema::Inline(if t.is_array {
                                             OpenApiType::Array {
@@ -506,7 +500,7 @@ by using the --package flag."
             let ty = &mut body_info.type_info;
             let name = ty.rename.as_deref().unwrap_or_else(|| ty.name.as_str());
             let as_ref = self.args.schema_granularity != SchemaGranularity::None;
-            self.get_open_api_schema_from_type_info(entrypoint, &ty, as_ref)
+            self.get_open_api_schema_from_type_info(entrypoint, ty, as_ref)
                 .unwrap_or_else(|| self.get_schema(name, None, OpenApiType::anonymous_input_object(), as_ref))
         } else {
             OpenApiSchema::Inline(OpenApiType::anonymous_input_object())
@@ -567,7 +561,7 @@ by using the --package flag."
         let type_mod = scope.target().module_by_use_path(type_path).ok().flatten()?;
         let type_impl = type_mod.find_type_definition(type_info.name.as_str()).ok().flatten()?;
         let schema = match type_impl.item {
-            SynItem::Struct(s) => self.get_open_api_type_from_struct(type_info.name.as_str(), type_impl, &s, as_ref),
+            SynItem::Struct(s) => self.get_open_api_type_from_struct(type_info.name.as_str(), type_impl, s, as_ref),
             SynItem::Enum(e) => self.get_open_api_type_from_enum(type_info.name.as_str(), type_impl, e, as_ref),
             _ => unreachable!(),
         };

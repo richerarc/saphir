@@ -744,9 +744,11 @@ by using the --package flag."
                 })
             }
             _ => syn::parse_str::<syn::Path>(raw)
-                .ok().and_then(|p| TypeInfo::new_from_path(scope, &p))
+                .ok()
+                .and_then(|p| TypeInfo::new_from_path(scope, &p))
                 .as_ref()
-                .filter(|t| t.is_type_serializable).and_then(|t| self.get_open_api_schema_from_type_info(scope, t, self.args.schema_granularity == SchemaGranularity::All))
+                .filter(|t| t.is_type_serializable)
+                .and_then(|t| self.get_open_api_schema_from_type_info(scope, t, self.args.schema_granularity == SchemaGranularity::All))
                 .or_else(|| OpenApiType::from_rust_type_str(raw).map(OpenApiSchema::Inline))
                 .map(|schema| (schema, None, len)),
         }

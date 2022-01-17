@@ -44,12 +44,14 @@ impl<'b> Package<'b> {
                 .meta
                 .dependencies
                 .iter()
-                .find(|dep| dep.rename.as_ref().unwrap_or(&dep.name) == name).and_then(|dep| {
+                .find(|dep| dep.rename.as_ref().unwrap_or(&dep.name) == name)
+                .and_then(|dep| {
                     self.browser
                         .crate_metadata
                         .packages
                         .iter()
-                        .find(|package| package.name == dep.name && dep.req.matches(&package.version)).and_then(|p| Package::new(self.browser, &p.id))
+                        .find(|package| package.name == dep.name && dep.req.matches(&package.version))
+                        .and_then(|p| Package::new(self.browser, &p.id))
                 });
             let to_add = if let Some(package) = package {
                 let raw_mut = Box::into_raw(Box::new(package));
@@ -63,7 +65,8 @@ impl<'b> Package<'b> {
         self.dependancies
             .borrow()
             .get(name)
-            .map(|d| d.as_ref()).and_then(|d| d.copied())
+            .map(|d| d.as_ref())
+            .and_then(|d| d.copied())
             .map(|b| unsafe { &*b })
     }
 

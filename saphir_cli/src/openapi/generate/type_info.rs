@@ -107,11 +107,15 @@ impl TypeInfo {
                     | item_attrs
                         .map(|attrs| find_macro_attribute_flag(attrs, "derive", "Deserialize"))
                         .unwrap_or_default();
-                let rename = item_attrs.and_then(|attrs| find_macro_attribute_named_value(attrs, "openapi", "name")).and_then(|m| match m {
+                let rename = item_attrs
+                    .and_then(|attrs| find_macro_attribute_named_value(attrs, "openapi", "name"))
+                    .and_then(|m| match m {
                         Lit::Str(s) => Some(s.value()),
                         _ => None,
                     });
-                let mime = item_attrs.and_then(|attrs| find_macro_attribute_named_value(attrs, "openapi", "mime")).and_then(|m| match m {
+                let mime = item_attrs
+                    .and_then(|attrs| find_macro_attribute_named_value(attrs, "openapi", "mime"))
+                    .and_then(|m| match m {
                         Lit::Str(s) => Some(s.value()),
                         _ => None,
                     });

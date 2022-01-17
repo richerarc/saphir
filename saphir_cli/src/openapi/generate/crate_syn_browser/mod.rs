@@ -28,11 +28,7 @@ pub enum Error {
 
 impl From<cargo_metadata::Error> for Error {
     fn from(e: cargo_metadata::Error) -> Self {
-<<<<<<< HEAD
-        CargoToml(Box::new(e))
-=======
         Error::CargoToml(Box::new(e))
->>>>>>> 49745fa (Cargo clippy & fmt)
     }
 }
 
@@ -45,15 +41,9 @@ impl From<Error> for String {
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-<<<<<<< HEAD
-            CargoToml(_) => write!(f, "Unable to properly read the crate's metadata from the Cargo.toml manifest."),
-            FileIo(s, e) => write!(f, "unable to read `{}` : {}", s.to_str().unwrap_or_default(), e),
-            FileParse(s, e) => write!(f, "unable to parse `{}` : {}", s.to_str().unwrap_or_default(), e),
-=======
             Error::CargoToml(_) => write!(f, "Unable to properly read the crate's metadata from the Cargo.toml manifest."),
             Error::FileIo(s, e) => write!(f, "unable to read `{}` : {}", s.to_str().unwrap_or_default(), e),
             Error::FileParse(s, e) => write!(f, "unable to parse `{}` : {}", s.to_str().unwrap_or_default(), e),
->>>>>>> 49745fa (Cargo clippy & fmt)
         }
     }
 }
@@ -61,15 +51,9 @@ impl Display for Error {
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-<<<<<<< HEAD
-            CargoToml(e) => Some(e),
-            FileIo(_, e) => Some(e),
-            FileParse(_, e) => Some(e),
-=======
             Error::CargoToml(e) => Some(e),
             Error::FileIo(_, e) => Some(e),
             Error::FileParse(_, e) => Some(e),
->>>>>>> 49745fa (Cargo clippy & fmt)
         }
     }
 }

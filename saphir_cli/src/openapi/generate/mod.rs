@@ -497,7 +497,7 @@ by using the --package flag."
     fn get_open_api_body_param<'b>(&mut self, entrypoint: &'b Module<'b>, body_info: &mut BodyParamInfo) -> OpenApiRequestBody {
         let schema = if body_info.type_info.is_type_deserializable {
             let ty = &mut body_info.type_info;
-            let name = ty.rename.as_deref().unwrap_or(ty.name.as_str());
+            let name = ty.rename.as_deref().unwrap_or_else(|| ty.name.as_str());
             let as_ref = self.args.schema_granularity != SchemaGranularity::None;
             self.get_open_api_schema_from_type_info(entrypoint, ty, as_ref)
                 .unwrap_or_else(|| self.get_schema(name, None, OpenApiType::anonymous_input_object(), as_ref))

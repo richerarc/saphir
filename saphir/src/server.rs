@@ -504,16 +504,11 @@ impl Server {
 
                         let certs = load_certs(cert_config);
                         let key = load_private_key(key_config);
-// <<<<<<< HEAD
-//                         let cfg = ::rustls::server::ServerConfig::builder()
-//                             .with_safe_defaults()
-//                             .with_no_client_auth()
-//                             .with_single_cert(certs, key)
-//                             .expect("bad certificate/key");
-// =======
-                        let mut cfg = ::rustls::ServerConfig::new(::rustls::NoClientAuth::new());
-                        let _ = cfg.set_single_cert(certs, key);
-// >>>>>>> 49745fa (Cargo clippy & fmt)
+                        let cfg = ::rustls::server::ServerConfig::builder()
+                            .with_safe_defaults()
+                            .with_no_client_auth()
+                            .with_single_cert(certs, key)
+                            .expect("bad certificate/key");
                         let arc_config = Arc::new(cfg);
 
                         let acceptor = TlsAcceptor::from(arc_config);

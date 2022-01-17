@@ -497,7 +497,7 @@ by using the --package flag."
     fn get_open_api_body_param<'b>(&mut self, entrypoint: &'b Module<'b>, body_info: &mut BodyParamInfo) -> OpenApiRequestBody {
         let schema = if body_info.type_info.is_type_deserializable {
             let ty = &mut body_info.type_info;
-            let name = ty.rename.as_deref().unwrap_or_else(|| ty.name.as_str());
+            let name = ty.rename.as_deref().unwrap_or(ty.name.as_str());
             let as_ref = self.args.schema_granularity != SchemaGranularity::None;
             self.get_open_api_schema_from_type_info(entrypoint, ty, as_ref)
                 .unwrap_or_else(|| self.get_schema(name, None, OpenApiType::anonymous_input_object(), as_ref))
@@ -587,7 +587,7 @@ by using the --package flag."
         let mut properties = BTreeMap::new();
         let mut required = Vec::new();
         for field in &s.fields {
-            if let Some(field_name) = field.ident.as_ref().map(|i| get_serde_field(i.to_string(), &field.attrs, &s.attrs)).flatten() {
+            if let Some(field_name) = field.ident.as_ref().and_then(|i| get_serde_field(i.to_string(), &field.attrs, &s.attrs)) {
                 if let Some(field_type_info) = TypeInfo::new(item.scope, &field.ty) {
                     let field_as_ref = self.args.schema_granularity == SchemaGranularity::All && field_type_info.is_type_serializable;
                     let field_schema = self
@@ -744,13 +744,9 @@ by using the --package flag."
                 })
             }
             _ => syn::parse_str::<syn::Path>(raw)
-                .ok()
-                .map(|p| TypeInfo::new_from_path(scope, &p))
-                .flatten()
+                .ok().and_then(|p| TypeInfo::new_from_path(scope, &p))
                 .as_ref()
-                .filter(|t| t.is_type_serializable)
-                .map(|t| self.get_open_api_schema_from_type_info(scope, t, self.args.schema_granularity == SchemaGranularity::All))
-                .flatten()
+                .filter(|t| t.is_type_serializable).and_then(|t| self.get_open_api_schema_from_type_info(scope, t, self.args.schema_granularity == SchemaGranularity::All))
                 .or_else(|| OpenApiType::from_rust_type_str(raw).map(OpenApiSchema::Inline))
                 .map(|schema| (schema, None, len)),
         }

@@ -16,7 +16,7 @@ impl MidFnDef {
 
         check_signature(&m.sig)?;
 
-        let fn_ident = Ident::new(&format!("{}_wrapped", m.sig.ident.to_string()), Span::call_site());
+        let fn_ident = Ident::new(&format!("{}_wrapped", m.sig.ident), Span::call_site());
         m.sig.ident = fn_ident.clone();
 
         Ok(MidFnDef {

@@ -278,7 +278,7 @@ impl<'b> Module<'b> {
                 let path = prefix.unwrap_or_else(|| self.path().to_string());
                 vec![ExpandedUse { path, name, alias, is_pub }]
             }
-            UseTree::Group(g) => g.items.iter().map(|u| self.expand_use_tree(u, prefix.clone(), is_pub)).flatten().collect(),
+            UseTree::Group(g) => g.items.iter().flat_map(|u| self.expand_use_tree(u, prefix.clone(), is_pub)).collect(),
             UseTree::Path(p) => {
                 let path_segment = p.ident.to_string();
                 let prefix = if prefix.is_none() {

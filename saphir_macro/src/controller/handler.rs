@@ -612,17 +612,13 @@ impl HandlerAttrs {
                         }
                     }
                 }
-                Meta::NameValue(n) => {
-                    return Err(Error::new_spanned(n, "Invalid Handler attribute"));
-                }
+                Meta::NameValue(_) => {}
                 Meta::Path(p) => {
                     if let Some(ident_str) = p.get_ident().map(|p| p.to_string()) {
                         if ident_str.starts_with("cookie") {
                             cookie = true;
-                            continue;
                         }
                     }
-                    return Err(Error::new_spanned(p, "Invalid Handler attribute"));
                 }
             }
         }

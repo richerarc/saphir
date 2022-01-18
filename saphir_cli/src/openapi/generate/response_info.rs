@@ -375,8 +375,7 @@ impl Gen {
                         ResponseInfo {
                             mime: type_info
                                 .as_ref()
-                                .map(|t| t.mime.as_ref().map(|m| OpenApiMimeType::from(m.clone())))
-                                .flatten()
+                                .and_then(|t| t.mime.as_ref().map(|m| OpenApiMimeType::from(m.clone())))
                                 .unwrap_or(OpenApiMimeType::Any),
                             type_info,
                             code: 200,

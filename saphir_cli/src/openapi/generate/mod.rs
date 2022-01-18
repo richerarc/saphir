@@ -14,7 +14,6 @@ use crate::{
     },
     Command, CommandResult,
 };
-use convert_case::Casing;
 use http::StatusCode;
 use serde_derive::Deserialize;
 use std::{
@@ -28,7 +27,7 @@ use std::{
     time::Instant,
 };
 use structopt::StructOpt;
-use syn::{Attribute, Fields, Item as SynItem, ItemEnum, ItemStruct, Lit, Meta, NestedMeta, Signature};
+use syn::{Fields, Item as SynItem, ItemEnum, ItemStruct, Signature};
 
 mod controller_info;
 mod crate_syn_browser;
@@ -588,7 +587,7 @@ by using the --package flag."
         let mut properties = BTreeMap::new();
         let mut required = Vec::new();
         for field in &s.fields {
-            if let Some(field_name) = field.ident.as_ref().map(|i| get_serde_field(i.to_string(), &field.attrs, &s.attrs)).flatten() {
+            if let Some(field_name) = field.ident.as_ref().and_then(|i| get_serde_field(i.to_string(), &field.attrs, &s.attrs)) {
                 if let Some(field_type_info) = TypeInfo::new(item.scope, &field.ty) {
                     let field_as_ref = self.args.schema_granularity == SchemaGranularity::All && field_type_info.is_type_serializable;
                     let field_schema = self
@@ -654,10 +653,6 @@ by using the --package flag."
         self.get_schema(name, Some(path), ty, as_ref)
     }
 
-    fn handler_operation_name_from_sig(&self, sig: &Signature) -> String {
-        sig.ident.to_string().to_case((&self.args.operation_name_case).into())
-    }
-
     fn handler_operation_id_from_sig(&self, sig: &Signature) -> String {
         let method_name = sig.ident.to_string();
         let mut operation_id = method_name.clone();
@@ -669,40 +664,6 @@ by using the --package flag."
         }
         operation_ids.insert(operation_id.clone());
         operation_id
-    }
-
-    fn handler_method_from_attr(&self, attr: &Attribute) -> Option<OpenApiPathMethod> {
-        let ident = attr.path.get_ident()?;
-        OpenApiPathMethod::from_str(ident.to_string().as_str())
-    }
-
-    fn handler_path_from_attr(&self, attr: &Attribute) -> Option<(String, Vec<String>)> {
-        if let Ok(Meta::List(meta)) = attr.parse_meta() {
-            if let Some(NestedMeta::Lit(Lit::Str(l))) = meta.nested.first() {
-                let mut chars: Vec<char> = l.value().chars().collect();
-                let mut params: Vec<String> = Vec::new();
-
-                let mut i = 0;
-                while i < chars.len() {
-                    if chars[i] == '<' || chars[i] == '{' {
-                        chars[i] = '{';
-                        let start = i;
-                        for j in start..chars.len() {
-                            if chars[j] == '>' || chars[j] == '}' {
-                                chars[j] = '}';
-                                params.push((&chars[(i + 1)..j]).iter().collect());
-                                i = j;
-                                break;
-                            }
-                        }
-                    }
-                    i += 1;
-                }
-
-                return Some((chars.into_iter().collect(), params));
-            }
-        }
-        None
     }
 
     pub(crate) fn openapitype_from_raw<'b>(&mut self, scope: &'b dyn UseScope<'b>, raw: &str) -> Option<AnonymousType> {
@@ -784,12 +745,10 @@ by using the --package flag."
             }
             _ => syn::parse_str::<syn::Path>(raw)
                 .ok()
-                .map(|p| TypeInfo::new_from_path(scope, &p))
-                .flatten()
+                .and_then(|p| TypeInfo::new_from_path(scope, &p))
                 .as_ref()
                 .filter(|t| t.is_type_serializable)
-                .map(|t| self.get_open_api_schema_from_type_info(scope, t, self.args.schema_granularity == SchemaGranularity::All))
-                .flatten()
+                .and_then(|t| self.get_open_api_schema_from_type_info(scope, t, self.args.schema_granularity == SchemaGranularity::All))
                 .or_else(|| OpenApiType::from_rust_type_str(raw).map(OpenApiSchema::Inline))
                 .map(|schema| (schema, None, len)),
         }

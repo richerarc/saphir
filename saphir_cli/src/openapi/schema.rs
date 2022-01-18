@@ -131,6 +131,17 @@ impl OpenApiPathMethod {
             _ => None,
         }
     }
+
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            OpenApiPathMethod::Get => "get",
+            OpenApiPathMethod::Post => "post",
+            OpenApiPathMethod::Put => "put",
+            OpenApiPathMethod::Patch => "patch",
+            OpenApiPathMethod::Delete => "delete",
+            OpenApiPathMethod::Any => "any",
+        }
+    }
 }
 
 fn serde_true() -> bool {

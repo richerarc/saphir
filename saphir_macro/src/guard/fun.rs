@@ -19,7 +19,7 @@ impl GuardFnDef {
 
         let responder = check_signature(&m.sig)?;
 
-        let fn_ident = Ident::new(&format!("{}_wrapped", m.sig.ident.to_string()), Span::call_site());
+        let fn_ident = Ident::new(&format!("{}_wrapped", m.sig.ident), Span::call_site());
         m.sig.ident = fn_ident.clone();
 
         Ok(GuardFnDef {
@@ -86,7 +86,7 @@ fn check_signature(m: &Signature) -> Result<Path> {
                     &r,
                     &format!(
                         "Invalid return type for the validate fn, expected Result<Request, impl Responder>, got {}",
-                        r.ident.to_string()
+                        r.ident
                     ),
                 ));
             }

@@ -17,12 +17,7 @@ impl Gen {
     pub(crate) fn extract_handler_info<'b>(&mut self, controller_path: &str, method: &'b Method<'b>) -> Option<HandlerInfo> {
         let mut consume_cookies: bool = self.handler_has_cookies(method.syn);
 
-        let routes: Vec<RouteInfo> = method
-            .syn
-            .attrs
-            .iter()
-            .filter_map(|attr| self.extract_route_info_from_method_macro(controller_path, attr, method))
-            .collect();
+        let routes = self.extract_routes_info_from_method_macro(method, controller_path);
 
         if routes.is_empty() {
             return None;

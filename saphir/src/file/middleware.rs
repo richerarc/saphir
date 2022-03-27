@@ -131,8 +131,7 @@ impl FileMiddleware {
             .headers()
             .get(header::ACCEPT_ENCODING)
             .and_then(|header| header.to_str().ok())
-            .map(|str| str.split(',').map(|encoding| Compression::from_str(encoding.trim()).unwrap_or_default()).max())
-            .flatten()
+            .and_then(|str| str.split(',').map(|encoding| Compression::from_str(encoding.trim()).unwrap_or_default()).max())
             .unwrap_or_default();
 
         if let Some(range) = req

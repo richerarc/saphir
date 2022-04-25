@@ -790,14 +790,8 @@ mod ssl_loading_utils {
     impl AsyncRead for MaybeTlsStream {
         fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf) -> Poll<Result<(), Error>> {
             match self.get_mut() {
-                MaybeTlsStream::Tls(t) => match t.as_mut().poll_read(cx, buf) {
-                    Poll::Ready(r) => Poll::Ready(r),
-                    Poll::Pending => Poll::Pending,
-                },
-                MaybeTlsStream::Plain(p) => match p.as_mut().poll_read(cx, buf) {
-                    Poll::Ready(r) => Poll::Ready(r),
-                    Poll::Pending => Poll::Pending,
-                },
+                MaybeTlsStream::Tls(t) => t.as_mut().poll_read(cx, buf),
+                MaybeTlsStream::Plain(p) => p.as_mut().poll_read(cx, buf),
             }
         }
     }
@@ -941,5 +935,5 @@ pub async fn inject_raw_with_peer_addr(req: RawRequest<RawBody>, peer_addr: Opti
     let saphir_req = Request::new(req.map(Body::from_raw), peer_addr);
     REQUEST_FUTURE_COUNT.fetch_add(1, Ordering::SeqCst);
     let saphir_res = stack.invoke(saphir_req).await?;
-    Ok(saphir_res.into_raw().map(|r| r.map(|b| b.into_raw()))?)
+    saphir_res.into_raw().map(|r| r.map(|b| b.into_raw()))
 }

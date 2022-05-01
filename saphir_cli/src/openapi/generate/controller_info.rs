@@ -40,7 +40,7 @@ impl Gen {
                         if first_seg.ident.eq("controller") {
                             let controller_name = struct_first_seg.ident.to_string();
                             let name = controller_name.to_ascii_lowercase();
-                            let name = &name[0..name.rfind("controller").unwrap_or_else(|| name.len())];
+                            let name = &name[0..name.rfind("controller").unwrap_or(name.len())];
                             let mut name = name.to_string();
                             let mut prefix = None;
                             let mut version = None;

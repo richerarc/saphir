@@ -1,6 +1,6 @@
 [package]
 name = "saphir"
-version = "3.0.1"
+version = "3.0.2"
 edition = "2018"
 authors = ["Richer Archambault <richer.arc@gmail.com>"]
 description = "Fully async-await http server framework"

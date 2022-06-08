@@ -64,7 +64,7 @@ impl ArgsReprType {
                 Err(Error::new_spanned(p, "Invalid option type"))
             }
             _params => Ok(ArgsReprType::Params {
-                is_query_param: !attrs.methods_paths.iter().any(|(_, path)| path.contains(name)),
+                is_query_param: !attrs.methods_paths.iter().any(|(_, path)| path.contains(&format!("<{}>", name))),
                 is_string: typ_ident_str.eq("String"),
             }),
         }

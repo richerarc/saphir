@@ -236,7 +236,7 @@ pub async fn parse_field(mut stream: FieldStream, boundary: &str) -> Result<Fiel
     }
 }
 
-#[allow(clippy::iter_with_drain)]
+#[allow(clippy::extend_with_drain)]
 pub async fn parse_next_field_chunk(stream: &mut FieldStream, boundary: &str) -> Result<Vec<u8>, MultipartError> {
     let data;
     let parse_ctx = stream.stream();

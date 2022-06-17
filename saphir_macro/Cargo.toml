@@ -1,6 +1,6 @@
 [package]
 name = "saphir_macro"
-version = "2.1.2"
+version = "2.1.3"
 authors = ["Richer Archambault <richer.arc@gmail.com>"]
 edition = "2018"
 description = "Macro generation for http server framework"
@@ -15,6 +15,11 @@ license = "MIT"
 [lib]
 name = "saphir_macro"
 proc-macro = true
+
+[features]
+default = []
+full = ["validator"]
+validator = []
 
 [dependencies]
 proc-macro2 = "1.0"

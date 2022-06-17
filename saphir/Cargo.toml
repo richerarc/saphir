@@ -1,6 +1,6 @@
 [package]
 name = "saphir"
-version = "3.0.2"
+version = "3.0.3"
 edition = "2018"
 authors = ["Richer Archambault <richer.arc@gmail.com>"]
 description = "Fully async-await http server framework"
@@ -36,6 +36,7 @@ file = ["mime", "mime_guess", "percent-encoding", "chrono", "flate2", "brotli", 
 operation = ["serde", "uuid"]
 http1 = ["hyper/http1"]
 http2 = ["hyper/http2"]
+request-validator = ["validator", "saphir_macro/validator"]
 
 [dependencies]
 async-stream = "0.3"
@@ -65,6 +66,7 @@ percent-encoding = { version = "2.1", optional = true }
 chrono = { version = "0.4", optional = true }
 flate2 = { version = "1.0", optional = true }
 brotli = { version = "3.3", optional = true }
+validator = { version = "0.12", optional = true, features = ["derive"] }
 
 [dev-dependencies]
 tokio-timer = "0.2.13"

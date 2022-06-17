@@ -52,7 +52,7 @@ fn gen_struct_implementation(controller_ident: Ident, handlers: Vec<HandlerRepr>
 }
 
 fn gen_wrapper_handler(handler_tokens: &mut TokenStream, handler: HandlerRepr) -> Result<()> {
-    let opts = &handler.wrapper_options;
+    let opts = handler.wrapper_options;
     let m_ident = handler.original_method.sig.ident.clone();
     let return_type = handler.return_type;
     let mut o_method = handler.original_method;
@@ -66,19 +66,20 @@ fn gen_wrapper_handler(handler_tokens: &mut TokenStream, handler: HandlerRepr) -
     o_method.to_tokens(handler_tokens);
 
     let mut body_stream = TokenStream::new();
-    init_multipart(&mut body_stream, opts);
+    init_multipart(&mut body_stream, &opts);
     (quote! {let mut req = req}).to_tokens(&mut body_stream);
-    gen_body_mapping(&mut body_stream, opts);
-    gen_body_load(&mut body_stream, opts);
-    gen_map_after_load(&mut body_stream, opts);
+    gen_body_mapping(&mut body_stream, &opts);
+    gen_body_load(&mut body_stream, &opts);
+    gen_map_after_load(&mut body_stream, &opts);
     (quote! {;}).to_tokens(&mut body_stream);
-    gen_cookie_load(&mut body_stream, opts);
-    gen_query_load(&mut body_stream, opts);
+    gen_cookie_load(&mut body_stream, &opts);
+    gen_query_load(&mut body_stream, &opts);
     let mut call_params_ident = Vec::new();
-    for arg in &opts.fn_arguments {
+    let async_call = !opts.sync_handler;
+    for arg in opts.fn_arguments.into_iter() {
         arg.gen_parameter(&mut body_stream, &mut call_params_ident)?;
     }
-    let inner_call = gen_call_to_inner(inner_method_ident, call_params_ident, opts);
+    let inner_call = gen_call_to_inner(inner_method_ident, call_params_ident, async_call);
 
     let t = quote! {
         #[allow(unused_mut)]
@@ -150,14 +151,14 @@ fn gen_body_mapping(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
     }
 }
 
-fn gen_call_to_inner(inner_method_ident: Ident, idents: Vec<Ident>, opts: &HandlerWrapperOpt) -> TokenStream {
+fn gen_call_to_inner(inner_method_ident: Ident, idents: Vec<Ident>, async_call: bool) -> TokenStream {
     let mut call = TokenStream::new();
 
     (quote! {self.#inner_method_ident}).to_tokens(&mut call);
 
     gen_call_params(idents).to_tokens(&mut call);
 
-    if !opts.sync_handler {
+    if async_call {
         (quote! {.await}).to_tokens(&mut call);
     }
 
@@ -184,12 +185,13 @@ fn gen_call_params(idents: Vec<Ident>) -> TokenStream {
 }
 
 impl ArgsRepr {
-    pub fn gen_parameter(&self, stream: &mut TokenStream, call_ident: &mut Vec<Ident>) -> Result<()> {
-        let mut self_flatten = self.clone();
-        let (parameter_repr_type, optional) = if let ArgsReprType::Option(a) = &self.a_type {
-            self_flatten.typ = self
+    pub fn gen_parameter(self, stream: &mut TokenStream, call_ident: &mut Vec<Ident>) -> Result<()> {
+        let mut self_flatten = self;
+        let mut optional = false;
+
+        if let ArgsReprType::Option(a) = self_flatten.a_type {
+            self_flatten.typ = self_flatten
                 .typ
-                .clone()
                 .and_then(|t| t.path.segments.into_iter().next())
                 .map(|first| first.arguments)
                 .and_then(|a| {
@@ -208,23 +210,61 @@ impl ArgsRepr {
             match a.as_ref() {
                 ArgsReprType::SelfType | ArgsReprType::Request | ArgsReprType::Cookie => {
                     return Err(Error::new(
-                        self.typ.as_ref().map(|t| t.span()).unwrap_or_else(Span::call_site),
+                        self_flatten.typ.as_ref().map(|t| t.span()).unwrap_or_else(Span::call_site),
                         "Optional parameters are only allowed for quey params, route params, or body param (Json or Form)",
                     ));
                 }
                 ArgsReprType::Option(_) => {
                     return Err(Error::new(
-                        self.typ.as_ref().map(|t| t.span()).unwrap_or_else(Span::call_site),
+                        self_flatten.typ.as_ref().map(|t| t.span()).unwrap_or_else(Span::call_site),
                         "Option within option are not allowed as handler parameters",
                     ));
                 }
-                a => (a.clone(), true),
+                // a => (a.clone(), true),
+                _ => self_flatten.a_type = *a,
             }
-        } else {
-            (self.a_type.clone(), false)
-        };
+            optional = true;
+        }
 
-        self_flatten.a_type = parameter_repr_type;
+        // let (parameter_repr_type, optional) = if let ArgsReprType::Option(a) = &self.a_type {
+        //     self_flatten.typ = self
+        //         .typ
+        //         .clone()
+        //         .and_then(|t| t.path.segments.into_iter().next())
+        //         .map(|first| first.arguments)
+        //         .and_then(|a| {
+        //             if let PathArguments::AngleBracketed(p_a) = a {
+        //                 return p_a.args.first().and_then(|g_a| {
+        //                     if let GenericArgument::Type(Type::Path(type_path)) = g_a {
+        //                         return Some(type_path.clone());
+        //                     }
+        //
+        //                     None
+        //                 });
+        //             }
+        //
+        //             None
+        //         });
+        //     match a.as_ref() {
+        //         ArgsReprType::SelfType | ArgsReprType::Request | ArgsReprType::Cookie => {
+        //             return Err(Error::new(
+        //                 self.typ.as_ref().map(|t| t.span()).unwrap_or_else(Span::call_site),
+        //                 "Optional parameters are only allowed for quey params, route params, or body param (Json or Form)",
+        //             ));
+        //         }
+        //         ArgsReprType::Option(_) => {
+        //             return Err(Error::new(
+        //                 self.typ.as_ref().map(|t| t.span()).unwrap_or_else(Span::call_site),
+        //                 "Option within option are not allowed as handler parameters",
+        //             ));
+        //         }
+        //         a => (a.clone(), true),
+        //     }
+        // } else {
+        //     (self.a_type.clone(), false)
+        // };
+
+        // self_flatten.a_type = parameter_repr_type;
 
         match &self_flatten.a_type {
             ArgsReprType::SelfType => {
@@ -250,7 +290,7 @@ impl ArgsRepr {
             _ => { /* Nothing to do */ }
         }
 
-        call_ident.push(Ident::new(self.name.as_str(), Span::call_site()));
+        call_ident.push(Ident::new(self_flatten.name.as_str(), Span::call_site()));
         Ok(())
     }
 

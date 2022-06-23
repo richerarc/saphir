@@ -102,11 +102,11 @@ fn gen_controller_base_path_const(attr: &ControllerAttr) -> TokenStream {
 
 fn gen_controller_handlers_fn(attr: &ControllerAttr, handlers: &[HandlerRepr]) -> TokenStream {
     let mut handler_stream = TokenStream::new();
-    let ctrl_ident = attr.ident.clone();
+    let ctrl_ident = &attr.ident;
 
     for handler in handlers {
         let HandlerAttrs { methods_paths, guards, .. } = &handler.attrs;
-        let handler_ident = handler.original_method.sig.ident.clone();
+        let handler_ident = &handler.original_method.sig.ident;
 
         for (method, path) in methods_paths {
             let method = method.as_str();

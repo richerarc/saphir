@@ -94,14 +94,9 @@ pub fn guard(_args: TokenStream1, input: TokenStream1) -> TokenStream1 {
 #[proc_macro_attribute]
 pub fn openapi(args: TokenStream1, input: TokenStream1) -> TokenStream1 {
     let args = parse_macro_input!(args as AttributeArgs);
-    let parsed_input = input.clone();
-    let parsed_input = parse_macro_input!(parsed_input as Item);
-    match openapi::validate_openapi(args, parsed_input) {
-        Ok(s) => TokenStream1::from(s),
-        Err(e) => {
-            let mut stream = TokenStream1::from(e.to_compile_error());
-            stream.extend(input);
-            stream
-        }
-    }
+    let parsed_input = parse_macro_input!(input as Item);
+
+    let expanded = openapi::validate_openapi(args, parsed_input).unwrap_or_else(|e| e.to_compile_error());
+
+    TokenStream1::from(expanded)
 }

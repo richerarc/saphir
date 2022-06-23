@@ -15,10 +15,11 @@ pub fn expand_controller(args: AttributeArgs, input: ItemImpl) -> Result<TokenSt
     let controller_attr = ControllerAttr::new(args, &input)?;
     let handlers = handler::parse_handlers(input)?;
 
-    let controller_implementation = controller_attr::gen_controller_trait_implementation(&controller_attr, handlers.as_slice());
-    let struct_implementaion = gen_struct_implementation(controller_attr.ident.clone(), handlers)?;
+    let mod_ident = Ident::new(&format!("SG_{}", &controller_attr.ident), Span::call_site());
 
-    let mod_ident = Ident::new(&format!("SG_{}", controller_attr.ident), Span::call_site());
+    let controller_implementation = controller_attr::gen_controller_trait_implementation(&controller_attr, handlers.as_slice());
+    let struct_implementaion = gen_struct_implementation(controller_attr.ident, handlers)?;
+
     Ok(quote! {
         mod #mod_ident {
             use super::*;
@@ -61,9 +62,8 @@ fn gen_wrapper_handler(handler_tokens: &mut TokenStream, handler: HandlerRepr) -
 
     o_method.attrs.push(syn::parse_quote! {#[inline]});
     o_method.sig.ident = Ident::new(m_inner_ident_str.as_str(), Span::call_site());
-    let inner_method_ident = o_method.sig.ident.clone();
-
     o_method.to_tokens(handler_tokens);
+    let inner_method_ident = o_method.sig.ident;
 
     let mut body_stream = TokenStream::new();
     init_multipart(&mut body_stream, &opts);
@@ -185,20 +185,17 @@ fn gen_call_params(idents: Vec<Ident>) -> TokenStream {
 }
 
 impl ArgsRepr {
-    pub fn gen_parameter(self, stream: &mut TokenStream, call_ident: &mut Vec<Ident>) -> Result<()> {
-        let mut self_flatten = self;
-        let mut optional = false;
-
-        if let ArgsReprType::Option(a) = self_flatten.a_type {
-            self_flatten.typ = self_flatten
+    pub fn gen_parameter(mut self, stream: &mut TokenStream, call_ident: &mut Vec<Ident>) -> Result<()> {
+        let optional = if let ArgsReprType::Option(a) = self.a_type {
+            self.typ = self
                 .typ
                 .and_then(|t| t.path.segments.into_iter().next())
                 .map(|first| first.arguments)
                 .and_then(|a| {
                     if let PathArguments::AngleBracketed(p_a) = a {
-                        return p_a.args.first().and_then(|g_a| {
+                        return p_a.args.into_iter().next().and_then(|g_a| {
                             if let GenericArgument::Type(Type::Path(type_path)) = g_a {
-                                return Some(type_path.clone());
+                                return Some(type_path);
                             }
 
                             None
@@ -210,63 +207,24 @@ impl ArgsRepr {
             match a.as_ref() {
                 ArgsReprType::SelfType | ArgsReprType::Request | ArgsReprType::Cookie => {
                     return Err(Error::new(
-                        self_flatten.typ.as_ref().map(|t| t.span()).unwrap_or_else(Span::call_site),
+                        self.typ.as_ref().map(|t| t.span()).unwrap_or_else(Span::call_site),
                         "Optional parameters are only allowed for quey params, route params, or body param (Json or Form)",
                     ));
                 }
                 ArgsReprType::Option(_) => {
                     return Err(Error::new(
-                        self_flatten.typ.as_ref().map(|t| t.span()).unwrap_or_else(Span::call_site),
+                        self.typ.as_ref().map(|t| t.span()).unwrap_or_else(Span::call_site),
                         "Option within option are not allowed as handler parameters",
                     ));
                 }
-                // a => (a.clone(), true),
-                _ => self_flatten.a_type = *a,
+                _ => self.a_type = *a,
             }
-            optional = true;
-        }
+            true
+        } else {
+             false
+        };
 
-        // let (parameter_repr_type, optional) = if let ArgsReprType::Option(a) = &self.a_type {
-        //     self_flatten.typ = self
-        //         .typ
-        //         .clone()
-        //         .and_then(|t| t.path.segments.into_iter().next())
-        //         .map(|first| first.arguments)
-        //         .and_then(|a| {
-        //             if let PathArguments::AngleBracketed(p_a) = a {
-        //                 return p_a.args.first().and_then(|g_a| {
-        //                     if let GenericArgument::Type(Type::Path(type_path)) = g_a {
-        //                         return Some(type_path.clone());
-        //                     }
-        //
-        //                     None
-        //                 });
-        //             }
-        //
-        //             None
-        //         });
-        //     match a.as_ref() {
-        //         ArgsReprType::SelfType | ArgsReprType::Request | ArgsReprType::Cookie => {
-        //             return Err(Error::new(
-        //                 self.typ.as_ref().map(|t| t.span()).unwrap_or_else(Span::call_site),
-        //                 "Optional parameters are only allowed for quey params, route params, or body param (Json or Form)",
-        //             ));
-        //         }
-        //         ArgsReprType::Option(_) => {
-        //             return Err(Error::new(
-        //                 self.typ.as_ref().map(|t| t.span()).unwrap_or_else(Span::call_site),
-        //                 "Option within option are not allowed as handler parameters",
-        //             ));
-        //         }
-        //         a => (a.clone(), true),
-        //     }
-        // } else {
-        //     (self.a_type.clone(), false)
-        // };
-
-        // self_flatten.a_type = parameter_repr_type;
-
-        match &self_flatten.a_type {
+        match &self.a_type {
             ArgsReprType::SelfType => {
                 return Ok(());
             }
@@ -274,23 +232,28 @@ impl ArgsRepr {
                 call_ident.push(Ident::new("req", Span::call_site()));
                 return Ok(());
             }
-            ArgsReprType::Json => self_flatten.gen_json_param(stream, optional),
-            ArgsReprType::Form => self_flatten.gen_form_param(stream, optional),
-            ArgsReprType::Cookie => self_flatten.gen_cookie_param(stream),
-            ArgsReprType::Ext => self_flatten.gen_ext_param(stream, optional),
-            ArgsReprType::Extensions => self_flatten.gen_extensions_param(stream),
-            ArgsReprType::Params { is_query_param, .. } => {
-                if *is_query_param {
-                    self_flatten.gen_query_param(stream, optional);
-                } else {
-                    self_flatten.gen_path_param(stream, optional);
-                }
-            }
-            ArgsReprType::Multipart => self_flatten.gen_multipart_param(stream),
             _ => { /* Nothing to do */ }
         }
 
-        call_ident.push(Ident::new(self_flatten.name.as_str(), Span::call_site()));
+        let ident = Ident::new(self.name.as_str(), Span::call_site());
+        match &self.a_type {
+            ArgsReprType::Json => self.gen_json_param(stream, optional),
+            ArgsReprType::Form => self.gen_form_param(stream, optional),
+            ArgsReprType::Cookie => self.gen_cookie_param(stream),
+            ArgsReprType::Ext => self.gen_ext_param(stream, optional),
+            ArgsReprType::Extensions => self.gen_extensions_param(stream),
+            ArgsReprType::Params { is_query_param, .. } => {
+                if *is_query_param {
+                    self.gen_query_param(stream, optional);
+                } else {
+                    self.gen_path_param(stream, optional);
+                }
+            }
+            ArgsReprType::Multipart => self.gen_multipart_param(stream),
+            _ => { /* Nothing to do */ }
+        }
+
+        call_ident.push(ident);
         Ok(())
     }
 
@@ -309,14 +272,14 @@ impl ArgsRepr {
 
         let typ = self
             .typ
-            .clone()
-            .and_then(|t| t.path.segments.into_iter().next())
-            .map(|first| first.arguments)
+            .as_ref()
+            .and_then(|t| t.path.segments.first())
+            .map(|first| &first.arguments)
             .and_then(|a| {
                 if let PathArguments::AngleBracketed(p_a) = a {
                     return p_a.args.first().and_then(|g_a| {
                         if let GenericArgument::Type(Type::Path(type_path)) = g_a {
-                            return Some(type_path.clone());
+                            return Some(type_path);
                         }
 
                         None

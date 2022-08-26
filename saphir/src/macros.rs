@@ -27,25 +27,25 @@
 //! and mapped to the function parameter of the same name.
 //!
 //! The following parameters types are supported:
-//!  - CookieJar: Collection of all the cookies in the request
-//!  - Json: The request body interpreted in Json.
+//!  - `CookieJar`: Collection of all the cookies in the request
+//!  - `Json`: The request body interpreted in Json.
 //!          If the request body is not valid Json, a 400 Bad Request response is returned.
-//!  - Form: The request body interpreted as a standard form. (application/x-www-form-urlencoded)
+//!  - `Form`: The request body interpreted as a standard form. (application/x-www-form-urlencoded)
 //!          If the request body is not a valid Form, a 400 Bad Request response is returned.
-//!  - Multipart: The request body interpreted as multipart form data (multipart/form-data)
+//!  - `Multipart`: The request body interpreted as multipart form data (multipart/form-data)
 //!               If the request body is not a valid multipart form, a 400 Bad Request response is returned.
-//!  - Ext<MyExtensionType>: Retrieve the MyExtensionType from the request extensions.
+//!  - `Ext<MyExtensionType>`: Retrieve the MyExtensionType from the request extensions.
 //!                          Request extensions are data that you can attach to the request
 //!                          within Middlewares and Guards.
-//!  - Extensions: Collection of all the extensions attached to the request.
+//!  - `Extensions`: Collection of all the extensions attached to the request.
 //!                This is the whole owned collection, so it cannot be used in conjunction
 //!                with single Ext<T> parameters.
-//!  - Request: The whole owned Saphir request.
+//!  - `Request`: The whole owned Saphir request.
 //!             This is the whole owned request, so it cannot be used in conjunction
 //!             of any of the above. (All of the above can be retrieved from this request)
-//!  - Option: Any body parameter, path parameter or query string parameter (see below)
+//!  - `Option`: Any body parameter, path parameter or query string parameter (see below)
 //!            can be marked as optionnal.
-//!  - <T>: Any other unhandled parameter type is considered a query string parameter.
+//!  - `<T>`: Any other unhandled parameter type is considered a query string parameter.
 //!         T must implement FromStr.
 //!
 //! We support even custom methods, and for convinience, `#[any(/your/path)]`
@@ -58,7 +58,9 @@
 //! This attribute can be present multiple times and can include any number of
 //! `return`, `return_override` and `params` parameters:
 //!
-//! ### `return(code = <code>, type = "<type_path>"[, mime = <mime>])`
+//! ### The `return(...) openapi parameter`
+//! **Syntax: `return(code = <code>, type = "<type_path>"[, mime = <mime>])`**
+//!
 //! Specify a possible return code & type, and optionally a mime type.
 //! The type must be a valid type path included (`use`) in the file.
 //! E.g. `#[openapi(return(code = 200, type = "Json<MyType>")]`
@@ -82,7 +84,9 @@
 //! 500))]`
 //!
 //!
-//! ### `return_override(type = "<type_path>", code = <code>[, mime = <mime>])`
+//! ### The `return_override(...) openapi parameter`
+//! **Syntax: `return_override(type = "<type_path>", code = <code>[, mime = <mime>])`**
+//!
 //! Saphir provide some default API information for built-in types.
 //! For example, a `Result::Ok` result has a status code of 200 by default, a
 //! `Result::Err` a status code of 500, and a `Option::None` a status code of

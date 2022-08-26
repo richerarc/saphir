@@ -65,6 +65,10 @@ pub enum SaphirError {
     StackAlreadyInitialized,
     ///
     TooManyRequests,
+    /// Validator error
+    #[cfg(feature = "validate-requests")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "validate-requests")))]
+    ValidationErrors(validator::ValidationErrors),
 }
 
 impl Debug for SaphirError {
@@ -89,6 +93,8 @@ impl Debug for SaphirError {
             SaphirError::RequestTimeout => f.write_str("RequestTimeout"),
             SaphirError::StackAlreadyInitialized => f.write_str("StackAlreadyInitialized"),
             SaphirError::TooManyRequests => f.write_str("TooManyRequests"),
+            #[cfg(feature = "validate-requests")]
+            SaphirError::ValidationErrors(d) => std::fmt::Debug::fmt(d, f),
         }
     }
 }
@@ -119,6 +125,8 @@ impl SaphirError {
             SaphirError::RequestTimeout => builder.status(408),
             SaphirError::StackAlreadyInitialized => builder.status(500),
             SaphirError::TooManyRequests => builder.status(429),
+            #[cfg(feature = "validate-requests")]
+            SaphirError::ValidationErrors(_) => builder.status(400),
         }
     }
 
@@ -197,6 +205,10 @@ impl SaphirError {
             SaphirError::TooManyRequests => {
                 warn!("{}Made too many requests", op_id);
             }
+            #[cfg(feature = "validate-requests")]
+            SaphirError::ValidationErrors(e) => {
+                debug!("{}Validation error: {:?}", op_id, e);
+            }
         }
     }
 }
@@ -224,6 +236,15 @@ impl From<serde_urlencoded::ser::Error> for SaphirError {
         SaphirError::SerdeUrlSer(e)
     }
 }
+
+#[cfg(feature = "validate-requests")]
+#[cfg_attr(docsrs, doc(cfg(feature = "validate-requests")))]
+impl From<::validator::ValidationErrors> for SaphirError {
+    fn from(e: ::validator::ValidationErrors) -> Self {
+        SaphirError::ValidationErrors(e)
+    }
+}
+
 
 impl From<HttpCrateError> for SaphirError {
     fn from(e: HttpCrateError) -> Self {

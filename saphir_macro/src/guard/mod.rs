@@ -5,22 +5,21 @@ use quote::quote;
 
 mod fun;
 
-pub fn expand_guard(guard_impl: ItemImpl) -> Result<TokenStream> {
-    let guard_ident = crate::utils::parse_item_impl_ident(&guard_impl)?;
-    let guard_name = guard_ident.to_string();
-
-    let (mut input, guard_fn) = remove_validate_fn(guard_impl)?;
+pub fn expand_guard(mut guard_impl: ItemImpl) -> Result<TokenStream> {
+    let guard_fn = remove_validate_fn(&mut guard_impl)?;
 
     let fn_def = fun::GuardFnDef::new(guard_fn)?;
+    guard_impl.items.push(fn_def.def);
 
-    input.items.push(fn_def.def);
+    let guard_ident = crate::utils::parse_item_impl_ident(&guard_impl)?;
+    let guard_name = guard_ident.to_string();
 
     let mod_ident = Ident::new(&format!("SAPHIR_GEN_GUARD_{}", &guard_name), Span::call_site());
     let fn_ident = fn_def.fn_ident;
     let resp_type = fn_def.responder;
 
     Ok(quote! {
-        #input
+        #guard_impl
 
         mod #mod_ident {
             use super::*;
@@ -38,7 +37,7 @@ pub fn expand_guard(guard_impl: ItemImpl) -> Result<TokenStream> {
     })
 }
 
-fn remove_validate_fn(mut input: ItemImpl) -> Result<(ItemImpl, ImplItem)> {
+fn remove_validate_fn(input: &mut ItemImpl) -> Result<ImplItem> {
     let mid_fn_pos = input.items.iter().position(|item| {
         if let ImplItem::Method(m) = item {
             return m.sig.ident.to_string().eq("validate");
@@ -49,5 +48,5 @@ fn remove_validate_fn(mut input: ItemImpl) -> Result<(ItemImpl, ImplItem)> {
 
     let mid_fn = input.items.remove(mid_fn_pos);
 
-    Ok((input, mid_fn))
+    Ok(mid_fn)
 }

@@ -1,5 +1,4 @@
 use std::str::FromStr;
-
 use http::Method;
 use proc_macro2::{Ident, TokenStream};
 use quote::{quote_spanned, ToTokens};
@@ -76,6 +75,10 @@ pub struct ArgsRepr {
     pub name: String,
     pub typ: Option<TypePath>,
     pub a_type: ArgsReprType,
+    #[cfg(feature = "validate-requests")]
+    pub validated: bool,
+    #[cfg(feature = "validate-requests")]
+    pub is_vec: bool,
 }
 
 impl ArgsRepr {
@@ -94,6 +97,10 @@ impl ArgsRepr {
                     name: "self".to_string(),
                     typ: None,
                     a_type: ArgsReprType::SelfType,
+                    #[cfg(feature = "validate-requests")]
+                    validated: false,
+                    #[cfg(feature = "validate-requests")]
+                    is_vec: false,
                 })
             }
             FnArg::Typed(t) => match t.pat.as_ref() {
@@ -119,7 +126,40 @@ impl ArgsRepr {
                 .ok_or_else(|| Error::new_spanned(p, "Invalid handler argument, argument should have an ident"))?;
             let a_type = ArgsReprType::new(attrs, &name, p)?;
 
-            return Ok(ArgsRepr { name, typ, a_type });
+            #[cfg(feature = "validate-requests")]
+            {
+                let validated = !attrs.validator_exclusions.contains(&name);
+                let mut is_vec = false;
+
+                let typ_ident_str = p.ident.to_string();
+                let mut validated_type = None;
+
+                match typ_ident_str.as_str() {
+                    "Json" => {
+                        if let PathArguments::AngleBracketed(a) = &p.arguments {
+                            let a = a.args.first().ok_or_else(|| Error::new_spanned(a, "Option types need an type argument"))?;
+                            if let GenericArgument::Type(Type::Path(t)) = a {
+                                validated_type = t.path.segments.first().map(|p2| p2.ident.to_string());
+                            }
+                        }
+                    }
+                    _ => (),
+                };
+
+                match validated_type.as_deref() {
+                    Some("Vec") => {
+                        is_vec = true;
+                    }
+                    _ => ()
+                }
+
+                return Ok(ArgsRepr { name, typ, a_type, validated, is_vec });
+            }
+
+            #[cfg(not(feature = "validate-requests"))]
+            {
+                return Ok(ArgsRepr { name, typ, a_type });
+            }
         } else if let Type::Reference(r) = t.ty.as_ref() {
             return Err(Error::new_spanned(r.and_token, "Unexpected reference, help: remove '&'"));
         }
@@ -226,7 +266,7 @@ impl HandlerWrapperOpt {
                                 if let GenericArgument::Type(Type::Path(typ)) = arg {
                                     let ident = typ.path.segments.first().map(|t| &t.ident);
                                     if let Some(ident) = ident {
-                                        if !ident.to_string().eq("Bytes") {
+                                        if ident != "Bytes" {
                                             map_after_load = MapAfterLoad::new(ident);
                                             return Some(typ.clone());
                                         }
@@ -309,6 +349,8 @@ pub struct HandlerAttrs {
     pub methods_paths: Vec<(Method, String)>,
     pub guards: Vec<GuardDef>,
     pub cookie: bool,
+    #[cfg(feature = "validate-requests")]
+    pub validator_exclusions: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -321,7 +363,7 @@ pub struct HandlerRepr {
 
 impl HandlerRepr {
     pub fn new(mut m: ImplItemMethod) -> Result<Self> {
-        let attrs = HandlerAttrs::new(m.attrs.drain(..).collect(), &m)?;
+        let attrs = HandlerAttrs::new(std::mem::take(&mut m.attrs), &m)?;
         let wrapper_options = HandlerWrapperOpt::new(&attrs, &m)?;
         let return_type = if let ReturnType::Type(_0, typ) = &m.sig.output {
             typ.clone()
@@ -338,277 +380,331 @@ impl HandlerRepr {
 }
 
 impl HandlerAttrs {
-    pub fn new(mut attrs: Vec<Attribute>, method: &ImplItemMethod) -> Result<Self> {
-        let mut methods_paths = Vec::new();
-        let mut guards = Vec::new();
-        let mut cookie = false;
+    fn empty_with_capacity(capacity: usize) -> Self {
+        Self {
+            methods_paths: Vec::with_capacity(capacity),
+            guards: Vec::with_capacity(capacity),
+            cookie: false,
+            #[cfg(feature = "validate-requests")]
+            validator_exclusions: Vec::new(),
+        }
+    }
 
-        let metas = attrs.iter_mut().map(|attr| attr.parse_meta()).collect::<Result<Vec<Meta>>>()?;
-        for meta in metas {
+    pub fn new(attrs: Vec<Attribute>, method: &ImplItemMethod) -> Result<Self> {
+        let mut handler = HandlerAttrs::empty_with_capacity(attrs.len());
+
+        // FIXME: This contains a lot of duplication and could be simplified
+        for attr in attrs {
+            let ident = match attr.path.get_ident() {
+                Some(i) if i == "cookie" => {
+                    handler.cookie = true;
+                    continue;
+                }
+                Some(i) => i,
+                None => continue,
+            };
+            let meta = attr.parse_meta()?;
             match meta {
                 Meta::List(attribute) => {
-                    if let Some(ident) = attribute.path.get_ident() {
-                        if ident.to_string().eq("guard") {
-                            let mut guard_type_path = None;
-                            let mut init_fn = None;
-                            let mut init_data = None;
-                            let mut init_expr = None;
+                    if ident == "guard" {
+                        let mut guard_type_path = None;
+                        let mut init_fn = None;
+                        let mut init_data = None;
+                        let mut init_expr = None;
 
-                            for guard_meta in attribute.nested {
-                                if let NestedMeta::Meta(Meta::NameValue(MetaNameValue { path, lit, .. })) = guard_meta {
-                                    let path = path
-                                        .segments
-                                        .first()
-                                        .ok_or_else(|| Error::new_spanned(&path, "Missing parameters in guard attributes"))?;
-                                    match path.ident.to_string().as_str() {
-                                        "init_fn" => {
-                                            if let Lit::Str(lit_str) = lit {
-                                                init_fn = Some(
-                                                    syn::parse_str::<Path>(lit_str.value().as_str())
-                                                        .map_err(|_e| Error::new_spanned(path, "Expected path to a guard function"))?,
-                                                );
-                                            } else {
-                                                return Err(Error::new_spanned(lit, "Expected path to a guard function"));
-                                            }
-                                        }
-
-                                        "init_data" => {
-                                            init_data = Some(lit);
-                                        }
-
-                                        "init_expr" => {
-                                            if let Lit::Str(lit_str) = lit {
-                                                init_expr = Some(
-                                                    syn::parse_str::<Expr>(lit_str.value().as_str())
-                                                        .map_err(|_e| Error::new_spanned(path, "Expected a valid rust expression"))?,
-                                                );
-                                            } else {
-                                                return Err(Error::new_spanned(lit, "Expected a string of a valid rust expression"));
-                                            }
-                                        }
-
-                                        _ => {
-                                            return Err(Error::new_spanned(path, "Unauthorized param in guard macro"));
+                        for guard_meta in attribute.nested {
+                            if let NestedMeta::Meta(Meta::NameValue(MetaNameValue { path, lit, .. })) = guard_meta {
+                                let path = path
+                                    .segments
+                                    .first()
+                                    .ok_or_else(|| Error::new_spanned(&path, "Missing parameters in guard attributes"))?;
+                                match path.ident.to_string().as_str() {
+                                    "init_fn" => {
+                                        if let Lit::Str(lit_str) = lit {
+                                            init_fn = Some(
+                                                syn::parse_str::<Path>(lit_str.value().as_str())
+                                                    .map_err(|_e| Error::new_spanned(path, "Expected path to a guard function"))?,
+                                            );
+                                        } else {
+                                            return Err(Error::new_spanned(lit, "Expected path to a guard function"));
                                         }
                                     }
-                                } else if let NestedMeta::Meta(Meta::Path(p)) = guard_meta {
-                                    guard_type_path = Some(p);
+
+                                    "init_data" => {
+                                        init_data = Some(lit);
+                                    }
+
+                                    "init_expr" => {
+                                        if let Lit::Str(lit_str) = lit {
+                                            init_expr = Some(
+                                                syn::parse_str::<Expr>(lit_str.value().as_str())
+                                                    .map_err(|_e| Error::new_spanned(path, "Expected a valid rust expression"))?,
+                                            );
+                                        } else {
+                                            return Err(Error::new_spanned(lit, "Expected a string of a valid rust expression"));
+                                        }
+                                    }
+
+                                    _ => {
+                                        return Err(Error::new_spanned(path, "Unauthorized param in guard macro"));
+                                    }
                                 }
+                            } else if let NestedMeta::Meta(Meta::Path(p)) = guard_meta {
+                                guard_type_path = Some(p);
                             }
+                        }
 
-                            let guard = GuardDef {
-                                guard_type: guard_type_path.ok_or_else(|| Error::new_spanned(&ident, "Missing guard"))?,
-                                init_data,
-                                init_fn,
-                                init_expr,
-                            };
+                        let guard = GuardDef {
+                            guard_type: guard_type_path.ok_or_else(|| Error::new_spanned(&ident, "Missing guard"))?,
+                            init_data,
+                            init_fn,
+                            init_expr,
+                        };
 
-                            guards.push(guard);
-                        } else if ident.to_string().eq("openapi") {
-                            if attribute.nested.is_empty() {
-                                return Err(Error::new_spanned(ident, "openapi attribute cannot be empty"));
-                            }
-                            for openapi_attributes in &attribute.nested {
-                                match openapi_attributes {
-                                    NestedMeta::Meta(Meta::List(openapi_attribute)) => {
-                                        let i = openapi_attribute.path.get_ident().map(|i| i.to_string());
-                                        match i.as_deref() {
-                                            Some("return") => {
-                                                let mut nb_code = 0;
-                                                let mut nb_type = 0;
-                                                let mut nb_mime = 0;
-                                                let mut nb_name = 0;
-                                                if openapi_attribute.nested.is_empty() {
-                                                    return Err(Error::new_spanned(openapi_attribute, "openapi return attribute cannot be empty"));
-                                                }
-                                                for openapi_return_attribute in &openapi_attribute.nested {
-                                                    match openapi_return_attribute {
-                                                        NestedMeta::Meta(m) => {
-                                                            match m {
-                                                                Meta::NameValue(nv) => {
-                                                                    let r = nv.path.get_ident().map(|i| i.to_string());
-                                                                    match r.as_deref() {
-                                                                        Some("code") => {
-                                                                            if let Lit::Int(i) = &nv.lit {
-                                                                                let c: u16 = i
-                                                                                    .base10_parse()
-                                                                                    .map_err(|_| Error::new_spanned(i, "Invalid status code"))?;
-                                                                                if !(100..600).contains(&c) {
-                                                                                    return Err(Error::new_spanned(i, "Invalid status code"));
-                                                                                }
-                                                                                nb_code += 1;
+                        handler.guards.push(guard);
+                    } else if ident == "openapi" {
+                        if attribute.nested.is_empty() {
+                            return Err(Error::new_spanned(ident, "openapi attribute cannot be empty"));
+                        }
+                        for openapi_attributes in &attribute.nested {
+                            match openapi_attributes {
+                                NestedMeta::Meta(Meta::List(openapi_attribute)) => {
+                                    let i = openapi_attribute.path.get_ident().map(|i| i.to_string());
+                                    match i.as_deref() {
+                                        Some("return") => {
+                                            let mut nb_code = 0;
+                                            let mut nb_type = 0;
+                                            let mut nb_mime = 0;
+                                            let mut nb_name = 0;
+                                            if openapi_attribute.nested.is_empty() {
+                                                return Err(Error::new_spanned(openapi_attribute, "openapi return attribute cannot be empty"));
+                                            }
+                                            for openapi_return_attribute in &openapi_attribute.nested {
+                                                match openapi_return_attribute {
+                                                    NestedMeta::Meta(m) => {
+                                                        match m {
+                                                            Meta::NameValue(nv) => {
+                                                                let r = nv.path.get_ident().map(|i| i.to_string());
+                                                                match r.as_deref() {
+                                                                    Some("code") => {
+                                                                        if let Lit::Int(i) = &nv.lit {
+                                                                            let c: u16 = i
+                                                                                .base10_parse()
+                                                                                .map_err(|_| Error::new_spanned(i, "Invalid status code"))?;
+                                                                            if !(100..600).contains(&c) {
+                                                                                return Err(Error::new_spanned(i, "Invalid status code"));
                                                                             }
+                                                                            nb_code += 1;
                                                                         }
-                                                                        Some("type") => {
-                                                                            if let Lit::Str(_) = &nv.lit {
-                                                                                nb_type += 1;
-                                                                            // TODO: Validate raw object syntax
-                                                                            } else {
-                                                                                return Err(Error::new_spanned(
+                                                                    }
+                                                                    Some("type") => {
+                                                                        if let Lit::Str(_) = &nv.lit {
+                                                                            nb_type += 1;
+                                                                        // TODO: Validate raw object syntax
+                                                                        } else {
+                                                                            return Err(Error::new_spanned(
+                                                                            m,
+                                                                            "Invalid type : expected a type name/path/raw object wrapped in double-quotes",
+                                                                        ));
+                                                                        }
+                                                                    }
+                                                                    Some("mime") => {
+                                                                        if let Lit::Str(_) = &nv.lit {
+                                                                            nb_mime += 1;
+                                                                        } else {
+                                                                            return Err(Error::new_spanned(m, "Expected a mimetype string"));
+                                                                        }
+                                                                    }
+                                                                    Some("name") => {
+                                                                        if let Lit::Str(_) = &nv.lit {
+                                                                            nb_name += 1;
+                                                                        } else {
+                                                                            return Err(Error::new_spanned(m, "Expected a string"));
+                                                                        }
+                                                                    }
+                                                                    _ => return Err(Error::new_spanned(&nv.path, "Invalid openapi return attribute")),
+                                                                }
+                                                            }
+                                                            _ => return Err(Error::new_spanned(m, "Invalid openapi return attribute")),
+                                                        }
+                                                    }
+                                                    _ => return Err(Error::new_spanned(openapi_attribute, "Invalid openapi return attribute")),
+                                                }
+                                            }
+
+                                            if nb_code == 0 {
+                                                return Err(Error::new_spanned(openapi_attribute, "openapi return missing `code` value"));
+                                            }
+
+                                            if nb_type == 0 {
+                                                return Err(Error::new_spanned(openapi_attribute, "openapi return missing `type` value"));
+                                            }
+
+                                            if nb_mime > 1 {
+                                                return Err(Error::new_spanned(
+                                                    openapi_attribute,
+                                                    "openapi cannot have more than 1 `mime` for the same return",
+                                                ));
+                                            }
+
+                                            if nb_name > 1 {
+                                                return Err(Error::new_spanned(openapi_attribute, "Cannot specify the name twice"));
+                                            }
+
+                                            if nb_code > 1 && nb_type > 1 {
+                                                return Err(Error::new_spanned(
+                                                    openapi_attribute,
+                                                    "openapi return cannot have both multiple codes and multiple types.\
+                                                        \nPlease add a return() group for each code-type pair.
+                                                    ",
+                                                ));
+                                            }
+                                        }
+                                        Some("return_override") => {
+                                            let mut nb_code = 0;
+                                            let mut nb_type = 0;
+                                            let mut nb_mime = 0;
+                                            let mut nb_name = 0;
+                                            if openapi_attribute.nested.is_empty() {
+                                                return Err(Error::new_spanned(openapi_attribute, "openapi return attribute cannot be empty"));
+                                            }
+                                            for openapi_return_attribute in &openapi_attribute.nested {
+                                                match openapi_return_attribute {
+                                                    NestedMeta::Meta(m) => {
+                                                        match m {
+                                                            Meta::NameValue(nv) => {
+                                                                let r = nv.path.get_ident().map(|i| i.to_string());
+                                                                match r.as_deref() {
+                                                                    Some("code") => {
+                                                                        if let Lit::Int(i) = &nv.lit {
+                                                                            let c: u16 = i
+                                                                                .base10_parse()
+                                                                                .map_err(|_| Error::new_spanned(i, "Invalid status code"))?;
+                                                                            if !(100..600).contains(&c) {
+                                                                                return Err(Error::new_spanned(i, "Invalid status code"));
+                                                                            }
+                                                                            nb_code += 1;
+                                                                        }
+                                                                    }
+                                                                    Some("type") => {
+                                                                        if let Lit::Str(_) = &nv.lit {
+                                                                            nb_type += 1;
+                                                                        // TODO: Validate raw object syntax
+                                                                        } else {
+                                                                            return Err(Error::new_spanned(
                                                                                 m,
                                                                                 "Invalid type : expected a type name/path/raw object wrapped in double-quotes",
                                                                             ));
-                                                                            }
                                                                         }
-                                                                        Some("mime") => {
-                                                                            if let Lit::Str(_) = &nv.lit {
-                                                                                nb_mime += 1;
-                                                                            } else {
-                                                                                return Err(Error::new_spanned(m, "Expected a mimetype string"));
-                                                                            }
-                                                                        }
-                                                                        Some("name") => {
-                                                                            if let Lit::Str(_) = &nv.lit {
-                                                                                nb_name += 1;
-                                                                            } else {
-                                                                                return Err(Error::new_spanned(m, "Expected a string"));
-                                                                            }
-                                                                        }
-                                                                        _ => return Err(Error::new_spanned(&nv.path, "Invalid openapi return attribute")),
                                                                     }
-                                                                }
-                                                                _ => return Err(Error::new_spanned(m, "Invalid openapi return attribute")),
-                                                            }
-                                                        }
-                                                        _ => return Err(Error::new_spanned(openapi_attribute, "Invalid openapi return attribute")),
-                                                    }
-                                                }
-
-                                                if nb_code == 0 {
-                                                    return Err(Error::new_spanned(openapi_attribute, "openapi return missing `code` value"));
-                                                }
-
-                                                if nb_type == 0 {
-                                                    return Err(Error::new_spanned(openapi_attribute, "openapi return missing `type` value"));
-                                                }
-
-                                                if nb_mime > 1 {
-                                                    return Err(Error::new_spanned(
-                                                        openapi_attribute,
-                                                        "openapi cannot have more than 1 `mime` for the same return",
-                                                    ));
-                                                }
-
-                                                if nb_name > 1 {
-                                                    return Err(Error::new_spanned(openapi_attribute, "Cannot specify the name twice"));
-                                                }
-
-                                                if nb_code > 1 && nb_type > 1 {
-                                                    return Err(Error::new_spanned(
-                                                        openapi_attribute,
-                                                        "openapi return cannot have both multiple codes and multiple types.\
-                                                            \nPlease add a return() group for each code-type pair.
-                                                        ",
-                                                    ));
-                                                }
-                                            }
-                                            Some("return_override") => {
-                                                let mut nb_code = 0;
-                                                let mut nb_type = 0;
-                                                let mut nb_mime = 0;
-                                                let mut nb_name = 0;
-                                                if openapi_attribute.nested.is_empty() {
-                                                    return Err(Error::new_spanned(openapi_attribute, "openapi return attribute cannot be empty"));
-                                                }
-                                                for openapi_return_attribute in &openapi_attribute.nested {
-                                                    match openapi_return_attribute {
-                                                        NestedMeta::Meta(m) => {
-                                                            match m {
-                                                                Meta::NameValue(nv) => {
-                                                                    let r = nv.path.get_ident().map(|i| i.to_string());
-                                                                    match r.as_deref() {
-                                                                        Some("code") => {
-                                                                            if let Lit::Int(i) = &nv.lit {
-                                                                                let c: u16 = i
-                                                                                    .base10_parse()
-                                                                                    .map_err(|_| Error::new_spanned(i, "Invalid status code"))?;
-                                                                                if !(100..600).contains(&c) {
-                                                                                    return Err(Error::new_spanned(i, "Invalid status code"));
-                                                                                }
-                                                                                nb_code += 1;
-                                                                            }
+                                                                    Some("mime") => {
+                                                                        if let Lit::Str(_) = &nv.lit {
+                                                                            nb_mime += 1;
+                                                                        } else {
+                                                                            return Err(Error::new_spanned(m, "Expected a mimetype string"));
                                                                         }
-                                                                        Some("type") => {
-                                                                            if let Lit::Str(_) = &nv.lit {
-                                                                                nb_type += 1;
-                                                                            // TODO: Validate raw object syntax
-                                                                            } else {
-                                                                                return Err(Error::new_spanned(
-                                                                                    m,
-                                                                                    "Invalid type : expected a type name/path/raw object wrapped in double-quotes",
-                                                                                ));
-                                                                            }
-                                                                        }
-                                                                        Some("mime") => {
-                                                                            if let Lit::Str(_) = &nv.lit {
-                                                                                nb_mime += 1;
-                                                                            } else {
-                                                                                return Err(Error::new_spanned(m, "Expected a mimetype string"));
-                                                                            }
-                                                                        }
-                                                                        Some("name") => {
-                                                                            if let Lit::Str(_) = &nv.lit {
-                                                                                nb_name += 1;
-                                                                            } else {
-                                                                                return Err(Error::new_spanned(m, "Expected a string"));
-                                                                            }
-                                                                        }
-                                                                        _ => return Err(Error::new_spanned(&nv.path, "Invalid openapi return attribute")),
                                                                     }
+                                                                    Some("name") => {
+                                                                        if let Lit::Str(_) = &nv.lit {
+                                                                            nb_name += 1;
+                                                                        } else {
+                                                                            return Err(Error::new_spanned(m, "Expected a string"));
+                                                                        }
+                                                                    }
+                                                                    _ => return Err(Error::new_spanned(&nv.path, "Invalid openapi return attribute")),
                                                                 }
-                                                                _ => return Err(Error::new_spanned(m, "Invalid openapi return attribute")),
                                                             }
+                                                            _ => return Err(Error::new_spanned(m, "Invalid openapi return attribute")),
                                                         }
-                                                        _ => return Err(Error::new_spanned(openapi_attribute, "Invalid openapi return attribute")),
                                                     }
-                                                }
-
-                                                // TODO: confirm specified type to override is in the return signature
-                                                if nb_type == 0 {
-                                                    return Err(Error::new_spanned(openapi_attribute, "You must specify which `type` to override"));
-                                                }
-
-                                                if nb_type > 1 {
-                                                    return Err(Error::new_spanned(openapi_attribute, "can only specify one `type` per return_override"));
-                                                }
-
-                                                if nb_mime > 1 {
-                                                    return Err(Error::new_spanned(openapi_attribute, "cannot specify multiple mimes for an override"));
-                                                }
-
-                                                if nb_name > 1 {
-                                                    return Err(Error::new_spanned(openapi_attribute, "Cannot specify the name twice"));
-                                                }
-
-                                                if nb_code == 0 && nb_mime == 0 {
-                                                    return Err(Error::new_spanned(openapi_attribute, "must override either `code`(s) or `mime`"));
+                                                    _ => return Err(Error::new_spanned(openapi_attribute, "Invalid openapi return attribute")),
                                                 }
                                             }
-                                            Some("param") => {
-                                                if openapi_attribute.nested.is_empty() {
-                                                    return Err(Error::new_spanned(openapi_attribute, "openapi param attribute cannot be empty"));
-                                                }
+
+                                            // TODO: confirm specified type to override is in the return signature
+                                            if nb_type == 0 {
+                                                return Err(Error::new_spanned(openapi_attribute, "You must specify which `type` to override"));
                                             }
-                                            _ => return Err(Error::new_spanned(openapi_attribute, "Invalid openapi attribute")),
+
+                                            if nb_type > 1 {
+                                                return Err(Error::new_spanned(openapi_attribute, "can only specify one `type` per return_override"));
+                                            }
+
+                                            if nb_mime > 1 {
+                                                return Err(Error::new_spanned(openapi_attribute, "cannot specify multiple mimes for an override"));
+                                            }
+
+                                            if nb_name > 1 {
+                                                return Err(Error::new_spanned(openapi_attribute, "Cannot specify the name twice"));
+                                            }
+
+                                            if nb_code == 0 && nb_mime == 0 {
+                                                return Err(Error::new_spanned(openapi_attribute, "must override either `code`(s) or `mime`"));
+                                            }
                                         }
+                                        Some("param") => {
+                                            if openapi_attribute.nested.is_empty() {
+                                                return Err(Error::new_spanned(openapi_attribute, "openapi param attribute cannot be empty"));
+                                            }
+                                        }
+                                        _ => return Err(Error::new_spanned(openapi_attribute, "Invalid openapi attribute")),
                                     }
-                                    _ => return Err(Error::new_spanned(openapi_attributes, "Invalid openapi attribute")),
+                                }
+                                _ => return Err(Error::new_spanned(openapi_attributes, "Invalid openapi attribute")),
+                            }
+                        }
+                    } else if ident == "validator" {
+                        #[cfg(not(feature = "validate-requests"))]
+                        {
+                            return Err(Error::new_spanned(ident, "This require the \"validate-requests\" feature flag in Saphir"));
+                        }
+
+                        #[cfg(feature = "validate-requests")]
+                        {
+                            if attribute.nested.is_empty() {
+                                return Err(Error::new_spanned(ident, "validator attribute cannot be empty"));
+                            }
+
+                            for validator_attributes in &attribute.nested {
+                                match validator_attributes {
+                                    NestedMeta::Meta(Meta::List(validator_attribute)) => {
+                                        let i = validator_attribute.path.get_ident().map(|i| i.to_string());
+                                        match i.as_deref() {
+                                            Some("exclude") => {
+                                                if validator_attribute.nested.is_empty() {
+                                                    return Err(Error::new_spanned(validator_attribute, "validator exclude attribute cannot be empty"));
+                                                }
+                                                for excluded_meta in &validator_attribute.nested {
+                                                    match excluded_meta {
+                                                        NestedMeta::Lit(Lit::Str(excluded)) => {
+                                                            handler.validator_exclusions.push(excluded.value());
+                                                        },
+                                                        _ => return Err(Error::new_spanned(validator_attribute, "Expected a list of quoted parameter names")),
+                                                    }
+                                                }
+                                            },
+                                            _ => return Err(Error::new_spanned(validator_attribute, "Invalid validator attribute")),
+                                        }
+                                    },
+                                    NestedMeta::Meta(Meta::Path(p)) if p.is_ident("exclude") =>
+                                        return Err(Error::new_spanned(p, "expected a list of excluded parameters")),
+                                    _ => return Err(Error::new_spanned(validator_attributes, "Invalid validator attribute")),
                                 }
                             }
+                        }
+                    } else {
+                        let method =
+                            Method::from_str(ident.to_string().to_uppercase().as_str()).map_err(|_e| Error::new_spanned(ident, "Invalid HTTP method"))?;
+
+                        if let Some(NestedMeta::Lit(Lit::Str(str))) = attribute.nested.first() {
+                            let path = str.value();
+                            if !path.starts_with('/') {
+                                return Err(Error::new_spanned(str, "Path must start with '/'"));
+                            }
+
+                            handler.methods_paths.push((method, path));
                         } else {
-                            let method =
-                                Method::from_str(ident.to_string().to_uppercase().as_str()).map_err(|_e| Error::new_spanned(ident, "Invalid HTTP method"))?;
-
-                            if let Some(NestedMeta::Lit(Lit::Str(str))) = attribute.nested.first() {
-                                let path = str.value();
-                                if !path.starts_with('/') {
-                                    return Err(Error::new_spanned(str, "Path must start with '/'"));
-                                }
-
-                                methods_paths.push((method, path));
-                            } else {
-                                return Err(Error::new_spanned(attribute, "Missing path for method"));
-                            }
+                            return Err(Error::new_spanned(attribute, "Missing path for method"));
                         }
                     }
                 }
@@ -616,31 +712,29 @@ impl HandlerAttrs {
                 Meta::Path(p) => {
                     if let Some(ident_str) = p.get_ident().map(|p| p.to_string()) {
                         if ident_str.starts_with("cookie") {
-                            cookie = true;
+                            handler.cookie = true;
                         }
                     }
                 }
             }
         }
 
-        if methods_paths.is_empty() {
+        if handler.methods_paths.is_empty() {
             return Err(Error::new_spanned(
                 &method.sig,
                 "Missing Router attribute for handler, help: adde something like `#[get(\"/\")]`",
             ));
         }
 
-        Ok(HandlerAttrs { methods_paths, guards, cookie })
+        Ok(handler)
     }
 }
 
 pub fn parse_handlers(input: ItemImpl) -> Result<Vec<HandlerRepr>> {
-    let mut vec = Vec::new();
-    for item in input.items {
-        if let ImplItem::Method(m) = item {
-            vec.push(HandlerRepr::new(m)?);
-        }
-    }
-
-    Ok(vec)
+    input.items.into_iter()
+        .filter_map(|item| match item {
+            ImplItem::Method(m) => Some(HandlerRepr::new(m)),
+            _ => None,
+        })
+        .collect()
 }

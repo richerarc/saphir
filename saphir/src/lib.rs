@@ -120,10 +120,6 @@ pub mod server;
 pub mod utils;
 ///
 pub use http;
-///
-#[cfg(feature = "request-validator")]
-#[cfg_attr(docsrs, doc(cfg(feature = "request-validator")))]
-pub use validator;
 #[doc(hidden)]
 pub use hyper;
 

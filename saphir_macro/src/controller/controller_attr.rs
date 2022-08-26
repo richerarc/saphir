@@ -57,7 +57,7 @@ impl ControllerAttr {
 
         let name = name.unwrap_or_else(|| ident.to_string().to_lowercase().trim_end_matches("controller").to_string());
 
-        Ok(ControllerAttr { ident, name, version, prefix })
+        Ok(ControllerAttr { ident: ident.clone(), name, version, prefix })
     }
 }
 

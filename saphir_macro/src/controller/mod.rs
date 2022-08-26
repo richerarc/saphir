@@ -74,7 +74,7 @@ fn gen_wrapper_handler(handler_tokens: &mut TokenStream, handler: HandlerRepr) -
     (quote! {;}).to_tokens(&mut body_stream);
     gen_cookie_load(&mut body_stream, &opts);
     gen_query_load(&mut body_stream, &opts);
-    let mut call_params_ident = Vec::new();
+    let mut call_params_ident = Vec::with_capacity(opts.fn_arguments.len());
     let async_call = !opts.sync_handler;
     for arg in opts.fn_arguments.into_iter() {
         arg.gen_parameter(&mut body_stream, &mut call_params_ident)?;
@@ -326,6 +326,44 @@ impl ArgsRepr {
         }
 
         (quote! {;}).to_tokens(stream);
+
+        #[cfg(feature = "validate-requests")]
+        if self.validated {
+            if optional {
+                if self.is_vec {
+                    (quote! {
+                    if let Some(param) = &#id {
+                        use ::validator::Validate;
+                        for t in param.iter() {
+                            t.validate().map_err(|e| saphir::error::SaphirError::ValidationErrors(e))?;
+                        }
+                    }}).to_tokens(stream);
+                } else {
+                    (quote! {
+                    if let Some(param) = &#id {
+                        use ::validator::Validate;
+                        param.validate().map_err(|e| saphir::error::SaphirError::ValidationErrors(e))?;
+                    }}).to_tokens(stream);
+                }
+            } else {
+                if self.is_vec {
+                    (quote! {
+                    {
+                        use ::validator::Validate;
+                        for t in #id.iter() {
+                            t.validate().map_err(|e| saphir::error::SaphirError::ValidationErrors(e))?;
+                        }
+                    }}).to_tokens(stream);
+                } else {
+                    (quote! {
+                    {
+                        use ::validator::Validate;
+                        #id.validate().map_err(|e| saphir::error::SaphirError::ValidationErrors(e))?;
+                    }}).to_tokens(stream);
+                }
+            }
+        }
+
     }
 
     fn gen_cookie_param(&self, stream: &mut TokenStream) {

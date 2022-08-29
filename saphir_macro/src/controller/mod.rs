@@ -97,7 +97,6 @@ fn gen_wrapper_handler(handler_tokens: &mut TokenStream, handler: HandlerRepr) -
 fn init_multipart(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
     if opts.init_multipart {
         (quote! {let multipart = Multipart::from_request(&mut req).await.map_err(|e| SaphirError::responder(e))?;
-
         })
         .to_tokens(stream);
     }
@@ -106,7 +105,6 @@ fn init_multipart(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
 fn gen_cookie_load(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
     if opts.parse_cookies {
         (quote! {
-
             req.parse_cookies();
         })
         .to_tokens(stream);
@@ -116,7 +114,6 @@ fn gen_cookie_load(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
 fn gen_query_load(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
     if opts.parse_query {
         (quote! {
-
         let mut query = req.uri().query().map(saphir::utils::read_query_string_to_hashmap).transpose()?.unwrap_or_default();
         })
         .to_tokens(stream);
@@ -260,7 +257,6 @@ impl ArgsRepr {
     fn gen_multipart_param(&self, stream: &mut TokenStream) {
         let id = Ident::new(self.name.as_str(), Span::call_site());
         (quote! {
-
             let #id = multipart;
         })
         .to_tokens(stream);
@@ -291,7 +287,6 @@ impl ArgsRepr {
             .expect("This should not happens");
 
         (quote! {
-
             let #id = if let Some(form) = req.uri().query().map(|query_str| saphir::utils::read_query_string_to_type::<#typ>(query_str).map_err(SaphirError::SerdeUrlDe)) {
                 Some(form.map(|x| Form(x)))
             } else {
@@ -301,12 +296,13 @@ impl ArgsRepr {
         .to_tokens(stream);
 
         if optional {
-            (quote! {.ok().flatten()}).to_tokens(stream);
+            (quote! {.ok().flatten();}).to_tokens(stream);
         } else {
-            (quote! {?.ok_or_else(|| SaphirError::MissingParameter("form body".to_string(), false))?}).to_tokens(stream);
+            (quote! {?.ok_or_else(|| SaphirError::MissingParameter("form body".to_string(), false))?;}).to_tokens(stream);
         }
 
-        (quote! {;}).to_tokens(stream);
+        #[cfg(feature = "validate-requests")]
+        self.gen_validate_block(stream, &id, optional);
     }
 
     fn gen_json_param(&self, stream: &mut TokenStream, optional: bool) {
@@ -320,14 +316,17 @@ impl ArgsRepr {
         .to_tokens(stream);
 
         if optional {
-            (quote! {.ok()}).to_tokens(stream);
+            (quote! {.ok();}).to_tokens(stream);
         } else {
-            (quote! {?}).to_tokens(stream);
+            (quote! {?;}).to_tokens(stream);
         }
 
-        (quote! {;}).to_tokens(stream);
-
         #[cfg(feature = "validate-requests")]
+        self.gen_validate_block(stream, &id, optional);
+    }
+
+    #[cfg(feature = "validate-requests")]
+    fn gen_validate_block(&self, stream: &mut TokenStream, id: &Ident, optional: bool) {
         if self.validated {
             if optional {
                 if self.is_vec {
@@ -363,7 +362,6 @@ impl ArgsRepr {
                 }
             }
         }
-
     }
 
     fn gen_cookie_param(&self, stream: &mut TokenStream) {

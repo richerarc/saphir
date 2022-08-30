@@ -58,7 +58,7 @@
 //! This attribute can be present multiple times and can include any number of
 //! `return`, `return_override` and `params` parameters:
 //!
-//! ### The `return(...) openapi parameter`
+//! ### The `return(...)` openapi parameter
 //! **Syntax: `return(code = <code>, type = "<type_path>"[, mime = <mime>])`**
 //!
 //! Specify a possible return code & type, and optionally a mime type.
@@ -84,7 +84,7 @@
 //! 500))]`
 //!
 //!
-//! ### The `return_override(...) openapi parameter`
+//! ### The `return_override(...)` openapi parameter
 //! **Syntax: `return_override(type = "<type_path>", code = <code>[, mime = <mime>])`**
 //!
 //! Saphir provide some default API information for built-in types.
@@ -167,12 +167,12 @@
 //! # }
 //! ```
 //!
-//! ## The `#[cookies] Attribute`
+//! ## The `#[cookies]` Attribute
 //! This will ensure cookies are parsed in the request before the endpoint
 //! function is called, cookies can than be accessed with
 //! `req.cookies().get("<cookie_name>")`.
 //!
-//! ## The `#[guard] Attribute`
+//! ## The `#[guard]` Attribute
 //! This will add a request guard before your endpoint. It has two parameters:
 //! - `fn="path::to::your::guard_fn"` : *REQUIRED* This is used to specify what
 //!   guard function is to be called before your endpoint
@@ -180,10 +180,49 @@
 //!   the data that will be passed to the guard function. this function takes a
 //!   reference of the controller type it is used in.
 //!
+//! ## The `#[validate(...)` Attribute
+//! **Syntax: `#[validate(exclude(excluded_param_1, excluded_param_2))]`**
+//!
+//! When using the `validate-requests` feature flag, saphir will generate validation
+//! code for all `Json<T>` and `Form<T>` request payloads using the [`validator`](https://github.com/Keats/validator) crate.
+//! Any `T` which does not implement the `validator::Validate` trait will cause
+//! compilation error.
+//! This macro attribute can be used to exclude validation on certain request
+//! parameters.
+//! Example:
+//! ```rust
+//! # #[macro_use] extern crate saphir_macro;
+//! # use crate::saphir::prelude::*;
+//! #
+//! # fn main() {}
+//! #
+//! # enum MyError {
+//! #     Unknown
+//! # }
+//! # impl Responder for MyError {
+//! #    fn respond_with_builder(self,builder: Builder,ctx: &HttpContext) -> Builder {
+//! #        unimplemented!()
+//! #    }
+//! # }
+//! #
+//! # #[controller(name = "my-controller")]
+//! #[derive(Deserialize)]
+//! struct MyPayload {
+//!    a: String,
+//! }
+//!
+//! struct MyController {}
+//! impl MyController {
+//!     #[post("/")]
+//!     #[validator(exclude(req))]
+//!     async fn my_handler(&self, req: Json<MyPayload>) -> Result<(), MyError> { /*...*/ Ok(()) }
+//! }
+//! ```
+//!
 //! # Type Attributes (Struct & Enum)
 //! These attributes can be added on top of a `struct` or `enum` definition.
 //!
-//! ## The `#[openapi(mime = <mime>)] Attribute`
+//! ## The `#[openapi(mime = <mime>)]` Attribute
 //! This attribute specify the OpenAPI mimetype for this type.
 
 pub use futures::future::{BoxFuture, FutureExt};

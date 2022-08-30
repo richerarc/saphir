@@ -64,6 +64,9 @@
 //! - `json`  : Add the `Json` wrapper type to simplify working with json data
 //! - `form`  : Add the `Form` wrapper type to simplify working with urlencoded
 //!   data
+//! - `validate-requests` : Enable the `#[controller]` macro to generate validation
+//!   code for all `Json<T>` and `Form<T>`request payloads using the
+//!   [`validator`](https://github.com/Keats/validator) crate.
 //!
 //! *_More feature will be added in the future_*
 #![allow(clippy::match_like_matches_macro)]

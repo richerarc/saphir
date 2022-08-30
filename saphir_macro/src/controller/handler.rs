@@ -1,7 +1,7 @@
-use std::str::FromStr;
 use http::Method;
 use proc_macro2::{Ident, TokenStream};
 use quote::{quote_spanned, ToTokens};
+use std::str::FromStr;
 use syn::{
     spanned::Spanned, Attribute, Error, Expr, FnArg, GenericArgument, ImplItem, ImplItemMethod, ItemImpl, Lit, Meta, MetaNameValue, NestedMeta, Pat, PatIdent,
     PatType, Path, PathArguments, PathSegment, Result, ReturnType, Type, TypePath,
@@ -137,7 +137,15 @@ impl ArgsRepr {
                 match typ_ident_str.as_str() {
                     "Json" => {
                         if let PathArguments::AngleBracketed(a) = &p.arguments {
-                            let a = a.args.first().ok_or_else(|| Error::new_spanned(a, "Option types need an type argument"))?;
+                            let a = a.args.first().ok_or_else(|| Error::new_spanned(a, "Json types need an type argument"))?;
+                            if let GenericArgument::Type(Type::Path(t)) = a {
+                                validated_type = t.path.segments.first().map(|p2| p2.ident.to_string());
+                            }
+                        }
+                    }
+                    "Form" => {
+                        if let PathArguments::AngleBracketed(a) = &p.arguments {
+                            let a = a.args.first().ok_or_else(|| Error::new_spanned(a, "Form types need an type argument"))?;
                             if let GenericArgument::Type(Type::Path(t)) = a {
                                 validated_type = t.path.segments.first().map(|p2| p2.ident.to_string());
                             }
@@ -146,14 +154,17 @@ impl ArgsRepr {
                     _ => (),
                 };
 
-                match validated_type.as_deref() {
-                    Some("Vec") => {
-                        is_vec = true;
-                    }
-                    _ => ()
+                if let Some("Vec") = validated_type.as_deref() {
+                    is_vec = true;
                 }
 
-                return Ok(ArgsRepr { name, typ, a_type, validated, is_vec });
+                return Ok(ArgsRepr {
+                    name,
+                    typ,
+                    a_type,
+                    validated,
+                    is_vec,
+                });
             }
 
             #[cfg(not(feature = "validate-requests"))]
@@ -488,9 +499,8 @@ impl HandlerAttrs {
                                                                 match r.as_deref() {
                                                                     Some("code") => {
                                                                         if let Lit::Int(i) = &nv.lit {
-                                                                            let c: u16 = i
-                                                                                .base10_parse()
-                                                                                .map_err(|_| Error::new_spanned(i, "Invalid status code"))?;
+                                                                            let c: u16 =
+                                                                                i.base10_parse().map_err(|_| Error::new_spanned(i, "Invalid status code"))?;
                                                                             if !(100..600).contains(&c) {
                                                                                 return Err(Error::new_spanned(i, "Invalid status code"));
                                                                             }
@@ -500,12 +510,15 @@ impl HandlerAttrs {
                                                                     Some("type") => {
                                                                         if let Lit::Str(_) = &nv.lit {
                                                                             nb_type += 1;
-                                                                        // TODO: Validate raw object syntax
+                                                                        // TODO:
+                                                                        // Validate
+                                                                        // raw object
+                                                                        // syntax
                                                                         } else {
                                                                             return Err(Error::new_spanned(
-                                                                            m,
-                                                                            "Invalid type : expected a type name/path/raw object wrapped in double-quotes",
-                                                                        ));
+                                                                                m,
+                                                                                "Invalid type : expected a type name/path/raw object wrapped in double-quotes",
+                                                                            ));
                                                                         }
                                                                     }
                                                                     Some("mime") => {
@@ -577,9 +590,8 @@ impl HandlerAttrs {
                                                                 match r.as_deref() {
                                                                     Some("code") => {
                                                                         if let Lit::Int(i) = &nv.lit {
-                                                                            let c: u16 = i
-                                                                                .base10_parse()
-                                                                                .map_err(|_| Error::new_spanned(i, "Invalid status code"))?;
+                                                                            let c: u16 =
+                                                                                i.base10_parse().map_err(|_| Error::new_spanned(i, "Invalid status code"))?;
                                                                             if !(100..600).contains(&c) {
                                                                                 return Err(Error::new_spanned(i, "Invalid status code"));
                                                                             }
@@ -589,7 +601,10 @@ impl HandlerAttrs {
                                                                     Some("type") => {
                                                                         if let Lit::Str(_) = &nv.lit {
                                                                             nb_type += 1;
-                                                                        // TODO: Validate raw object syntax
+                                                                        // TODO:
+                                                                        // Validate
+                                                                        // raw object
+                                                                        // syntax
                                                                         } else {
                                                                             return Err(Error::new_spanned(
                                                                                 m,
@@ -678,16 +693,17 @@ impl HandlerAttrs {
                                                     match excluded_meta {
                                                         NestedMeta::Lit(Lit::Str(excluded)) => {
                                                             handler.validator_exclusions.push(excluded.value());
-                                                        },
+                                                        }
                                                         _ => return Err(Error::new_spanned(validator_attribute, "Expected a list of quoted parameter names")),
                                                     }
                                                 }
-                                            },
+                                            }
                                             _ => return Err(Error::new_spanned(validator_attribute, "Invalid validator attribute")),
                                         }
-                                    },
-                                    NestedMeta::Meta(Meta::Path(p)) if p.is_ident("exclude") =>
-                                        return Err(Error::new_spanned(p, "expected a list of excluded parameters")),
+                                    }
+                                    NestedMeta::Meta(Meta::Path(p)) if p.is_ident("exclude") => {
+                                        return Err(Error::new_spanned(p, "expected a list of excluded parameters"))
+                                    }
                                     _ => return Err(Error::new_spanned(validator_attributes, "Invalid validator attribute")),
                                 }
                             }
@@ -731,7 +747,9 @@ impl HandlerAttrs {
 }
 
 pub fn parse_handlers(input: ItemImpl) -> Result<Vec<HandlerRepr>> {
-    input.items.into_iter()
+    input
+        .items
+        .into_iter()
         .filter_map(|item| match item {
             ImplItem::Method(m) => Some(HandlerRepr::new(m)),
             _ => None,

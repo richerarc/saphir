@@ -245,7 +245,6 @@ impl From<::validator::ValidationErrors> for SaphirError {
     }
 }
 
-
 impl From<HttpCrateError> for SaphirError {
     fn from(e: HttpCrateError) -> Self {
         SaphirError::Internal(InternalError::Http(e))

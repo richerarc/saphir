@@ -34,18 +34,21 @@ impl UserController {
     }
 
     #[post("/json")]
+    #[validator(exclude("user"))]
     async fn post_user_json(&self, user: Json<User>) -> (u16, Json<User>) {
         (200, user)
     }
 
     #[get("/form")]
     #[post("/form")]
+    #[validator(exclude("user"))]
     async fn user_form(&self, user: Form<User>) -> (u16, Form<User>) {
         (200, user)
     }
 
     #[cookies]
     #[post("/sync")]
+    #[validator(exclude("req"))]
     fn get_user_sync(&self, mut req: Request<Json<User>>) -> (u16, Json<User>) {
         let u = req.body_mut();
         u.username = "Samuel".to_string();

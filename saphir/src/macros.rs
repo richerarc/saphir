@@ -23,30 +23,32 @@
 //! E.g. `#[get("/users/<user_id>")]` would route its function to
 //! /users/<user_id> with the HTTP method GET accepted.
 //!
-//! Path segments wrapped between '<' and '>', e.g. <user_id>, are considered parameters
-//! and mapped to the function parameter of the same name.
+//! Path segments wrapped between '<' and '>', e.g. <user_id>, are considered
+//! parameters and mapped to the function parameter of the same name.
 //!
 //! The following parameters types are supported:
 //!  - `CookieJar`: Collection of all the cookies in the request
-//!  - `Json`: The request body interpreted in Json.
-//!          If the request body is not valid Json, a 400 Bad Request response is returned.
-//!  - `Form`: The request body interpreted as a standard form. (application/x-www-form-urlencoded)
-//!          If the request body is not a valid Form, a 400 Bad Request response is returned.
-//!  - `Multipart`: The request body interpreted as multipart form data (multipart/form-data)
-//!               If the request body is not a valid multipart form, a 400 Bad Request response is returned.
-//!  - `Ext<MyExtensionType>`: Retrieve the MyExtensionType from the request extensions.
-//!                          Request extensions are data that you can attach to the request
-//!                          within Middlewares and Guards.
+//!  - `Json`: The request body interpreted in Json. If the request body is not
+//!    valid Json, a 400 Bad Request response is returned.
+//!  - `Form`: The request body interpreted as a standard form.
+//!    (application/x-www-form-urlencoded) If the request body is not a valid
+//!    Form, a 400 Bad Request response is returned.
+//!  - `Multipart`: The request body interpreted as multipart form data
+//!    (multipart/form-data) If the request body is not a valid multipart form,
+//!    a 400 Bad Request response is returned.
+//!  - `Ext<MyExtensionType>`: Retrieve the MyExtensionType from the request
+//!    extensions. Request extensions are data that you can attach to the
+//!    request within Middlewares and Guards.
 //!  - `Extensions`: Collection of all the extensions attached to the request.
-//!                This is the whole owned collection, so it cannot be used in conjunction
-//!                with single Ext<T> parameters.
-//!  - `Request`: The whole owned Saphir request.
-//!             This is the whole owned request, so it cannot be used in conjunction
-//!             of any of the above. (All of the above can be retrieved from this request)
-//!  - `Option`: Any body parameter, path parameter or query string parameter (see below)
-//!            can be marked as optionnal.
-//!  - `<T>`: Any other unhandled parameter type is considered a query string parameter.
-//!         T must implement FromStr.
+//!    This is the whole owned collection, so it cannot be used in conjunction
+//!    with single Ext<T> parameters.
+//!  - `Request`: The whole owned Saphir request. This is the whole owned
+//!    request, so it cannot be used in conjunction of any of the above. (All of
+//!    the above can be retrieved from this request)
+//!  - `Option`: Any body parameter, path parameter or query string parameter
+//!    (see below) can be marked as optionnal.
+//!  - `<T>`: Any other unhandled parameter type is considered a query string
+//!    parameter. T must implement FromStr.
 //!
 //! We support even custom methods, and for convinience, `#[any(/your/path)]`
 //! will be treated as : _any method_ being accepted.
@@ -85,7 +87,8 @@
 //!
 //!
 //! ### The `return_override(...)` openapi parameter
-//! **Syntax: `return_override(type = "<type_path>", code = <code>[, mime = <mime>])`**
+//! **Syntax: `return_override(type = "<type_path>", code = <code>[, mime =
+//! <mime>])`**
 //!
 //! Saphir provide some default API information for built-in types.
 //! For example, a `Result::Ok` result has a status code of 200 by default, a
@@ -181,10 +184,10 @@
 //!   reference of the controller type it is used in.
 //!
 //! ## The `#[validate(...)` Attribute
-//! **Syntax: `#[validate(exclude(excluded_param_1, excluded_param_2))]`**
+//! **Syntax: `#[validate(exclude("excluded_param_1", "excluded_param_2"))]`**
 //!
-//! When using the `validate-requests` feature flag, saphir will generate validation
-//! code for all `Json<T>` and `Form<T>` request payloads using the [`validator`](https://github.com/Keats/validator) crate.
+//! When using the `validate-requests` feature flag, saphir will generate
+//! validation code for all `Json<T>` and `Form<T>` request payloads using the [`validator`](https://github.com/Keats/validator) crate.
 //! Any `T` which does not implement the `validator::Validate` trait will cause
 //! compilation error.
 //! This macro attribute can be used to exclude validation on certain request
@@ -214,7 +217,7 @@
 //! struct MyController {}
 //! impl MyController {
 //!     #[post("/")]
-//!     #[validator(exclude(req))]
+//!     #[validator(exclude("req"))]
 //!     async fn my_handler(&self, req: Json<MyPayload>) -> Result<(), MyError> { /*...*/ Ok(()) }
 //! }
 //! ```

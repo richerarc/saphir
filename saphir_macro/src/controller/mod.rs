@@ -218,7 +218,7 @@ impl ArgsRepr {
             }
             true
         } else {
-             false
+            false
         };
 
         match &self.a_type {
@@ -326,6 +326,7 @@ impl ArgsRepr {
     }
 
     #[cfg(feature = "validate-requests")]
+    #[allow(clippy::collapsible_else_if)]
     fn gen_validate_block(&self, stream: &mut TokenStream, id: &Ident, optional: bool) {
         if self.validated {
             if optional {
@@ -336,13 +337,15 @@ impl ArgsRepr {
                         for t in param.iter() {
                             t.validate().map_err(|e| saphir::error::SaphirError::ValidationErrors(e))?;
                         }
-                    }}).to_tokens(stream);
+                    }})
+                    .to_tokens(stream);
                 } else {
                     (quote! {
                     if let Some(param) = &#id {
                         use ::validator::Validate;
                         param.validate().map_err(|e| saphir::error::SaphirError::ValidationErrors(e))?;
-                    }}).to_tokens(stream);
+                    }})
+                    .to_tokens(stream);
                 }
             } else {
                 if self.is_vec {
@@ -352,13 +355,15 @@ impl ArgsRepr {
                         for t in #id.iter() {
                             t.validate().map_err(|e| saphir::error::SaphirError::ValidationErrors(e))?;
                         }
-                    }}).to_tokens(stream);
+                    }})
+                    .to_tokens(stream);
                 } else {
                     (quote! {
                     {
                         use ::validator::Validate;
                         #id.validate().map_err(|e| saphir::error::SaphirError::ValidationErrors(e))?;
-                    }}).to_tokens(stream);
+                    }})
+                    .to_tokens(stream);
                 }
             }
         }

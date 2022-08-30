@@ -196,6 +196,7 @@
 //! ```rust
 //! # #[macro_use] extern crate saphir_macro;
 //! # use crate::saphir::prelude::*;
+//! # use serde::Deserialize;
 //! #
 //! # fn main() {}
 //! #
@@ -208,13 +209,14 @@
 //! #    }
 //! # }
 //! #
-//! # #[controller(name = "my-controller")]
 //! #[derive(Deserialize)]
 //! struct MyPayload {
 //!    a: String,
 //! }
 //!
 //! struct MyController {}
+//!
+//! #[controller(name = "my-controller")]
 //! impl MyController {
 //!     #[post("/")]
 //!     #[validator(exclude("req"))]

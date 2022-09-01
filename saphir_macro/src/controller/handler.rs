@@ -671,7 +671,7 @@ impl HandlerAttrs {
                     } else if ident == "validator" {
                         #[cfg(not(feature = "validate-requests"))]
                         {
-                            return Err(Error::new_spanned(ident, "This require the \"validate-requests\" feature flag in Saphir"));
+                            return Err(Error::new_spanned(ident, "This requires the \"validate-requests\" feature flag in Saphir"));
                         }
 
                         #[cfg(feature = "validate-requests")]

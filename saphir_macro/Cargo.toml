@@ -1,8 +1,8 @@
 [package]
 name = "saphir_macro"
-version = "2.1.2"
+version = "2.1.3"
 authors = ["Richer Archambault <richer.arc@gmail.com>"]
-edition = "2018"
+edition = "2021"
 description = "Macro generation for http server framework"
 documentation = "https://docs.rs/saphir"
 homepage = "https://github.com/richerarc/saphir"
@@ -16,8 +16,13 @@ license = "MIT"
 name = "saphir_macro"
 proc-macro = true
 
+[features]
+default = []
+full = ["validate-requests"]
+validate-requests = []
+
 [dependencies]
 proc-macro2 = "1.0"
 quote = "1.0"
-syn = { version = "1.0.16", features = ["full", "extra-traits"] }
+syn = { version = "1.0.16", features = ["full"] }
 http = "0.2"

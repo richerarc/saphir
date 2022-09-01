@@ -5,21 +5,20 @@ use quote::quote;
 
 mod fun;
 
-pub fn expand_middleware(mid_impl: ItemImpl) -> Result<TokenStream> {
-    let middleware_ident = crate::utils::parse_item_impl_ident(&mid_impl)?;
-    let middleware_name = middleware_ident.to_string();
-
-    let (mut input, mid_fn) = remove_middleware_fn(mid_impl)?;
+pub fn expand_middleware(mut mid_impl: ItemImpl) -> Result<TokenStream> {
+    let mid_fn = remove_middleware_fn(&mut mid_impl)?;
 
     let fn_def = fun::MidFnDef::new(mid_fn)?;
+    mid_impl.items.push(fn_def.def);
 
-    input.items.push(fn_def.def);
+    let middleware_ident = crate::utils::parse_item_impl_ident(&mid_impl)?;
+    let middleware_name = middleware_ident.to_string();
 
     let mod_ident = Ident::new(&format!("SAPHIR_GEN_MIDDLEWARE_{}", &middleware_name), Span::call_site());
     let fn_ident = fn_def.fn_ident;
 
     Ok(quote! {
-        #input
+        #mid_impl
 
         mod #mod_ident {
             use super::*;
@@ -34,10 +33,10 @@ pub fn expand_middleware(mid_impl: ItemImpl) -> Result<TokenStream> {
     })
 }
 
-fn remove_middleware_fn(mut input: ItemImpl) -> Result<(ItemImpl, ImplItem)> {
+fn remove_middleware_fn(input: &mut ItemImpl) -> Result<ImplItem> {
     let mid_fn_pos = input.items.iter().position(|item| {
         if let ImplItem::Method(m) = item {
-            return m.sig.ident.to_string().eq("next");
+            return m.sig.ident == "next";
         }
 
         false
@@ -45,5 +44,5 @@ fn remove_middleware_fn(mut input: ItemImpl) -> Result<(ItemImpl, ImplItem)> {
 
     let mid_fn = input.items.remove(mid_fn_pos);
 
-    Ok((input, mid_fn))
+    Ok(mid_fn)
 }

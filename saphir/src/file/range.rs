@@ -12,7 +12,7 @@ use std::str::FromStr;
 /// semantics to request transfer of only one or more subranges of the
 /// selected representation data, rather than the entire selected
 /// representation data.
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum Range {
     /// Byte range
     Bytes(Vec<ByteRangeSpec>),
@@ -23,7 +23,7 @@ pub enum Range {
 
 /// Each `Range::Bytes` header can contain one or more `ByteRangeSpecs`.
 /// Each `ByteRangeSpec` defines a range of bytes to fetch
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum ByteRangeSpec {
     /// Get all bytes between x and y ("x-y")
     FromTo(u64, u64),

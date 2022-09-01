@@ -15,10 +15,11 @@ pub fn expand_controller(args: AttributeArgs, input: ItemImpl) -> Result<TokenSt
     let controller_attr = ControllerAttr::new(args, &input)?;
     let handlers = handler::parse_handlers(input)?;
 
-    let controller_implementation = controller_attr::gen_controller_trait_implementation(&controller_attr, handlers.as_slice());
-    let struct_implementaion = gen_struct_implementation(controller_attr.ident.clone(), handlers)?;
+    let mod_ident = Ident::new(&format!("SG_{}", &controller_attr.ident), Span::call_site());
 
-    let mod_ident = Ident::new(&format!("SG_{}", controller_attr.ident), Span::call_site());
+    let controller_implementation = controller_attr::gen_controller_trait_implementation(&controller_attr, handlers.as_slice());
+    let struct_implementaion = gen_struct_implementation(controller_attr.ident, handlers)?;
+
     Ok(quote! {
         mod #mod_ident {
             use super::*;
@@ -52,7 +53,7 @@ fn gen_struct_implementation(controller_ident: Ident, handlers: Vec<HandlerRepr>
 }
 
 fn gen_wrapper_handler(handler_tokens: &mut TokenStream, handler: HandlerRepr) -> Result<()> {
-    let opts = &handler.wrapper_options;
+    let opts = handler.wrapper_options;
     let m_ident = handler.original_method.sig.ident.clone();
     let return_type = handler.return_type;
     let mut o_method = handler.original_method;
@@ -61,24 +62,24 @@ fn gen_wrapper_handler(handler_tokens: &mut TokenStream, handler: HandlerRepr) -
 
     o_method.attrs.push(syn::parse_quote! {#[inline]});
     o_method.sig.ident = Ident::new(m_inner_ident_str.as_str(), Span::call_site());
-    let inner_method_ident = o_method.sig.ident.clone();
-
     o_method.to_tokens(handler_tokens);
+    let inner_method_ident = o_method.sig.ident;
 
     let mut body_stream = TokenStream::new();
-    init_multipart(&mut body_stream, opts);
+    init_multipart(&mut body_stream, &opts);
     (quote! {let mut req = req}).to_tokens(&mut body_stream);
-    gen_body_mapping(&mut body_stream, opts);
-    gen_body_load(&mut body_stream, opts);
-    gen_map_after_load(&mut body_stream, opts);
+    gen_body_mapping(&mut body_stream, &opts);
+    gen_body_load(&mut body_stream, &opts);
+    gen_map_after_load(&mut body_stream, &opts);
     (quote! {;}).to_tokens(&mut body_stream);
-    gen_cookie_load(&mut body_stream, opts);
-    gen_query_load(&mut body_stream, opts);
-    let mut call_params_ident = Vec::new();
-    for arg in &opts.fn_arguments {
+    gen_cookie_load(&mut body_stream, &opts);
+    gen_query_load(&mut body_stream, &opts);
+    let mut call_params_ident = Vec::with_capacity(opts.fn_arguments.len());
+    let async_call = !opts.sync_handler;
+    for arg in opts.fn_arguments.into_iter() {
         arg.gen_parameter(&mut body_stream, &mut call_params_ident)?;
     }
-    let inner_call = gen_call_to_inner(inner_method_ident, call_params_ident, opts);
+    let inner_call = gen_call_to_inner(inner_method_ident, call_params_ident, async_call);
 
     let t = quote! {
         #[allow(unused_mut)]
@@ -96,7 +97,6 @@ fn gen_wrapper_handler(handler_tokens: &mut TokenStream, handler: HandlerRepr) -
 fn init_multipart(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
     if opts.init_multipart {
         (quote! {let multipart = Multipart::from_request(&mut req).await.map_err(|e| SaphirError::responder(e))?;
-
         })
         .to_tokens(stream);
     }
@@ -105,7 +105,6 @@ fn init_multipart(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
 fn gen_cookie_load(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
     if opts.parse_cookies {
         (quote! {
-
             req.parse_cookies();
         })
         .to_tokens(stream);
@@ -115,7 +114,6 @@ fn gen_cookie_load(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
 fn gen_query_load(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
     if opts.parse_query {
         (quote! {
-
         let mut query = req.uri().query().map(saphir::utils::read_query_string_to_hashmap).transpose()?.unwrap_or_default();
         })
         .to_tokens(stream);
@@ -150,14 +148,14 @@ fn gen_body_mapping(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
     }
 }
 
-fn gen_call_to_inner(inner_method_ident: Ident, idents: Vec<Ident>, opts: &HandlerWrapperOpt) -> TokenStream {
+fn gen_call_to_inner(inner_method_ident: Ident, idents: Vec<Ident>, async_call: bool) -> TokenStream {
     let mut call = TokenStream::new();
 
     (quote! {self.#inner_method_ident}).to_tokens(&mut call);
 
     gen_call_params(idents).to_tokens(&mut call);
 
-    if !opts.sync_handler {
+    if async_call {
         (quote! {.await}).to_tokens(&mut call);
     }
 
@@ -184,19 +182,17 @@ fn gen_call_params(idents: Vec<Ident>) -> TokenStream {
 }
 
 impl ArgsRepr {
-    pub fn gen_parameter(&self, stream: &mut TokenStream, call_ident: &mut Vec<Ident>) -> Result<()> {
-        let mut self_flatten = self.clone();
-        let (parameter_repr_type, optional) = if let ArgsReprType::Option(a) = &self.a_type {
-            self_flatten.typ = self
+    pub fn gen_parameter(mut self, stream: &mut TokenStream, call_ident: &mut Vec<Ident>) -> Result<()> {
+        let optional = if let ArgsReprType::Option(a) = self.a_type {
+            self.typ = self
                 .typ
-                .clone()
                 .and_then(|t| t.path.segments.into_iter().next())
                 .map(|first| first.arguments)
                 .and_then(|a| {
                     if let PathArguments::AngleBracketed(p_a) = a {
-                        return p_a.args.first().and_then(|g_a| {
+                        return p_a.args.into_iter().next().and_then(|g_a| {
                             if let GenericArgument::Type(Type::Path(type_path)) = g_a {
-                                return Some(type_path.clone());
+                                return Some(type_path);
                             }
 
                             None
@@ -218,15 +214,14 @@ impl ArgsRepr {
                         "Option within option are not allowed as handler parameters",
                     ));
                 }
-                a => (a.clone(), true),
+                _ => self.a_type = *a,
             }
+            true
         } else {
-            (self.a_type.clone(), false)
+            false
         };
 
-        self_flatten.a_type = parameter_repr_type;
-
-        match &self_flatten.a_type {
+        match &self.a_type {
             ArgsReprType::SelfType => {
                 return Ok(());
             }
@@ -234,30 +229,34 @@ impl ArgsRepr {
                 call_ident.push(Ident::new("req", Span::call_site()));
                 return Ok(());
             }
-            ArgsReprType::Json => self_flatten.gen_json_param(stream, optional),
-            ArgsReprType::Form => self_flatten.gen_form_param(stream, optional),
-            ArgsReprType::Cookie => self_flatten.gen_cookie_param(stream),
-            ArgsReprType::Ext => self_flatten.gen_ext_param(stream, optional),
-            ArgsReprType::Extensions => self_flatten.gen_extensions_param(stream),
-            ArgsReprType::Params { is_query_param, .. } => {
-                if *is_query_param {
-                    self_flatten.gen_query_param(stream, optional);
-                } else {
-                    self_flatten.gen_path_param(stream, optional);
-                }
-            }
-            ArgsReprType::Multipart => self_flatten.gen_multipart_param(stream),
             _ => { /* Nothing to do */ }
         }
 
-        call_ident.push(Ident::new(self.name.as_str(), Span::call_site()));
+        let ident = Ident::new(self.name.as_str(), Span::call_site());
+        match &self.a_type {
+            ArgsReprType::Json => self.gen_json_param(stream, optional),
+            ArgsReprType::Form => self.gen_form_param(stream, optional),
+            ArgsReprType::Cookie => self.gen_cookie_param(stream),
+            ArgsReprType::Ext => self.gen_ext_param(stream, optional),
+            ArgsReprType::Extensions => self.gen_extensions_param(stream),
+            ArgsReprType::Params { is_query_param, .. } => {
+                if *is_query_param {
+                    self.gen_query_param(stream, optional);
+                } else {
+                    self.gen_path_param(stream, optional);
+                }
+            }
+            ArgsReprType::Multipart => self.gen_multipart_param(stream),
+            _ => { /* Nothing to do */ }
+        }
+
+        call_ident.push(ident);
         Ok(())
     }
 
     fn gen_multipart_param(&self, stream: &mut TokenStream) {
         let id = Ident::new(self.name.as_str(), Span::call_site());
         (quote! {
-
             let #id = multipart;
         })
         .to_tokens(stream);
@@ -269,14 +268,14 @@ impl ArgsRepr {
 
         let typ = self
             .typ
-            .clone()
-            .and_then(|t| t.path.segments.into_iter().next())
-            .map(|first| first.arguments)
+            .as_ref()
+            .and_then(|t| t.path.segments.first())
+            .map(|first| &first.arguments)
             .and_then(|a| {
                 if let PathArguments::AngleBracketed(p_a) = a {
                     return p_a.args.first().and_then(|g_a| {
                         if let GenericArgument::Type(Type::Path(type_path)) = g_a {
-                            return Some(type_path.clone());
+                            return Some(type_path);
                         }
 
                         None
@@ -288,7 +287,6 @@ impl ArgsRepr {
             .expect("This should not happens");
 
         (quote! {
-
             let #id = if let Some(form) = req.uri().query().map(|query_str| saphir::utils::read_query_string_to_type::<#typ>(query_str).map_err(SaphirError::SerdeUrlDe)) {
                 Some(form.map(|x| Form(x)))
             } else {
@@ -298,12 +296,13 @@ impl ArgsRepr {
         .to_tokens(stream);
 
         if optional {
-            (quote! {.ok().flatten()}).to_tokens(stream);
+            (quote! {.ok().flatten();}).to_tokens(stream);
         } else {
-            (quote! {?.ok_or_else(|| SaphirError::MissingParameter("form body".to_string(), false))?}).to_tokens(stream);
+            (quote! {?.ok_or_else(|| SaphirError::MissingParameter("form body".to_string(), false))?;}).to_tokens(stream);
         }
 
-        (quote! {;}).to_tokens(stream);
+        #[cfg(feature = "validate-requests")]
+        self.gen_validate_block(stream, &id, optional);
     }
 
     fn gen_json_param(&self, stream: &mut TokenStream, optional: bool) {
@@ -317,12 +316,57 @@ impl ArgsRepr {
         .to_tokens(stream);
 
         if optional {
-            (quote! {.ok()}).to_tokens(stream);
+            (quote! {.ok();}).to_tokens(stream);
         } else {
-            (quote! {?}).to_tokens(stream);
+            (quote! {?;}).to_tokens(stream);
         }
 
-        (quote! {;}).to_tokens(stream);
+        #[cfg(feature = "validate-requests")]
+        self.gen_validate_block(stream, &id, optional);
+    }
+
+    #[cfg(feature = "validate-requests")]
+    #[allow(clippy::collapsible_else_if)]
+    fn gen_validate_block(&self, stream: &mut TokenStream, id: &Ident, optional: bool) {
+        if self.validated {
+            if optional {
+                if self.is_vec {
+                    (quote! {
+                    if let Some(param) = &#id {
+                        use ::validator::Validate;
+                        for t in param.iter() {
+                            t.validate().map_err(|e| saphir::error::SaphirError::ValidationErrors(e))?;
+                        }
+                    }})
+                    .to_tokens(stream);
+                } else {
+                    (quote! {
+                    if let Some(param) = &#id {
+                        use ::validator::Validate;
+                        param.validate().map_err(|e| saphir::error::SaphirError::ValidationErrors(e))?;
+                    }})
+                    .to_tokens(stream);
+                }
+            } else {
+                if self.is_vec {
+                    (quote! {
+                    {
+                        use ::validator::Validate;
+                        for t in #id.iter() {
+                            t.validate().map_err(|e| saphir::error::SaphirError::ValidationErrors(e))?;
+                        }
+                    }})
+                    .to_tokens(stream);
+                } else {
+                    (quote! {
+                    {
+                        use ::validator::Validate;
+                        #id.validate().map_err(|e| saphir::error::SaphirError::ValidationErrors(e))?;
+                    }})
+                    .to_tokens(stream);
+                }
+            }
+        }
     }
 
     fn gen_cookie_param(&self, stream: &mut TokenStream) {

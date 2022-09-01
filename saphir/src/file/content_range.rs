@@ -26,7 +26,7 @@ use std::str::FromStr;
 /// other-content-range = other-range-unit SP other-range-resp
 /// other-range-resp    = *CHAR
 /// ```
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum ContentRange {
     /// Byte range
     Bytes {

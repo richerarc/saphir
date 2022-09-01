@@ -57,7 +57,12 @@ impl ControllerAttr {
 
         let name = name.unwrap_or_else(|| ident.to_string().to_lowercase().trim_end_matches("controller").to_string());
 
-        Ok(ControllerAttr { ident, name, version, prefix })
+        Ok(ControllerAttr {
+            ident: ident.clone(),
+            name,
+            version,
+            prefix,
+        })
     }
 }
 
@@ -87,7 +92,7 @@ fn gen_controller_base_path_const(attr: &ControllerAttr) -> TokenStream {
 
     if let Some(version) = attr.version {
         path.push('v');
-        path.push_str(&format!("{}", version));
+        path.push_str(&version.to_string());
         path.push('/');
     }
 
@@ -102,11 +107,11 @@ fn gen_controller_base_path_const(attr: &ControllerAttr) -> TokenStream {
 
 fn gen_controller_handlers_fn(attr: &ControllerAttr, handlers: &[HandlerRepr]) -> TokenStream {
     let mut handler_stream = TokenStream::new();
-    let ctrl_ident = attr.ident.clone();
+    let ctrl_ident = &attr.ident;
 
     for handler in handlers {
         let HandlerAttrs { methods_paths, guards, .. } = &handler.attrs;
-        let handler_ident = handler.original_method.sig.ident.clone();
+        let handler_ident = &handler.original_method.sig.ident;
 
         for (method, path) in methods_paths {
             let method = method.as_str();

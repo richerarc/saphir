@@ -2,6 +2,7 @@ use crate::{body::TransmuteBody, http_context::HttpContext, responder::Responder
 use http::{header::HeaderName, HeaderMap, HeaderValue, StatusCode, Uri};
 use hyper::body::Body as RawBody;
 use mime::Mime;
+use saphir_cookie::{Cookie, CookieJar};
 use serde::Serialize;
 use std::{collections::HashMap, convert::TryInto, fmt::Debug};
 
@@ -40,6 +41,7 @@ pub struct Builder {
     content_type: Option<Mime>,
     extra_headers: HeaderMap<HeaderValue>,
     extra_headers_errors: Vec<http::Error>,
+    cookies: Option<CookieJar>,
 }
 
 impl Builder {
@@ -106,6 +108,32 @@ impl Builder {
         self
     }
 
+    #[inline]
+    pub fn cookie(mut self, cookie: Cookie<'static>) -> Builder {
+        if self.cookies.is_none() {
+            self.cookies = Some(CookieJar::new());
+        }
+
+        self.cookies.as_mut().expect("Should not happens").add(cookie);
+
+        self
+    }
+
+    #[inline]
+    pub fn cookies(mut self, cookies: CookieJar) -> Builder {
+        self.cookies = Some(cookies);
+        self
+    }
+
+    #[inline]
+    pub fn cookies_mut(&mut self) -> &mut CookieJar {
+        if self.cookies.is_none() {
+            self.cookies = Some(CookieJar::new());
+        }
+
+        self.cookies.as_mut().expect("Checked above")
+    }
+
     pub fn build(mut self) -> Result<Redirect, BuilderError> {
         match self.status {
             StatusCode::MOVED_PERMANENTLY | StatusCode::PERMANENT_REDIRECT | StatusCode::FOUND | StatusCode::SEE_OTHER | StatusCode::TEMPORARY_REDIRECT => {
@@ -148,6 +176,7 @@ impl Builder {
             content,
             content_type,
             extra_headers,
+            cookies,
             ..
         } = self;
 
@@ -157,6 +186,7 @@ impl Builder {
             content,
             content_type,
             extra_headers,
+            cookies,
         })
     }
 
@@ -237,6 +267,7 @@ pub struct Redirect {
     content: Option<Box<dyn TransmuteBody + Send + Sync>>,
     content_type: Option<Mime>,
     extra_headers: HeaderMap<HeaderValue>,
+    cookies: Option<CookieJar>,
 }
 
 impl Redirect {
@@ -253,6 +284,16 @@ impl Redirect {
     #[inline]
     pub fn content_type(&self) -> Option<&Mime> {
         self.content_type.as_ref()
+    }
+
+    /// Get the cookies sent by the browsers
+    pub fn cookies(&self) -> Option<&CookieJar> {
+        self.cookies.as_ref()
+    }
+
+    /// Get the cookies sent by the browsers in a mutable way
+    pub fn cookies_mut(&mut self) -> Option<&mut CookieJar> {
+        self.cookies.as_mut()
     }
 
     #[inline]
@@ -331,6 +372,10 @@ impl Responder for Redirect {
 
         if let Some(ct) = self.content_type {
             builder = builder.header("Content-Type", ct.to_string())
+        }
+
+        if let Some(cookies) = self.cookies {
+            builder = builder.cookies(cookies)
         }
 
         builder

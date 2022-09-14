@@ -306,6 +306,12 @@ impl Builder {
     }
 
     #[inline]
+    pub fn cookies(mut self, cookies: CookieJar) -> Builder {
+        self.cookies = Some(cookies);
+        self
+    }
+
+    #[inline]
     pub fn body<B: 'static + Into<RawBody> + Send>(mut self, body: B) -> Builder {
         self.body = Box::new(Some(body));
         self

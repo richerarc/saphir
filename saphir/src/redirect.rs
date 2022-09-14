@@ -286,12 +286,12 @@ impl Redirect {
         self.content_type.as_ref()
     }
 
-    /// Get the cookies sent by the browsers
+    #[inline]
     pub fn cookies(&self) -> Option<&CookieJar> {
         self.cookies.as_ref()
     }
 
-    /// Get the cookies sent by the browsers in a mutable way
+    #[inline]
     pub fn cookies_mut(&mut self) -> Option<&mut CookieJar> {
         self.cookies.as_mut()
     }

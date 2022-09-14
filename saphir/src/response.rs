@@ -286,12 +286,7 @@ impl Builder {
     /// ```
     #[inline]
     pub fn cookie(mut self, cookie: Cookie<'static>) -> Builder {
-        if self.cookies.is_none() {
-            self.cookies = Some(CookieJar::new());
-        }
-
-        self.cookies.as_mut().expect("Should not happens").add(cookie);
-
+        self.cookies_mut().add(cookie);
         self
     }
 

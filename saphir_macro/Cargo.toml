@@ -1,6 +1,6 @@
 [package]
 name = "saphir_macro"
-version = "2.1.3"
+version = "2.1.4"
 authors = ["Richer Archambault <richer.arc@gmail.com>"]
 edition = "2021"
 description = "Macro generation for http server framework"
@@ -20,6 +20,7 @@ proc-macro = true
 default = []
 full = ["validate-requests"]
 validate-requests = []
+tracing-instrument = []
 
 [dependencies]
 proc-macro2 = "1.0"

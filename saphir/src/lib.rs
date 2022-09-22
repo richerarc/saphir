@@ -122,9 +122,18 @@ pub mod server;
 ///
 pub mod utils;
 ///
+#[doc(hidden)]
+// mod tracing as tracing_utils;
+///
 pub use http;
 #[doc(hidden)]
 pub use hyper;
+#[doc(hidden)]
+pub use tracing as tokio_tracing;
+
+#[cfg(feature = "tracing-instrument")]
+#[derive(Debug)]
+pub struct RouteSpan(pub tracing::span::Span);
 
 /// Contains everything you need to bootstrap your http server
 ///

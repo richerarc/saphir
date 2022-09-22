@@ -558,7 +558,6 @@ where
     serde_urlencoded::from_str::<T>(query_str)
 }
 
-
 // #[cfg(feature = "tracing-instrument")]
 // #[derive(Debug, Clone, Serialize, Deserialize)]
 // pub struct SaphirRequestSpan(::tracing::span::Span);

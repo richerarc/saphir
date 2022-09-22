@@ -206,10 +206,7 @@ impl Middleware for FileMiddleware {
         #[cfg(feature = "tracing-instrument")]
         {
             use tracing::Instrument;
-            let span = tracing::span!(
-                tracing::Level::ERROR,
-                "saphir:file",
-            );
+            let span = tracing::span!(tracing::Level::ERROR, "saphir:file",);
             let span2 = span.clone();
             async move {
                 let res = self.next_inner(ctx, chain).instrument(span).await;
@@ -219,7 +216,8 @@ impl Middleware for FileMiddleware {
                     }
                     ctx
                 })
-            }.boxed()
+            }
+            .boxed()
         }
         #[cfg(not(feature = "tracing-instrument"))]
         {

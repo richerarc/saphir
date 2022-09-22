@@ -35,6 +35,7 @@ impl<T> Response<T> {
         Response {
             inner: RawResponse::new(body),
             cookies: Default::default(),
+            #[cfg(feature = "tracing-instrument")]
             span: None,
         }
     }
@@ -64,12 +65,27 @@ impl<T> Response<T> {
     where
         F: FnOnce(T) -> U,
     {
-        let Response { inner, cookies, span } = self;
-        Response { inner: inner.map(f), cookies, span }
+        #[cfg(feature = "tracing-instrument")]
+        {
+            let Response { inner, cookies, span } = self;
+            Response {
+                inner: inner.map(f),
+                cookies,
+                span,
+            }
+        }
+        #[cfg(not(feature = "tracing-instrument"))]
+        {
+            let Response { inner, cookies } = self;
+            Response { inner: inner.map(f), cookies }
+        }
     }
 
     pub(crate) fn into_raw(self) -> Result<RawResponse<T>, SaphirError> {
+        #[cfg(feature = "tracing-instrument")]
         let Response { mut inner, cookies, span: _ } = self;
+        #[cfg(not(feature = "tracing-instrument"))]
+        let Response { mut inner, cookies } = self;
         for c in cookies.iter() {
             inner
                 .headers_mut()
@@ -127,6 +143,7 @@ impl Builder {
             cookies: None,
             body: Box::new(Option::<String>::None),
             status_set: false,
+            #[cfg(feature = "tracing-instrument")]
             span: None,
         }
     }
@@ -343,7 +360,13 @@ impl Builder {
     #[inline]
     pub fn build(self) -> Result<Response<Body>, SaphirError> {
         #[cfg(feature = "tracing-instrument")]
-        let Builder { inner, cookies, mut body, span, .. } = self;
+        let Builder {
+            inner,
+            cookies,
+            mut body,
+            span,
+            ..
+        } = self;
         #[cfg(not(feature = "tracing-instrument"))]
         let Builder { inner, cookies, mut body, .. } = self;
         let b = body.transmute();

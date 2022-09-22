@@ -549,7 +549,8 @@ impl Server {
                             tokio::spawn(async move {
                                 if let Err(e) = http
                                     .serve_connection(client_socket, stack.new_timeout_handler(timeout_ms, Some(peer_addr)))
-                                    .await {
+                                    .await
+                                {
                                     error!("An error occurred while treating a request: {:?}", e);
                                 }
                             });
@@ -651,26 +652,15 @@ impl Stack {
         let ctx = HttpContext::new(req, self.router.clone(), meta);
 
         #[cfg(feature = "tracing-instrument")]
-        use tracing::Instrument;
-
-        #[cfg(feature = "tracing-instrument")]
-        let (request_span, method, path) = {
-            let operation_id = ctx.operation_id.to_string();
-            let request = ctx.state.request_unchecked();
-            let uri = request.uri().path().to_string();
-            let method = request.method().as_str().to_string();
-            (tracing::span!(
-                tracing::Level::INFO,
-                "saphir:request",
-                id = operation_id.as_str(),
-                method = method.as_str(),
-                path = uri.as_str(),
-            ), method, uri)
-        };
-
-        #[cfg(feature = "tracing-instrument")]
         {
-            self.inner_invoke(ctx, &method, &path).instrument(request_span).await
+            use tracing::Instrument;
+
+            let request = ctx.state.request_unchecked();
+            let path = request.uri().path().to_string();
+            let method = request.method().as_str().to_string();
+            let span = tracing::span!(tracing::Level::ERROR, "saphir:request",);
+
+            self.inner_invoke(ctx, &method, &path).instrument(span).await
         }
         #[cfg(not(feature = "tracing-instrument"))]
         {
@@ -685,80 +675,39 @@ impl Stack {
         let ctx = HttpContext::new(req, self.router.clone(), meta);
 
         #[cfg(feature = "tracing-instrument")]
-        use tracing::Instrument;
+        let timeout = {
+            use tracing::Instrument;
 
-        #[cfg(feature = "tracing-instrument")]
-        let (request_span, method, path) = {
-            let operation_id = ctx.operation_id.to_string();
             let request = ctx.state.request_unchecked();
-            let uri = request.uri().path().to_string();
+            let path = request.uri().path().to_string();
             let method = request.method().as_str().to_string();
-            let span = tracing::span!(
-                tracing::Level::ERROR,
-                "saphir:request",
-                // id = operation_id.as_str(),
-                // method = method.as_str(),
-                // path = uri.as_str(),
-            );
-            (span, method, uri)
-        };
+            let span = tracing::span!(tracing::Level::ERROR, "saphir:request",);
 
-        #[cfg(feature = "tracing-instrument")]
-        let timeout = timeout(Duration::from_millis(timeout_ms), self.inner_invoke(ctx, &method, &path))
-            .instrument(request_span)
-            .map_err(|_| SaphirError::RequestTimeout)
-            .await;
+            timeout(Duration::from_millis(timeout_ms), self.inner_invoke(ctx, &method, &path))
+                .instrument(span)
+                .map_err(|_| SaphirError::RequestTimeout)
+                .await
+        };
 
         #[cfg(not(feature = "tracing-instrument"))]
         let timeout = timeout(Duration::from_millis(timeout_ms), self.inner_invoke(ctx, "", ""))
             .map_err(|_| SaphirError::RequestTimeout)
             .await;
 
-        match timeout
-        {
+        match timeout {
             Ok(Ok(r)) => Ok(r),
             Ok(Err(e)) => Err(e),
             Err(e) => Err(e),
         }
     }
 
-    async fn inner_invoke(&self, ctx: HttpContext, method: &str, path: &str) -> Result<Response<Body>, SaphirError> {
+    async fn inner_invoke(&self, ctx: HttpContext, _method: &str, _path: &str) -> Result<Response<Body>, SaphirError> {
         let err_ctx = ctx.clone_with_empty_state();
-
-        // #[cfg(feature = "tracing-instrument")]
-        // use tracing::Instrument;
-        //
-        // #[cfg(feature = "tracing-instrument")]
-        // let request_span = {
-        //     let operation_id = ctx.operation_id.to_string();
-        //     let request = ctx.state.request_unchecked();
-        //     let uri = request.uri().path().to_string();
-        //     let method = request.method().as_str().to_string();
-        //     tracing::span!(
-        //         tracing::Level::INFO,
-        //         "saphir:request",
-        //         id = operation_id.as_str(),
-        //         method = method.as_str(),
-        //         path = uri.as_str(),
-        //     )
-        // };
 
         #[cfg(feature = "tracing-instrument")]
         let res_start = std::time::Instant::now();
         #[cfg(feature = "tracing-instrument")]
         let id = ctx.operation_id.to_string();
-
-        // #[cfg(feature = "tracing-instrument")]
-        // let middlewares_res = self
-        //     .middlewares
-        //     .next(ctx)
-        //     .instrument(request_span)
-        //     .await;
-        // #[cfg(not(feature = "tracing-instrument"))]
-        // let middlewares_res = self
-        //     .middlewares
-        //     .next(ctx)
-        //     .await;
 
         let res = self
             .middlewares
@@ -768,86 +717,19 @@ impl Stack {
 
                 #[cfg(feature = "tracing-instrument")]
                 {
-                    // let now = std::time::Instant::now();
-
-                    // let ctx = chain.next(ctx).await?;
                     let status = res.status();
                     let duration = format!("{:.3}", res_start.elapsed().as_secs_f64() * 1000.0);
                     if let Some(span) = &res.span {
                         let _entered = span.enter();
-
-                        if status.is_server_error() {
-                            tracing::error!(id = id.as_str(), method, path, status = status.as_u16(), duration_ms = duration.as_str());
-                        }
-                        if status.is_client_error() {
-                            tracing::warn!(id = id.as_str(), method, path, status = status.as_u16(), duration_ms = duration.as_str());
-                        } else if status.is_informational() | status.is_redirection() {
-                            tracing::info!(id = id.as_str(), method, path, status = status.as_u16(), duration_ms = duration.as_str());
-                        } else {
-                            tracing::debug!(id = id.as_str(), method, path, status = status.as_u16(), duration_ms = duration.as_str());
-                        }
+                        Self::log(&status, id.as_str(), _method, _path, duration.as_str());
                     } else {
-                        if status.is_server_error() {
-                            tracing::error!(id = id.as_str(), method, path, status = status.as_u16(), duration_ms = duration.as_str());
-                        }
-                        if status.is_client_error() {
-                            tracing::warn!(id = id.as_str(), method, path, status = status.as_u16(), duration_ms = duration.as_str());
-                        } else if status.is_informational() | status.is_redirection() {
-                            tracing::info!(id = id.as_str(), method, path, status = status.as_u16(), duration_ms = duration.as_str());
-                        } else {
-                            tracing::debug!(id = id.as_str(), method, path, status = status.as_u16(), duration_ms = duration.as_str());
-                        }
+                        Self::log(&status, id.as_str(), _method, _path, duration.as_str());
                     }
-
-                    // tracing::span::Span::current()
-                    //     .record("status", &status.as_u16())
-                    //     .record("duration_ms", &duration.as_str());
                 }
 
                 Ok(res)
             })
             .await
-            // .and_then(|mut ctx| ctx.state.take_response().ok_or(SaphirError::ResponseMoved))
-            // .map(|res| {
-            //     #[cfg(feature = "tracing-instrument")]
-            //     {
-            //         // let now = std::time::Instant::now();
-            //
-            //         // let ctx = chain.next(ctx).await?;
-            //         let status = res.status();
-            //         let duration = format!("{:.3}", res_start.elapsed().as_secs_f64() * 1000.0);
-            //         if let Some(span) = res.extensions().get::<crate::RouteSpan>() {
-            //             let _entered = span.0.enter();
-            //
-            //             if status.is_server_error() {
-            //                 tracing::error!(id = id.as_str(), method, path, status = status.as_u16(), duration_ms = duration.as_str());
-            //             }
-            //             if status.is_client_error() {
-            //                 tracing::warn!(id = id.as_str(), method, path, status = status.as_u16(), duration_ms = duration.as_str());
-            //             } else if status.is_informational() | status.is_redirection() {
-            //                 tracing::info!(id = id.as_str(), method, path, status = status.as_u16(), duration_ms = duration.as_str());
-            //             } else {
-            //                 tracing::debug!(id = id.as_str(), method, path, status = status.as_u16(), duration_ms = duration.as_str());
-            //             }
-            //         } else {
-            //             if status.is_server_error() {
-            //                 tracing::error!(id = id.as_str(), method, path, status = status.as_u16(), duration_ms = duration.as_str());
-            //             }
-            //             if status.is_client_error() {
-            //                 tracing::warn!(id = id.as_str(), method, path, status = status.as_u16(), duration_ms = duration.as_str());
-            //             } else if status.is_informational() | status.is_redirection() {
-            //                 tracing::info!(id = id.as_str(), method, path, status = status.as_u16(), duration_ms = duration.as_str());
-            //             } else {
-            //                 tracing::debug!(id = id.as_str(), method, path, status = status.as_u16(), duration_ms = duration.as_str());
-            //             }
-            //         }
-            //
-            //         // tracing::span::Span::current()
-            //         //     .record("status", &status.as_u16())
-            //         //     .record("duration_ms", &duration.as_str());
-            //     }
-            //     res
-            // })
             .or_else(|e| {
                 let builder = crate::response::Builder::new();
                 e.log(&err_ctx);
@@ -858,6 +740,19 @@ impl Stack {
             });
         REQUEST_FUTURE_COUNT.fetch_sub(1, Ordering::SeqCst);
         res
+    }
+
+    #[cfg(feature = "tracing-instrument")]
+    fn log(status: &http::StatusCode, id: &str, method: &str, path: &str, duration: &str) {
+        if status.is_server_error() {
+            tracing::error!(id, method, path, status = status.as_u16(), duration_ms = duration);
+        } else if status.is_client_error() {
+            tracing::warn!(id, method, path, status = status.as_u16(), duration_ms = duration);
+        } else if status.is_informational() | status.is_redirection() {
+            tracing::info!(id, method, path, status = status.as_u16(), duration_ms = duration);
+        } else {
+            tracing::debug!(id, method, path, status = status.as_u16(), duration_ms = duration);
+        }
     }
 }
 

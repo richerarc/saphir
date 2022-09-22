@@ -212,7 +212,10 @@ pub mod spanned {
         }
     }
 
-    impl<R> Responder for SpannedResponder<R> where R: Responder {
+    impl<R> Responder for SpannedResponder<R>
+    where
+        R: Responder,
+    {
         fn respond_with_builder(self, builder: Builder, ctx: &HttpContext) -> Builder {
             self.responder.respond_with_builder(builder, ctx).span(self.span)
         }

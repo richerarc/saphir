@@ -23,7 +23,7 @@ pub fn expand_controller(args: AttributeArgs, input: ItemImpl) -> Result<TokenSt
     let mut instrument_using = TokenStream::new();
     #[cfg(feature = "tracing-instrument")]
     {
-        quote! {use ::saphir::tokio_tracing::Instrument;}.to_tokens(&mut instrument_using);
+        quote! {use ::saphir::tracing::Instrument;}.to_tokens(&mut instrument_using);
     }
 
     Ok(quote! {
@@ -94,14 +94,13 @@ fn gen_wrapper_handler(handler_tokens: &mut TokenStream, handler: HandlerRepr) -
     let t = quote_spanned! {route_span=>
         #[allow(unused_mut)]
         async fn #m_ident(&self, mut req: Request) -> Result<saphir::responder::spanned::SpannedResponder<#return_type>, SaphirError> {
-            use ::saphir::tokio_tracing::Instrument;
-            let span = ::saphir::tokio_tracing::span!(
-                ::saphir::tokio_tracing::Level::ERROR,
+            use ::saphir::tracing::Instrument;
+            let span = ::saphir::tracing::span!(
+                ::saphir::tracing::Level::ERROR,
                 "saphir:route",
             );
             let span2 = span.clone();
             async {
-                // let _ = req.extensions_mut().insert(saphir::RouteSpan(span2));
                 #body_stream
                 Ok(saphir::responder::spanned::SpannedResponder::new(#inner_call, span2))
             }.instrument(span).await
@@ -179,45 +178,12 @@ fn gen_body_mapping(stream: &mut TokenStream, opts: &HandlerWrapperOpt) {
 fn gen_call_to_inner(inner_method_ident: Ident, idents: Vec<Ident>, async_call: bool) -> TokenStream {
     let mut call = TokenStream::new();
 
-    // #[cfg(feature = "tracing-instrument")]
-    // if !async_call {
-    //     (quote! {::saphir::tokio_tracing::span!(::saphir::tokio_tracing::Level::ERROR,"route").in_scope(|| }).to_tokens(&mut call);
-    //     (quote! ({)).to_tokens(&mut call);
-    // }
-
     (quote! {self.#inner_method_ident}).to_tokens(&mut call);
 
     gen_call_params(idents).to_tokens(&mut call);
 
-    // #[cfg(feature = "tracing-instrument")]
-    // let t = quote! {
-    //     #[allow(unused_mut)]
-    //     async fn #m_ident(&self, mut req: Request) -> Result<#return_type, SaphirError> {
-    //         println!("Route span");
-    //         use ::saphir::tokio_tracing::Instrument;
-    //         async {
-    //             #body_stream
-    //             Ok(#inner_call)
-    //         }.instrument(::saphir::tokio_tracing::span!(
-    //             ::saphir::tokio_tracing::Level::ERROR,
-    //             "route",
-    //         )).await
-    //     }
-    // };
-
     if async_call {
-        #[cfg(feature = "tracing-instrument")]
-        (quote! {.instrument(::saphir::tokio_tracing::span!(
-            ::saphir::tokio_tracing::Level::INFO,
-            "saphir:route-inner",
-        )).await}).to_tokens(&mut call);
-        #[cfg(not(feature = "tracing-instrument"))]
         (quote! {.await}).to_tokens(&mut call);
-    } else {
-        #[cfg(feature = "tracing-instrument")]
-        {
-            call = quote! {::saphir::tokio_tracing::span!(::saphir::tokio_tracing::Level::ERROR,"saphir:route-inner").in_scope(|| {#call}) }.into_token_stream();
-        }
     }
 
     call

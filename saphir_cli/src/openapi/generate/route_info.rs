@@ -44,7 +44,7 @@ impl Gen {
     ) -> Option<RouteInfo> {
         let mut full_path = format!("/{}{}", controller_path, path);
         if full_path.ends_with('/') {
-            full_path = (&full_path[0..(full_path.len() - 1)]).to_string();
+            full_path = full_path[0..(full_path.len() - 1)].to_string();
         }
         if !full_path.starts_with(self.args.scope.as_str()) {
             return None;
@@ -89,7 +89,7 @@ impl Gen {
                         for j in start..chars.len() {
                             if chars[j] == '>' || chars[j] == '}' {
                                 chars[j] = '}';
-                                params.push((&chars[(i + 1)..j]).iter().collect());
+                                params.push(chars[(i + 1)..j].iter().collect());
                                 i = j;
                                 break;
                             }

@@ -193,3 +193,31 @@ where
         self.take().ok_or(500).respond_with_builder(builder, ctx)
     }
 }
+
+#[cfg(feature = "tracing-instrument")]
+#[doc(hidden)]
+pub mod spanned {
+    use super::*;
+
+    #[derive(Debug)]
+    pub struct SpannedResponder<R> {
+        pub responder: R,
+        span: tracing::span::Span,
+    }
+
+    impl<R> SpannedResponder<R> {
+        #[doc(hidden)]
+        pub fn new(responder: R, span: tracing::span::Span) -> Self {
+            Self { responder, span }
+        }
+    }
+
+    impl<R> Responder for SpannedResponder<R>
+    where
+        R: Responder,
+    {
+        fn respond_with_builder(self, builder: Builder, ctx: &HttpContext) -> Builder {
+            self.responder.respond_with_builder(builder, ctx).span(self.span)
+        }
+    }
+}

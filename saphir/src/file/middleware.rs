@@ -203,7 +203,26 @@ impl FileMiddleware {
 
 impl Middleware for FileMiddleware {
     fn next(&'static self, ctx: HttpContext, chain: &'static dyn MiddlewareChain) -> BoxFuture<'static, Result<HttpContext, SaphirError>> {
-        self.next_inner(ctx, chain).boxed()
+        #[cfg(feature = "tracing-instrument")]
+        {
+            use tracing::Instrument;
+            let span = tracing::span!(tracing::Level::ERROR, "saphir:file");
+            let span2 = span.clone();
+            async move {
+                let res = self.next_inner(ctx, chain).instrument(span).await;
+                res.map(|mut ctx| {
+                    if let Some(res) = ctx.state.response_mut() {
+                        res.span = Some(span2);
+                    }
+                    ctx
+                })
+            }
+            .boxed()
+        }
+        #[cfg(not(feature = "tracing-instrument"))]
+        {
+            self.next_inner(ctx, chain).boxed()
+        }
     }
 }
 

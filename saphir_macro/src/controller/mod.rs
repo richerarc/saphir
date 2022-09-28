@@ -1,7 +1,7 @@
 use proc_macro2::{Ident, Span, TokenStream};
 use syn::{spanned::Spanned, AttributeArgs, Error, GenericArgument, ItemImpl, PathArguments, Result, Type};
 
-use quote::{quote, ToTokens};
+use quote::{quote, quote_spanned, ToTokens};
 
 use crate::controller::{
     controller_attr::ControllerAttr,
@@ -20,12 +20,20 @@ pub fn expand_controller(args: AttributeArgs, input: ItemImpl) -> Result<TokenSt
     let controller_implementation = controller_attr::gen_controller_trait_implementation(&controller_attr, handlers.as_slice());
     let struct_implementaion = gen_struct_implementation(controller_attr.ident, handlers)?;
 
+    let mut instrument_using = TokenStream::new();
+    #[cfg(feature = "tracing-instrument")]
+    {
+        quote! {use ::saphir::tracing::Instrument;}.to_tokens(&mut instrument_using);
+    }
+
     Ok(quote! {
         mod #mod_ident {
             use super::*;
             use saphir::prelude::*;
             use std::str::FromStr;
             use std::collections::HashMap;
+            #instrument_using
+
             #struct_implementaion
 
             #controller_implementation
@@ -55,13 +63,14 @@ fn gen_struct_implementation(controller_ident: Ident, handlers: Vec<HandlerRepr>
 fn gen_wrapper_handler(handler_tokens: &mut TokenStream, handler: HandlerRepr) -> Result<()> {
     let opts = handler.wrapper_options;
     let m_ident = handler.original_method.sig.ident.clone();
+    let route_span = m_ident.span();
     let return_type = handler.return_type;
     let mut o_method = handler.original_method;
     let mut m_inner_ident_str = m_ident.to_string();
     m_inner_ident_str.push_str("_wrapped");
 
     o_method.attrs.push(syn::parse_quote! {#[inline]});
-    o_method.sig.ident = Ident::new(m_inner_ident_str.as_str(), Span::call_site());
+    o_method.sig.ident = Ident::new(m_inner_ident_str.as_str(), Span::mixed_site());
     o_method.to_tokens(handler_tokens);
     let inner_method_ident = o_method.sig.ident;
 
@@ -81,7 +90,25 @@ fn gen_wrapper_handler(handler_tokens: &mut TokenStream, handler: HandlerRepr) -
     }
     let inner_call = gen_call_to_inner(inner_method_ident, call_params_ident, async_call);
 
-    let t = quote! {
+    #[cfg(feature = "tracing-instrument")]
+    let t = quote_spanned! {route_span=>
+        #[allow(unused_mut)]
+        async fn #m_ident(&self, mut req: Request) -> Result<saphir::responder::spanned::SpannedResponder<#return_type>, SaphirError> {
+            use ::saphir::tracing::Instrument;
+            let span = ::saphir::tracing::span!(
+                ::saphir::tracing::Level::ERROR,
+                "saphir:route",
+            );
+            let span2 = span.clone();
+            async {
+                #body_stream
+                Ok(saphir::responder::spanned::SpannedResponder::new(#inner_call, span2))
+            }.instrument(span).await
+        }
+    };
+
+    #[cfg(not(feature = "tracing-instrument"))]
+    let t = quote_spanned! {route_span=>
         #[allow(unused_mut)]
         async fn #m_ident(&self, mut req: Request) -> Result<#return_type, SaphirError> {
             #body_stream

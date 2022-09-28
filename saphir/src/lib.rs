@@ -125,6 +125,9 @@ pub mod utils;
 pub use http;
 #[doc(hidden)]
 pub use hyper;
+#[cfg(feature = "tracing-instrument")]
+#[doc(hidden)]
+pub use tracing;
 
 /// Contains everything you need to bootstrap your http server
 ///

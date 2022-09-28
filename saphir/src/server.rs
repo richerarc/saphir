@@ -650,13 +650,86 @@ impl Stack {
     async fn invoke(&self, mut req: Request<Body>) -> Result<Response<Body>, SaphirError> {
         let meta = self.router.resolve_metadata(&mut req);
         let ctx = HttpContext::new(req, self.router.clone(), meta);
+
+        #[cfg(feature = "tracing-instrument")]
+        {
+            use tracing::Instrument;
+
+            let request = ctx.state.request_unchecked();
+            let path = request.uri().path().to_string();
+            let method = request.method().as_str().to_string();
+            let span = tracing::span!(tracing::Level::ERROR, "saphir:request",);
+
+            self.inner_invoke(ctx, &method, &path).instrument(span).await
+        }
+        #[cfg(not(feature = "tracing-instrument"))]
+        {
+            self.inner_invoke(ctx, "", "").await
+        }
+    }
+
+    async fn invoke_with_timeout(&self, mut req: Request<Body>, timeout_ms: u64) -> Result<Response<Body>, SaphirError> {
+        use tokio::time::timeout;
+
+        let meta = self.router.resolve_metadata(&mut req);
+        let ctx = HttpContext::new(req, self.router.clone(), meta);
+
+        #[cfg(feature = "tracing-instrument")]
+        let timeout = {
+            use tracing::Instrument;
+
+            let request = ctx.state.request_unchecked();
+            let path = request.uri().path().to_string();
+            let method = request.method().as_str().to_string();
+            let span = tracing::span!(tracing::Level::ERROR, "saphir:request",);
+
+            timeout(Duration::from_millis(timeout_ms), self.inner_invoke(ctx, &method, &path))
+                .instrument(span)
+                .map_err(|_| SaphirError::RequestTimeout)
+                .await
+        };
+
+        #[cfg(not(feature = "tracing-instrument"))]
+        let timeout = timeout(Duration::from_millis(timeout_ms), self.inner_invoke(ctx, "", ""))
+            .map_err(|_| SaphirError::RequestTimeout)
+            .await;
+
+        match timeout {
+            Ok(Ok(r)) => Ok(r),
+            Ok(Err(e)) => Err(e),
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn inner_invoke(&self, ctx: HttpContext, _method: &str, _path: &str) -> Result<Response<Body>, SaphirError> {
         let err_ctx = ctx.clone_with_empty_state();
+
+        #[cfg(feature = "tracing-instrument")]
+        let res_start = std::time::Instant::now();
+        #[cfg(feature = "tracing-instrument")]
+        let id = ctx.operation_id.to_string();
 
         let res = self
             .middlewares
             .next(ctx)
+            .and_then(|mut ctx| async move {
+                let res = ctx.state.take_response().ok_or(SaphirError::ResponseMoved)?;
+
+                #[cfg(feature = "tracing-instrument")]
+                {
+                    let status = res.status();
+                    let duration = format!("{:.3}", res_start.elapsed().as_secs_f64() * 1000.0);
+                    if let Some(span) = &res.span {
+                        let _entered = span.enter();
+                        Self::log(&status, id.as_str(), _method, _path, duration.as_str());
+                    } else {
+                        Self::log(&status, id.as_str(), _method, _path, duration.as_str());
+                    }
+                }
+
+                Ok(res)
+            })
             .await
-            .and_then(|mut ctx| ctx.state.take_response().ok_or(SaphirError::ResponseMoved))
             .or_else(|e| {
                 let builder = crate::response::Builder::new();
                 e.log(&err_ctx);
@@ -669,34 +742,17 @@ impl Stack {
         res
     }
 
-    async fn invoke_with_timeout(&self, mut req: Request<Body>, timeout_ms: u64) -> Result<Response<Body>, SaphirError> {
-        use tokio::time::timeout;
-
-        let meta = self.router.resolve_metadata(&mut req);
-        let ctx = HttpContext::new(req, self.router.clone(), meta);
-        let err_ctx = ctx.clone_with_empty_state();
-
-        let res = match timeout(Duration::from_millis(timeout_ms), async move {
-            self.middlewares
-                .next(ctx)
-                .await
-                .and_then(|mut ctx| ctx.state.take_response().ok_or(SaphirError::ResponseMoved))
-        })
-        .map_err(|_| SaphirError::RequestTimeout)
-        .await
-        {
-            Ok(res) => res,
-            Err(e) => {
-                let builder = crate::response::Builder::new();
-                e.log(&err_ctx);
-                e.response_builder(builder, &err_ctx).build().map_err(|e2| {
-                    e2.log(&err_ctx);
-                    e2
-                })
-            }
-        };
-        REQUEST_FUTURE_COUNT.fetch_sub(1, Ordering::SeqCst);
-        res
+    #[cfg(feature = "tracing-instrument")]
+    fn log(status: &http::StatusCode, id: &str, method: &str, path: &str, duration: &str) {
+        if status.is_server_error() {
+            tracing::error!(id, method, path, status = status.as_u16(), duration_ms = duration);
+        } else if status.is_client_error() {
+            tracing::warn!(id, method, path, status = status.as_u16(), duration_ms = duration);
+        } else if status.is_informational() | status.is_redirection() {
+            tracing::info!(id, method, path, status = status.as_u16(), duration_ms = duration);
+        } else {
+            tracing::debug!(id, method, path, status = status.as_u16(), duration_ms = duration);
+        }
     }
 }
 

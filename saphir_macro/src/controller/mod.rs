@@ -20,6 +20,7 @@ pub fn expand_controller(args: AttributeArgs, input: ItemImpl) -> Result<TokenSt
     let controller_implementation = controller_attr::gen_controller_trait_implementation(&controller_attr, handlers.as_slice());
     let struct_implementaion = gen_struct_implementation(controller_attr.ident, handlers)?;
 
+    #[allow(unused_mut)]
     let mut instrument_using = TokenStream::new();
     #[cfg(feature = "tracing-instrument")]
     {

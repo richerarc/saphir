@@ -137,8 +137,6 @@ impl<'f> Field<'f> {
     pub async fn as_text(&mut self) -> Result<String, MultipartError> {
         let raw = std::mem::take(&mut self.raw).ok_or(MultipartError::AlreadyConsumed)?;
         raw.text().await.map_err(MultipartError::from)
-        // self.read_all().await.map(|b|
-        // String::from_utf8_lossy(b.as_slice()).to_string())
     }
 
     /// Loads the entire field into memory and returns it as plain text

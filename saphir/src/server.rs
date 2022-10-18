@@ -770,9 +770,10 @@ impl Service<hyper::Request<hyper::Body>> for StackHandler {
         let req = Request::new(req.map(Body::from_raw), self.peer_addr.take());
         Box::pin(self.stack.invoke(req).map(|r| {
             r.and_then(|mut r| {
-                if let Some(server_name) = SERVER_NAME.get() {
-                    r.headers_mut().insert(http::header::SERVER, server_name.clone());
-                }
+                r.headers_mut().insert(
+                    http::header::SERVER,
+                    SERVER_NAME.get().expect("SERVER_NAME has been initialized at server startup").clone(),
+                );
                 r.into_raw().map(|r| r.map(|b| b.into_raw()))
             })
         })) as Self::Future
@@ -801,9 +802,10 @@ impl Service<hyper::Request<hyper::Body>> for TimeoutStackHandler {
         let req = Request::new(req.map(Body::from_raw), self.peer_addr.take());
         Box::pin(self.stack.invoke_with_timeout(req, self.timeout_ms).map(|r| {
             r.and_then(|mut r| {
-                if let Some(server_name) = SERVER_NAME.get() {
-                    r.headers_mut().insert(http::header::SERVER, server_name.clone());
-                }
+                r.headers_mut().insert(
+                    http::header::SERVER,
+                    SERVER_NAME.get().expect("SERVER_NAME has been initialized at server startup").clone(),
+                );
                 r.into_raw().map(|r| r.map(|b| b.into_raw()))
             })
         })) as Self::Future

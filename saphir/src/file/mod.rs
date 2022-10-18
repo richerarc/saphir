@@ -17,8 +17,10 @@ use crate::{error::SaphirError, file::middleware::PathExt, http_context::HttpCon
 use flate2::write::{DeflateEncoder, GzEncoder};
 use futures::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, Cursor};
 use mime::Mime;
-use std::io::{Cursor as CursorSync, Write};
-use std::str::FromStr;
+use std::{
+    io::{Cursor as CursorSync, Write},
+    str::FromStr,
+};
 use tokio::io::ReadBuf;
 
 mod cache;

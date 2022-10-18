@@ -14,6 +14,7 @@ use crate::{
     },
     Command, CommandResult,
 };
+use clap::{Args, ValueEnum};
 use http::StatusCode;
 use serde_derive::Deserialize;
 use std::{
@@ -27,7 +28,6 @@ use std::{
     time::Instant,
 };
 use syn::{Fields, Item as SynItem, ItemEnum, ItemStruct, Signature};
-use clap::{Args, ValueEnum};
 
 mod controller_info;
 mod crate_syn_browser;

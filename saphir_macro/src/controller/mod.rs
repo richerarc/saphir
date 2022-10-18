@@ -1,6 +1,6 @@
 use proc_macro2::{Ident, Span, TokenStream};
-use syn::{spanned::Spanned, AttributeArgs, Error, GenericArgument, ItemImpl, PathArguments, Result, Type};
 use quote::{quote, quote_spanned, ToTokens};
+use syn::{spanned::Spanned, AttributeArgs, Error, GenericArgument, ItemImpl, PathArguments, Result, Type};
 
 use crate::controller::{
     controller_attr::ControllerAttr,

@@ -15,8 +15,7 @@ use futures::{
 };
 use futures_util::{future::TryFutureExt, stream::Stream};
 use hyper::{body::Body as RawBody, server::conn::Http, service::Service};
-use tokio::sync::OnceCell;
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, sync::OnceCell};
 
 use crate::{
     body::Body,

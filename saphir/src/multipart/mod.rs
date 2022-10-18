@@ -1,8 +1,3 @@
-use std::{fmt::Debug, str::FromStr, sync::Arc};
-use futures::TryStreamExt;
-use futures_util::stream::Stream;
-use mime::Mime;
-use std::fmt::Formatter;
 use crate::{
     body::{Body, Bytes},
     http_context::HttpContext,
@@ -10,9 +5,16 @@ use crate::{
     responder::Responder,
     response::Builder,
 };
-use std::path::Path;
-use multer::Multipart as RawMultipart;
-use multer::Field as RawField;
+use futures::TryStreamExt;
+use futures_util::stream::Stream;
+use mime::Mime;
+use multer::{Field as RawField, Multipart as RawMultipart};
+use std::{
+    fmt::{Debug, Formatter},
+    path::Path,
+    str::FromStr,
+    sync::Arc,
+};
 use thiserror::Error;
 use tokio::sync::Mutex;
 
@@ -135,7 +137,8 @@ impl<'f> Field<'f> {
     pub async fn as_text(&mut self) -> Result<String, MultipartError> {
         let raw = std::mem::take(&mut self.raw).ok_or(MultipartError::AlreadyConsumed)?;
         raw.text().await.map_err(MultipartError::from)
-        // self.read_all().await.map(|b| String::from_utf8_lossy(b.as_slice()).to_string())
+        // self.read_all().await.map(|b|
+        // String::from_utf8_lossy(b.as_slice()).to_string())
     }
 
     /// Loads the entire field into memory and returns it as plain text
@@ -177,8 +180,8 @@ impl<'f> Field<'f> {
     #[cfg_attr(docsrs, doc(cfg(feature = "json")))]
     #[deprecated(since = "3.1.0", note = "use `to_json()` instead")]
     pub async fn to_json<T>(self) -> Result<Option<T>, MultipartError>
-        where
-            T: for<'a> serde::Deserialize<'a>,
+    where
+        T: for<'a> serde::Deserialize<'a>,
     {
         if *self.content_type() == mime::APPLICATION_JSON {
             let raw = self.raw.ok_or(MultipartError::AlreadyConsumed)?;
@@ -221,8 +224,8 @@ impl<'f> Field<'f> {
     #[cfg(feature = "form")]
     #[cfg_attr(docsrs, doc(cfg(feature = "form")))]
     pub async fn to_form<T>(self) -> Result<Option<T>, MultipartError>
-        where
-            T: for<'a> serde::Deserialize<'a>,
+    where
+        T: for<'a> serde::Deserialize<'a>,
     {
         if *self.content_type() == mime::APPLICATION_WWW_FORM_URLENCODED {
             let raw = self.raw.ok_or(MultipartError::AlreadyConsumed)?;

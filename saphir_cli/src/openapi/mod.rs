@@ -1,5 +1,5 @@
 use crate::{openapi::generate::Gen, Command, CommandResult};
-use clap::{Subcommand, Args};
+use clap::{Args, Subcommand};
 
 mod generate;
 mod schema;

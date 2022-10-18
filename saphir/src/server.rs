@@ -967,13 +967,9 @@ pub async fn inject_raw(req: RawRequest<RawBody>) -> Result<RawResponse<RawBody>
 
 /// Inject a http request into saphir
 pub async fn inject_raw_with_peer_addr(req: RawRequest<RawBody>, peer_addr: Option<SocketAddr>) -> Result<RawResponse<RawBody>, SaphirError> {
-    // if !INIT_STACK.initialized() {
-    //     return Err(SaphirError::Other("Stack is not initialized".to_owned()));
-    // }
-
     // # SAFETY #
     // We checked that memory has been initialized above
-    let stack = STACK.get().ok_or(SaphirError::Other("Stack is not initialized".to_owned()))?;
+    let stack = STACK.get().ok_or_else(|| SaphirError::Other("Stack is not initialized".to_owned()))?;
 
     let saphir_req = Request::new(req.map(Body::from_raw), peer_addr);
     REQUEST_FUTURE_COUNT.fetch_add(1, Ordering::SeqCst);

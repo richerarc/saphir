@@ -106,7 +106,7 @@ impl<'f> Field<'f> {
     /// Returns the optional `Content-Type` Mime and is defaulted to
     /// `text/plain` as specified by the spec
     pub fn content_type(&self) -> &Mime {
-        self.raw.as_ref().and_then(|r| r.content_type()).unwrap_or_else(|| &mime::TEXT_PLAIN)
+        self.raw.as_ref().and_then(|r| r.content_type()).unwrap_or(&mime::TEXT_PLAIN)
     }
 
     /// **Deprecated**;

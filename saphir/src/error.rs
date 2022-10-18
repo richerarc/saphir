@@ -10,7 +10,7 @@ use http::{
 use hyper::Error as HyperError;
 use std::{
     error::Error as StdError,
-    fmt::{Debug, Display, Error as FmtError, Formatter},
+    fmt::{Debug, Formatter},
     io::Error as IoError,
 };
 use thiserror::Error;
@@ -235,39 +235,7 @@ impl SaphirError {
         }
     }
 }
-//
-// #[cfg(feature = "json")]
-// #[cfg_attr(docsrs, doc(cfg(feature = "json")))]
-// impl From<serde_json::error::Error> for SaphirError {
-//     fn from(e: serde_json::error::Error) -> Self {
-//         SaphirError::SerdeJson(e)
-//     }
-// }
-//
-// #[cfg(feature = "form")]
-// #[cfg_attr(docsrs, doc(cfg(feature = "form")))]
-// impl From<serde_urlencoded::de::Error> for SaphirError {
-//     fn from(e: serde_urlencoded::de::Error) -> Self {
-//         SaphirError::SerdeUrlDe(e)
-//     }
-// }
-//
-// #[cfg(feature = "form")]
-// #[cfg_attr(docsrs, doc(cfg(feature = "form")))]
-// impl From<serde_urlencoded::ser::Error> for SaphirError {
-//     fn from(e: serde_urlencoded::ser::Error) -> Self {
-//         SaphirError::SerdeUrlSer(e)
-//     }
-// }
-//
-// #[cfg(feature = "validate-requests")]
-// #[cfg_attr(docsrs, doc(cfg(feature = "validate-requests")))]
-// impl From<::validator::ValidationErrors> for SaphirError {
-//     fn from(e: ::validator::ValidationErrors) -> Self {
-//         SaphirError::ValidationErrors(e)
-//     }
-// }
-//
+
 impl From<HttpCrateError> for SaphirError {
     fn from(e: HttpCrateError) -> Self {
         SaphirError::Internal(InternalError::Http(e))
@@ -285,27 +253,12 @@ impl From<HyperError> for SaphirError {
         SaphirError::Internal(InternalError::Hyper(e))
     }
 }
-//
-// impl From<IoError> for SaphirError {
-//     fn from(e: IoError) -> Self {
-//         SaphirError::Io(e)
-//     }
-// }
-//
+
 impl From<ToStrError> for SaphirError {
     fn from(e: ToStrError) -> Self {
         SaphirError::Internal(InternalError::ToStr(e))
     }
 }
-
-// impl Display for SaphirError {
-//     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
-//         map
-//         f.write_str("saphirError")
-//     }
-// }
-//
-// impl StdError for SaphirError {}
 
 impl Responder for SaphirError {
     #[allow(unused_variables)]

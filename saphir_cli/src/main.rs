@@ -1,5 +1,5 @@
 #![allow(clippy::match_like_matches_macro)]
-use structopt::StructOpt;
+use clap::{Parser, Subcommand};
 
 mod openapi;
 
@@ -14,19 +14,22 @@ pub(crate) trait Command: Sized {
 }
 
 /// Saphir web framework's CLI utility.
-#[derive(StructOpt, Debug)]
+#[derive(Parser, Debug)]
+#[command(name = "saphir")]
+#[command(bin_name = "saphir")]
+// #[command(about = "Saphir web framework's CLI utility.", long_about = None)]
 struct SaphirCli {
-    #[structopt(subcommand)]
+    #[command(subcommand)]
     cmd: SaphirCliCommand,
 }
 
-#[derive(StructOpt, Debug)]
+#[derive(Subcommand, Debug)]
 enum SaphirCliCommand {
     Openapi(<Openapi as Command>::Args),
 }
 
 fn main() {
-    let cli = SaphirCli::from_args();
+    let cli = SaphirCli::parse();
     if let Err(e) = match cli.cmd {
         SaphirCliCommand::Openapi(args) => {
             let openapi = Openapi::new(args);

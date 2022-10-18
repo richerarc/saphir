@@ -287,13 +287,13 @@ pub mod operation {
 
     impl Display for OperationId {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            std::fmt::Display::fmt(&self.0.to_hyphenated_ref(), f)
+            std::fmt::Display::fmt(&self.0.as_hyphenated(), f)
         }
     }
 
     impl Debug for OperationId {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            std::fmt::Display::fmt(&self.0.to_hyphenated_ref(), f)
+            std::fmt::Display::fmt(&self.0.as_hyphenated(), f)
         }
     }
 

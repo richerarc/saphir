@@ -1,5 +1,5 @@
 use crate::{openapi::generate::Gen, Command, CommandResult};
-use structopt::StructOpt;
+use clap::{Args, Subcommand};
 
 mod generate;
 mod schema;
@@ -7,13 +7,14 @@ mod schema;
 /// OpenAPI v3 generation
 ///
 /// See: https://github.com/OAI/OpenAPI-Specification/blob/master/versions/3.0.2.md
-#[derive(StructOpt, Debug)]
+#[derive(Args, Debug)]
+#[command(args_conflicts_with_subcommands = true)]
 pub(crate) struct OpenapiArgs {
-    #[structopt(subcommand)]
+    #[command(subcommand)]
     cmd: OpenapiCommand,
 }
 
-#[derive(StructOpt, Debug)]
+#[derive(Subcommand, Debug)]
 pub(crate) enum OpenapiCommand {
     Gen(<Gen as Command>::Args),
 }

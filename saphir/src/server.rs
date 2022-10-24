@@ -7,7 +7,7 @@
 //! the server stack is put inside a static variable. This is needed for safety,
 //! but also means that only one saphir server can run at a time
 
-use std::{future::Future, mem::MaybeUninit, net::SocketAddr};
+use std::{future::Future, net::SocketAddr};
 
 use futures::{
     prelude::*,
@@ -15,8 +15,7 @@ use futures::{
 };
 use futures_util::{future::TryFutureExt, stream::Stream};
 use hyper::{body::Body as RawBody, server::conn::Http, service::Service};
-use parking_lot::{Once, OnceState};
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, sync::OnceCell};
 
 use crate::{
     body::Body,
@@ -45,33 +44,25 @@ pub const DEFAULT_LISTENER_IFACE: &str = "0.0.0.0:0";
 pub const DEFAULT_SERVER_NAME: &str = "Saphir";
 
 #[doc(hidden)]
-static mut STACK: MaybeUninit<Stack> = MaybeUninit::uninit();
+static STACK: OnceCell<Stack> = OnceCell::const_new();
 #[doc(hidden)]
-static mut SERVER_NAME: MaybeUninit<HeaderValue> = MaybeUninit::uninit();
-#[doc(hidden)]
-static INIT_STACK: Once = Once::new();
+static SERVER_NAME: OnceCell<HeaderValue> = OnceCell::const_new();
 #[doc(hidden)]
 static REQUEST_FUTURE_COUNT: AtomicU64 = AtomicU64::new(0);
 
 fn write_into_static(stack: Stack, server_value: HeaderValue, request_body_max: Option<usize>) -> Result<&'static Stack, SaphirError> {
-    if INIT_STACK.state() != OnceState::New {
-        return Err(SaphirError::StackAlreadyInitialized);
-    }
-
-    INIT_STACK.call_once(|| {
-        // # SAFETY #
-        // We write only once in the static memory. No override.
-        // Above check also make sure there is no second server.
-        unsafe {
-            STACK.as_mut_ptr().write(stack);
-            SERVER_NAME.as_mut_ptr().write(server_value);
-            crate::body::REQUEST_BODY_BYTES_LIMIT = request_body_max;
-        }
-    });
+    STACK.set(stack).map_err(|_| SaphirError::StackAlreadyInitialized)?;
+    SERVER_NAME.set(server_value).map_err(|_| SaphirError::StackAlreadyInitialized)?;
 
     // # SAFETY #
+    // We write only once in the static memory. No override.
+    // Above check also make sure there is no second server.
+    unsafe {
+        crate::body::REQUEST_BODY_BYTES_LIMIT = request_body_max;
+    }
+
     // Memory has been initialized above.
-    let stack = unsafe { STACK.as_ptr().as_ref().expect("Memory has been initialized above.") };
+    let stack = STACK.get().expect("Memory has been initialized above.");
 
     Ok(stack)
 }
@@ -779,11 +770,10 @@ impl Service<hyper::Request<hyper::Body>> for StackHandler {
         let req = Request::new(req.map(Body::from_raw), self.peer_addr.take());
         Box::pin(self.stack.invoke(req).map(|r| {
             r.and_then(|mut r| {
-                // # SAFETY #
-                // Memory has been initialized at server startup.
-                r.headers_mut().insert(http::header::SERVER, unsafe {
-                    SERVER_NAME.as_ptr().as_ref().expect("Memory has been initialized at server startup.").clone()
-                });
+                r.headers_mut().insert(
+                    http::header::SERVER,
+                    SERVER_NAME.get().expect("SERVER_NAME has been initialized at server startup").clone(),
+                );
                 r.into_raw().map(|r| r.map(|b| b.into_raw()))
             })
         })) as Self::Future
@@ -812,11 +802,10 @@ impl Service<hyper::Request<hyper::Body>> for TimeoutStackHandler {
         let req = Request::new(req.map(Body::from_raw), self.peer_addr.take());
         Box::pin(self.stack.invoke_with_timeout(req, self.timeout_ms).map(|r| {
             r.and_then(|mut r| {
-                // # SAFETY #
-                // Memory has been initialized at server startup.
-                r.headers_mut().insert(http::header::SERVER, unsafe {
-                    SERVER_NAME.as_ptr().as_ref().expect("Memory has been initialized at server startup.").clone()
-                });
+                r.headers_mut().insert(
+                    http::header::SERVER,
+                    SERVER_NAME.get().expect("SERVER_NAME has been initialized at server startup").clone(),
+                );
                 r.into_raw().map(|r| r.map(|b| b.into_raw()))
             })
         })) as Self::Future
@@ -980,13 +969,9 @@ pub async fn inject_raw(req: RawRequest<RawBody>) -> Result<RawResponse<RawBody>
 
 /// Inject a http request into saphir
 pub async fn inject_raw_with_peer_addr(req: RawRequest<RawBody>, peer_addr: Option<SocketAddr>) -> Result<RawResponse<RawBody>, SaphirError> {
-    if INIT_STACK.state() != OnceState::Done {
-        return Err(SaphirError::Other("Stack is not initialized".to_owned()));
-    }
-
     // # SAFETY #
     // We checked that memory has been initialized above
-    let stack = unsafe { STACK.as_ptr().as_ref().expect("Memory has been initialized above.") };
+    let stack = STACK.get().ok_or_else(|| SaphirError::Other("Stack is not initialized".to_owned()))?;
 
     let saphir_req = Request::new(req.map(Body::from_raw), peer_addr);
     REQUEST_FUTURE_COUNT.fetch_add(1, Ordering::SeqCst);

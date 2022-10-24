@@ -10,65 +10,88 @@ use http::{
 use hyper::Error as HyperError;
 use std::{
     error::Error as StdError,
-    fmt::{Debug, Display, Error as FmtError, Formatter},
+    fmt::{Debug, Formatter},
     io::Error as IoError,
 };
+use thiserror::Error;
 
 /// Type representing an internal error inerrant to the underlining logic behind
 /// saphir
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum InternalError {
+    #[error("Http: {0}")]
     Http(HttpCrateError),
+    #[error("Hyper: {0}")]
     Hyper(HyperError),
+    #[error("ToStr: {0}")]
     ToStr(ToStrError),
+    #[error("Stack")]
     Stack,
 }
 
 /// Error type throughout the saphir stack
+#[derive(Error)]
 pub enum SaphirError {
     ///
-    Internal(InternalError),
+    #[error("Internal: {0}")]
+    Internal(#[from] InternalError),
     ///
-    Io(IoError),
+    #[error("Io: {0}")]
+    Io(#[from] IoError),
     /// Body was taken and cannot be polled
+    #[error("Body already taken")]
     BodyAlreadyTaken,
     /// The request was moved by a middleware without ending the request
     /// processing
+    #[error("Request moved before handler")]
     RequestMovedBeforeHandler,
     /// The response was moved before being sent to the client
+    #[error("Response moved")]
     ResponseMoved,
     /// Custom error type to map any other error
+    #[error("Custom: {0}")]
     Custom(Box<dyn StdError + Send + Sync + 'static>),
     /// Custom error type to map any other error
+    #[error("Responder")]
     Responder(Box<dyn DynResponder + Send + Sync + 'static>),
     ///
+    #[error("Other: {0}")]
     Other(String),
     /// Error from (de)serializing json data
     #[cfg(feature = "json")]
     #[cfg_attr(docsrs, doc(cfg(feature = "json")))]
-    SerdeJson(serde_json::error::Error),
+    #[error("SerdeJson: {0}")]
+    SerdeJson(#[from] serde_json::error::Error),
     /// Error from deserializing form data
     #[cfg(feature = "form")]
     #[cfg_attr(docsrs, doc(cfg(feature = "form")))]
-    SerdeUrlDe(serde_urlencoded::de::Error),
+    #[error("SerdeUrlDe: {0}")]
+    SerdeUrlDe(#[from] serde_urlencoded::de::Error),
     /// Error from serializing form data
     #[cfg(feature = "form")]
     #[cfg_attr(docsrs, doc(cfg(feature = "form")))]
-    SerdeUrlSer(serde_urlencoded::ser::Error),
+    #[error("SerdeUrlSer: {0}")]
+    SerdeUrlSer(#[from] serde_urlencoded::ser::Error),
     ///
+    #[error("Missing parameter `{0}` (is_query: {1})")]
     MissingParameter(String, bool),
     ///
+    #[error("Invalid parameter `{0}` (is_query: {1})")]
     InvalidParameter(String, bool),
     ///
+    #[error("Request timed out")]
     RequestTimeout,
     /// Attempted to build stack twice
+    #[error("Stack alrealy initialized")]
     StackAlreadyInitialized,
     ///
+    #[error("Too many requests")]
     TooManyRequests,
     /// Validator error
     #[cfg(feature = "validate-requests")]
     #[cfg_attr(docsrs, doc(cfg(feature = "validate-requests")))]
-    ValidationErrors(validator::ValidationErrors),
+    #[error("ValidationErrors: {0}")]
+    ValidationErrors(#[from] validator::ValidationErrors),
 }
 
 impl Debug for SaphirError {
@@ -213,38 +236,6 @@ impl SaphirError {
     }
 }
 
-#[cfg(feature = "json")]
-#[cfg_attr(docsrs, doc(cfg(feature = "json")))]
-impl From<serde_json::error::Error> for SaphirError {
-    fn from(e: serde_json::error::Error) -> Self {
-        SaphirError::SerdeJson(e)
-    }
-}
-
-#[cfg(feature = "form")]
-#[cfg_attr(docsrs, doc(cfg(feature = "form")))]
-impl From<serde_urlencoded::de::Error> for SaphirError {
-    fn from(e: serde_urlencoded::de::Error) -> Self {
-        SaphirError::SerdeUrlDe(e)
-    }
-}
-
-#[cfg(feature = "form")]
-#[cfg_attr(docsrs, doc(cfg(feature = "form")))]
-impl From<serde_urlencoded::ser::Error> for SaphirError {
-    fn from(e: serde_urlencoded::ser::Error) -> Self {
-        SaphirError::SerdeUrlSer(e)
-    }
-}
-
-#[cfg(feature = "validate-requests")]
-#[cfg_attr(docsrs, doc(cfg(feature = "validate-requests")))]
-impl From<::validator::ValidationErrors> for SaphirError {
-    fn from(e: ::validator::ValidationErrors) -> Self {
-        SaphirError::ValidationErrors(e)
-    }
-}
-
 impl From<HttpCrateError> for SaphirError {
     fn from(e: HttpCrateError) -> Self {
         SaphirError::Internal(InternalError::Http(e))
@@ -263,25 +254,11 @@ impl From<HyperError> for SaphirError {
     }
 }
 
-impl From<IoError> for SaphirError {
-    fn from(e: IoError) -> Self {
-        SaphirError::Io(e)
-    }
-}
-
 impl From<ToStrError> for SaphirError {
     fn from(e: ToStrError) -> Self {
         SaphirError::Internal(InternalError::ToStr(e))
     }
 }
-
-impl Display for SaphirError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
-        f.write_str("saphirError")
-    }
-}
-
-impl StdError for SaphirError {}
 
 impl Responder for SaphirError {
     #[allow(unused_variables)]

@@ -14,6 +14,7 @@ use crate::{
     },
     Command, CommandResult,
 };
+use clap::{Args, ValueEnum};
 use http::StatusCode;
 use serde_derive::Deserialize;
 use std::{
@@ -26,7 +27,6 @@ use std::{
     str::FromStr,
     time::Instant,
 };
-use structopt::StructOpt;
 use syn::{Fields, Item as SynItem, ItemEnum, ItemStruct, Signature};
 
 mod controller_info;
@@ -37,50 +37,29 @@ mod route_info;
 mod type_info;
 mod utils;
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone, ValueEnum)]
 enum Case {
+    #[value(name = "lowercase")]
     Lower,
+    #[value(name = "UPPERCASE")]
     Upper,
+    #[value(name = "PascalCase")]
     Pascal,
+    #[value(name = "camelCase")]
     Camel,
+    #[value(name = "snake_case")]
     Snake,
+    #[value(name = "SCREAMING_SNAKE_CASE")]
     ScreamingSnake,
+    #[value(name = "kebab-case")]
     Kebab,
+    #[value(name = "SCREAMING-KEBAB-CASE", alias("COBOL-CASE"))]
     Cobol,
 }
 
 impl Default for Case {
     fn default() -> Self {
         Case::Camel
-    }
-}
-
-#[derive(Debug)]
-enum CasesError {
-    UnknownCase,
-}
-
-impl Display for CasesError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Not a known case convention")
-    }
-}
-
-impl FromStr for Case {
-    type Err = CasesError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "lowercase" => Ok(Case::Lower),
-            "UPPERCASE" => Ok(Case::Upper),
-            "PascalCase" => Ok(Case::Pascal),
-            "camelCase" => Ok(Case::Camel),
-            "snake_case" => Ok(Case::Snake),
-            "SCREAMING_SNAKE_CASE" => Ok(Case::ScreamingSnake),
-            "kebab-case" => Ok(Case::Kebab),
-            "SCREAMING-KEBAB-CASE" => Ok(Case::Cobol),
-            _ => Err(CasesError::UnknownCase),
-        }
     }
 }
 
@@ -99,7 +78,7 @@ impl From<&Case> for convert_case::Case {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone, ValueEnum)]
 enum SchemaGranularity {
     None,
     Top,
@@ -152,7 +131,7 @@ You can see help with the --help flag.",
 /// Generate OpenAPI v3 from a Saphir application.
 ///
 /// See: https://github.com/OAI/OpenAPI-Specification/blob/master/versions/3.0.2.md
-#[derive(StructOpt, Debug, Default)]
+#[derive(Args, Debug, Default)]
 pub(crate) struct GenArgs {
     /// (Optional) Limit doc generation to the URIs under this scope.
     ///
@@ -163,7 +142,7 @@ pub(crate) struct GenArgs {
     /// - GET  /api/v1/user
     /// - POST /api/v1/user
     /// , the generated doc would contain only the `/api/v2/user` endpoints.
-    #[structopt(short = "s", long = "scope", default_value = "/", verbatim_doc_comment)]
+    #[arg(short = 's', long = "scope", default_value = "/", verbatim_doc_comment)]
     scope: String,
 
     /// (Optional) Granularity of schema generation.
@@ -172,25 +151,25 @@ pub(crate) struct GenArgs {
     /// created for them, but nested objects will be inlined.
     ///
     /// Available values:
-    /// - None :          all objects are inlined
-    /// - Top (default) : Top-level objects are described as a component schema,
+    /// - none :          all objects are inlined
+    /// - top (default) : Top-level objects are described as a component schema,
     ///   nested are inlined
-    /// - All :           All objects are described as a component schema
-    #[structopt(short = "g", long = "schema-granularity", default_value = "Top", verbatim_doc_comment)]
+    /// - all :           All objects are described as a component schema
+    #[arg(value_enum, short = 'g', long = "schema-granularity", default_value = "top", verbatim_doc_comment)]
     schema_granularity: SchemaGranularity,
 
     /// (Optional) path to the Saphir server's root
-    #[structopt(parse(from_os_str), short = "p", long = "project-path", default_value = ".")]
+    #[arg(short = 'p', long = "project-path", default_value = ".")]
     project_path: PathBuf,
 
     /// (Optional) If running on a workspace, name of the package of the lucid
     /// server for which we want to build openapi doc
-    #[structopt(long = "package")]
+    #[arg(long = "package")]
     package_name: Option<String>,
 
     /// (Optional) Resulting output path. Either the path to the resulting yaml
     /// file, or a dir, which would then contain a openapi.yaml
-    #[structopt(parse(from_os_str), default_value = ".")]
+    #[arg(default_value = ".")]
     output_file: PathBuf,
 
     /// (Optional) Casing of the operation names.
@@ -204,7 +183,7 @@ pub(crate) struct GenArgs {
     /// - SCREAMING_SNAKE_CASE
     /// - kebab-case
     /// - SCREAMING-KEBAB-CASE
-    #[structopt(short = "c", long = "operation-name-case", default_value = "camelCase", verbatim_doc_comment)]
+    #[arg(short = 'c', long = "operation-name-case", default_value = "camelCase", value_enum, verbatim_doc_comment)]
     operation_name_case: Case,
 }
 

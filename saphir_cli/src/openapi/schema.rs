@@ -227,7 +227,11 @@ impl OpenApiType {
 
     pub fn object(properties: BTreeMap<String, Box<OpenApiSchema>>, required: Vec<String>) -> Self {
         OpenApiType::Object {
-            object: OpenApiObjectType::Object { properties, required, additional_properties: false },
+            object: OpenApiObjectType::Object {
+                properties,
+                required,
+                additional_properties: false,
+            },
         }
     }
 

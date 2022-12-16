@@ -271,7 +271,7 @@ by using the --package flag."
             pub version: String,
         }
         let cargo_path = self.args.project_path.clone().join("Cargo.toml");
-        let mut f = FsFile::open(&cargo_path).map_err(|_| print_project_path_error!("Cargo.toml", self.args.project_path))?;
+        let mut f = FsFile::open(cargo_path).map_err(|_| print_project_path_error!("Cargo.toml", self.args.project_path))?;
         let mut buffer = String::new();
         f.read_to_string(&mut buffer)
             .map_err(|_| print_project_path_error!("Cargo.toml", self.args.project_path))?;
@@ -507,7 +507,12 @@ by using the --package flag."
             };
 
             if let OpenApiType::Object {
-                object: OpenApiObjectType::Object { properties, required, additional_properties: false },
+                object:
+                    OpenApiObjectType::Object {
+                        properties,
+                        required,
+                        additional_properties: false,
+                    },
             } = t
             {
                 for (name, schema) in properties {

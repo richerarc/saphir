@@ -60,7 +60,7 @@ fn check_signature(m: &Signature) -> Result<Path> {
             {
                 segments
                     .first()
-                    .ok_or_else(|| Error::new_spanned(&ty, "Unexpected type"))?
+                    .ok_or_else(|| Error::new_spanned(ty, "Unexpected type"))?
                     .ident
                     .to_string()
                     .eq("Request")
@@ -83,8 +83,8 @@ fn check_signature(m: &Signature) -> Result<Path> {
             let r = segments.first().ok_or_else(|| Error::new_spanned(segments, "Unexpected type"))?;
             if r.ident.to_string().ne("Result") {
                 return Err(Error::new_spanned(
-                    &r,
-                    &format!(
+                    r,
+                    format!(
                         "Invalid return type for the validate fn, expected Result<Request, impl Responder>, got {}",
                         r.ident
                     ),
@@ -112,7 +112,7 @@ fn check_signature(m: &Signature) -> Result<Path> {
                     if segment_name.ne("Request") {
                         return Err(Error::new_spanned(
                             segments,
-                            &format!(
+                            format!(
                                 "Invalid return type for the validate fn, expected Result<Request, impl Responder>, got Result<{}, ..>",
                                 segment_name
                             ),

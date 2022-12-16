@@ -466,7 +466,7 @@ impl HandlerAttrs {
                         }
 
                         let guard = GuardDef {
-                            guard_type: guard_type_path.ok_or_else(|| Error::new_spanned(&ident, "Missing guard"))?,
+                            guard_type: guard_type_path.ok_or_else(|| Error::new_spanned(ident, "Missing guard"))?,
                             init_data,
                             init_fn,
                             init_expr,

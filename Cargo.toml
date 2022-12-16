@@ -5,3 +5,7 @@ members = [
     "saphir_macro",
     "saphir_cli",
 ]
+
+[profile.cli-release]
+inherits = "release"
+lto = "fat"

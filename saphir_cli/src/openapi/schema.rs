@@ -155,6 +155,8 @@ pub enum OpenApiObjectType {
         properties: BTreeMap<String, Box<OpenApiSchema>>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         required: Vec<String>,
+        #[serde(rename = "additionalProperties", default)]
+        additional_properties: bool,
     },
     Dictionary {
         #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -225,7 +227,7 @@ impl OpenApiType {
 
     pub fn object(properties: BTreeMap<String, Box<OpenApiSchema>>, required: Vec<String>) -> Self {
         OpenApiType::Object {
-            object: OpenApiObjectType::Object { properties, required },
+            object: OpenApiObjectType::Object { properties, required, additional_properties: false },
         }
     }
 

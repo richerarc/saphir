@@ -507,7 +507,7 @@ by using the --package flag."
             };
 
             if let OpenApiType::Object {
-                object: OpenApiObjectType::Object { properties, required },
+                object: OpenApiObjectType::Object { properties, required, additional_properties: false },
             } = t
             {
                 for (name, schema) in properties {
@@ -568,7 +568,7 @@ by using the --package flag."
         for field in &s.fields {
             if let Some(field_name) = field.ident.as_ref().and_then(|i| get_serde_field(i.to_string(), &field.attrs, &s.attrs)) {
                 if let Some(field_type_info) = TypeInfo::new(item.scope, &field.ty) {
-                    let field_as_ref = self.args.schema_granularity == SchemaGranularity::All && field_type_info.is_type_serializable;
+                    let field_as_ref = self.args.schema_granularity == SchemaGranularity::All && as_ref;
                     let field_schema = self
                         .get_open_api_schema_from_type_info(item.scope, &field_type_info, field_as_ref)
                         .unwrap_or_else(|| {

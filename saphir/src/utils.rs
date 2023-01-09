@@ -588,7 +588,7 @@ mod tests {
         assert!(resolvers.get(&"/api/v1/users/keys/first") < resolvers.get(&"/api/v1/users/keys/<id>"));
         assert!(resolvers.get(&"/api/v1/users/keys/<id>") < resolvers.get(&"/api/v1/users/keys/**"));
 
-        let mut resolvers_vec: Vec<_> = resolvers.into_iter().map(|(_, r)| r).collect();
+        let mut resolvers_vec: Vec<_> = resolvers.into_values().collect();
         resolvers_vec.sort_unstable();
 
         assert_eq!(&resolvers_vec[0].id(), ids.get(&"/api/v1/users/keys/first").unwrap());

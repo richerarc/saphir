@@ -172,7 +172,7 @@ impl<Controllers: 'static + RouterChain + Unpin + Send + Sync> Builder<Controlle
     pub(crate) fn build(self) -> Router {
         let Builder { resolver, chain: controllers } = self;
 
-        let mut resolvers: Vec<_> = resolver.into_iter().map(|(_, e)| e).collect();
+        let mut resolvers: Vec<_> = resolver.into_values().collect();
         resolvers.sort_unstable();
 
         Router {

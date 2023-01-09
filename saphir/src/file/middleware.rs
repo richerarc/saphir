@@ -140,7 +140,7 @@ impl FileMiddleware {
             .and_then(|header| header.to_str().ok())
             .and_then(|header| Range::from_str(header).ok())
         {
-            if let (true, Some(content_range)) = (is_range_fresh(req, &etag, &last_modified), is_satisfiable_range(&range, size as u64)) {
+            if let (true, Some(content_range)) = (is_range_fresh(req, &etag, &last_modified), is_satisfiable_range(&range, size)) {
                 if let Some(range) = extract_range(&content_range) {
                     if !is_head_request {
                         let file = cache.open_file_with_range(&path, range).await?;
@@ -360,6 +360,6 @@ impl PathExt for Path {
 
     /// Guess MIME type from a path.
     fn mime(&self) -> Option<Mime> {
-        from_path(&self).first()
+        from_path(self).first()
     }
 }

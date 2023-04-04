@@ -585,15 +585,13 @@ impl Server {
 #[cfg(feature = "https")]
 fn accept_client(listener: ssl_loading_utils::MaybeTlsAcceptor) -> impl Stream<Item = tokio::io::Result<(ssl_loading_utils::MaybeTlsStream, SocketAddr)>> {
     use crate::server::ssl_loading_utils::{MaybeTlsAcceptor, MaybeTlsStream};
-    let (mut __yield_tx, __yield_rx) = async_stream::yielder::pair();
-
-    async_stream::AsyncStream::new(__yield_rx, async move {
+    async_stream::stream! {
         match listener {
             MaybeTlsAcceptor::Tls(tls_acceptor, tcp) => loop {
                 match tcp.accept().await {
                     Ok((socket, addr)) => {
                         let stream = tls_acceptor.accept(socket).await.map(|stream| (MaybeTlsStream::Tls(Box::pin(stream)), addr));
-                        __yield_tx.send(stream).await;
+                        yield stream;
                     }
                     Err(e) => {
                         warn!("incoming connection encountered an error: {}", e);
@@ -602,19 +600,26 @@ fn accept_client(listener: ssl_loading_utils::MaybeTlsAcceptor) -> impl Stream<I
             },
             MaybeTlsAcceptor::Plain(listener) => loop {
                 let stream = listener.accept().await.map(|(stream, addr)| (MaybeTlsStream::Plain(Box::pin(stream)), addr));
-                __yield_tx.send(stream).await;
+                yield stream;
             },
         }
-    })
+    }
 }
+
 #[cfg(not(feature = "https"))]
 fn accept_client(listener: TcpListener) -> impl Stream<Item = tokio::io::Result<(tokio::net::TcpStream, SocketAddr)>> {
-    let (mut __yield_tx, __yield_rx) = ::async_stream::yielder::pair();
-    async_stream::AsyncStream::new(__yield_rx, async move {
+    async_stream::stream! {
         loop {
-            __yield_tx.send(listener.accept().await).await
+            match listener.accept().await {
+                Ok((stream, addr)) => {
+                    yield Ok((stream, addr));
+                },
+                Err(e) => {
+                    error!("Failed to accept incoming connection: {}", e);
+                }
+            }
         }
-    })
+    }
 }
 
 #[doc(hidden)]

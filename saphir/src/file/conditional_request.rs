@@ -11,9 +11,13 @@ use crate::{
     file::etag::{EntityTag, SystemTimeExt},
     request::Request,
 };
-use chrono::{DateTime, FixedOffset, Utc};
+//use chrono::{DateTime, FixedOffset, Utc};
 use hyper::Method;
+use time::{OffsetDateTime, format_description::{well_known::Rfc2822, FormatItem}, macros::format_description};
 use std::time::SystemTime;
+
+const DEPRECATED_HEADER_DATE_FORMAT: &[FormatItem<'static>] = format_description!("[weekday], [day]-[month repr:short]-[year repr:last_two] [hour]:[minute]:[second] [offset_hour][offset_minute]");
+const DEPRECATED_HEADER_DATE_FORMAT2: &[FormatItem<'static>] = format_description!("[weekday repr:short] [month repr:short] [day] [hour]:[minute]:[second] [year]");
 
 /// Validate precondition of `If-Match` header.
 ///
@@ -124,13 +128,11 @@ pub fn is_fresh(req: &Request, etag: &EntityTag, last_modified: &SystemTime) -> 
 }
 
 pub fn format_systemtime(time: SystemTime) -> String {
-    DateTime::<Utc>::from(time).format("%a, %d %b %Y %T GMT").to_string()
+    OffsetDateTime::from(time).format(&Rfc2822).unwrap_or_default()
 }
 
-pub fn date_from_http_str(http: &str) -> Result<DateTime<FixedOffset>, SaphirError> {
-    match DateTime::parse_from_rfc2822(http)
-        .or_else(|_| DateTime::parse_from_str(http, "%A, %d-%b-%y %T %Z"))
-        .or_else(|_| DateTime::parse_from_str(http, "%c"))
+pub fn date_from_http_str(http: &str) -> Result<OffsetDateTime, SaphirError> {
+    match OffsetDateTime::parse(http, &Rfc2822).or_else(|_| OffsetDateTime::parse(http, &DEPRECATED_HEADER_DATE_FORMAT)).or_else(|_| OffsetDateTime::parse(http, &DEPRECATED_HEADER_DATE_FORMAT2))
     {
         Ok(t) => Ok(t),
         Err(_) => Err(SaphirError::Other("Cannot parse date from header".to_owned())),

@@ -821,6 +821,7 @@ impl Service<hyper::Request<hyper::Body>> for TimeoutStackHandler {
 #[cfg(feature = "https")]
 mod ssl_loading_utils {
     use std::{fs, io::BufReader, pin::Pin};
+    use base64::engine::Engine;
 
     use futures::io::Error;
     use futures_util::task::{Context, Poll};
@@ -953,7 +954,7 @@ mod ssl_loading_utils {
             data.drain(..drain_index);
             if let Some(index) = data.find(end_mark) {
                 let base64_buf = &data[..index];
-                let der = base64::decode(base64_buf).map_err(|_| ())?;
+                let der = base64::engine::general_purpose::STANDARD.decode(base64_buf).map_err(|_| ())?;
                 ders.push(f(der));
 
                 let drain_index = index + end_mark.len();

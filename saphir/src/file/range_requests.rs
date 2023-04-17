@@ -14,8 +14,8 @@ use crate::{
     },
     request::Request,
 };
-use chrono::{DateTime, Utc};
 use std::time::SystemTime;
+use time::{OffsetDateTime, format_description::well_known::Rfc2822, UtcOffset};
 
 /// Check if given value from `If-Range` header field is fresh.
 ///
@@ -31,8 +31,8 @@ pub fn is_range_fresh(req: &Request, etag: &EntityTag, last_modified: &SystemTim
             return etag.strong_eq(EntityTag::parse(if_range));
         }
 
-        if let Ok(date) = DateTime::parse_from_rfc2822(if_range).map(DateTime::<Utc>::from) {
-            return last_modified.timestamp() == SystemTime::from(date).timestamp();
+        if let Ok(date) = OffsetDateTime::parse(if_range, &Rfc2822).map(|date| date.to_offset(UtcOffset::UTC)) {
+            return last_modified.timestamp() == date.unix_timestamp() as u64;
         }
     }
     // Always be fresh if there is no validators

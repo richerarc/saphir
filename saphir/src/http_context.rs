@@ -9,16 +9,12 @@ pub static OPERATION_ID_HEADER: &str = "Operation-Id";
 /// responder. Empty will be the state of a context when the request is being
 /// processed by the handler, or when its original state has been moved by using
 /// take & take unchecked methods
+#[derive(Default)]
 pub enum State {
     Before(Box<Request>),
     After(Box<Response>),
+    #[default]
     Empty,
-}
-
-impl Default for State {
-    fn default() -> Self {
-        State::Empty
-    }
 }
 
 impl State {

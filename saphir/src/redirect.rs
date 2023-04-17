@@ -2,7 +2,7 @@ use crate::{body::TransmuteBody, http_context::HttpContext, responder::Responder
 use http::{header::HeaderName, HeaderMap, HeaderValue, StatusCode, Uri};
 use hyper::body::Body as RawBody;
 use mime::Mime;
-use saphir_cookie::{Cookie, CookieJar};
+use cookie::{Cookie, CookieJar};
 use serde::Serialize;
 use std::{collections::HashMap, convert::TryInto, fmt::Debug};
 

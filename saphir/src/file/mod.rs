@@ -188,18 +188,13 @@ impl AsyncSeek for FileCursor {
     }
 }
 
-#[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Clone, Copy, Debug)]
+#[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Clone, Copy, Debug, Default)]
 pub enum Compression {
+    #[default]
     Raw,
     Deflate,
     Gzip,
     Brotli,
-}
-
-impl Default for Compression {
-    fn default() -> Self {
-        Compression::Raw
-    }
 }
 
 impl FromStr for Compression {
@@ -228,11 +223,13 @@ impl ToString for Compression {
     }
 }
 
+#[derive(Default)]
 pub enum Encoder {
     Brotli(Box<brotli::CompressorWriter<Vec<u8>>>),
     Gzip(GzEncoder<Vec<u8>>),
     Deflate(DeflateEncoder<Vec<u8>>),
     Raw(CursorSync<Vec<u8>>),
+    #[default]
     None,
 }
 
@@ -242,12 +239,6 @@ impl Encoder {
             Encoder::None => true,
             _ => false,
         }
-    }
-}
-
-impl Default for Encoder {
-    fn default() -> Self {
-        Encoder::None
     }
 }
 

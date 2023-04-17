@@ -1,8 +1,8 @@
 use crate::{body::TransmuteBody, http_context::HttpContext, responder::Responder, response::Builder as ResponseBuilder};
+use cookie::{Cookie, CookieJar};
 use http::{header::HeaderName, HeaderMap, HeaderValue, StatusCode, Uri};
 use hyper::body::Body as RawBody;
 use mime::Mime;
-use cookie::{Cookie, CookieJar};
 use serde::Serialize;
 use std::{collections::HashMap, convert::TryInto, fmt::Debug};
 

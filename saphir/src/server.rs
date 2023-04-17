@@ -820,8 +820,8 @@ impl Service<hyper::Request<hyper::Body>> for TimeoutStackHandler {
 #[doc(hidden)]
 #[cfg(feature = "https")]
 mod ssl_loading_utils {
-    use std::{fs, io::BufReader, pin::Pin};
     use base64::engine::Engine;
+    use std::{fs, io::BufReader, pin::Pin};
 
     use futures::io::Error;
     use futures_util::task::{Context, Poll};

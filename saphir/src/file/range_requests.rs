@@ -15,7 +15,7 @@ use crate::{
     request::Request,
 };
 use std::time::SystemTime;
-use time::{OffsetDateTime, format_description::well_known::Rfc2822, UtcOffset};
+use time::{format_description::well_known::Rfc2822, OffsetDateTime, UtcOffset};
 
 /// Check if given value from `If-Range` header field is fresh.
 ///

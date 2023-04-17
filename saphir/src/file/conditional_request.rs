@@ -13,11 +13,17 @@ use crate::{
 };
 //use chrono::{DateTime, FixedOffset, Utc};
 use hyper::Method;
-use time::{OffsetDateTime, format_description::{well_known::Rfc2822, FormatItem}, macros::format_description};
 use std::time::SystemTime;
+use time::{
+    format_description::{well_known::Rfc2822, FormatItem},
+    macros::format_description,
+    OffsetDateTime,
+};
 
-const DEPRECATED_HEADER_DATE_FORMAT: &[FormatItem<'static>] = format_description!("[weekday], [day]-[month repr:short]-[year repr:last_two] [hour]:[minute]:[second] [offset_hour][offset_minute]");
-const DEPRECATED_HEADER_DATE_FORMAT2: &[FormatItem<'static>] = format_description!("[weekday repr:short] [month repr:short] [day] [hour]:[minute]:[second] [year]");
+const DEPRECATED_HEADER_DATE_FORMAT: &[FormatItem<'static>] =
+    format_description!("[weekday], [day]-[month repr:short]-[year repr:last_two] [hour]:[minute]:[second] [offset_hour][offset_minute]");
+const DEPRECATED_HEADER_DATE_FORMAT2: &[FormatItem<'static>] =
+    format_description!("[weekday repr:short] [month repr:short] [day] [hour]:[minute]:[second] [year]");
 
 /// Validate precondition of `If-Match` header.
 ///
@@ -132,7 +138,9 @@ pub fn format_systemtime(time: SystemTime) -> String {
 }
 
 pub fn date_from_http_str(http: &str) -> Result<OffsetDateTime, SaphirError> {
-    match OffsetDateTime::parse(http, &Rfc2822).or_else(|_| OffsetDateTime::parse(http, &DEPRECATED_HEADER_DATE_FORMAT)).or_else(|_| OffsetDateTime::parse(http, &DEPRECATED_HEADER_DATE_FORMAT2))
+    match OffsetDateTime::parse(http, &Rfc2822)
+        .or_else(|_| OffsetDateTime::parse(http, &DEPRECATED_HEADER_DATE_FORMAT))
+        .or_else(|_| OffsetDateTime::parse(http, &DEPRECATED_HEADER_DATE_FORMAT2))
     {
         Ok(t) => Ok(t),
         Err(_) => Err(SaphirError::Other("Cannot parse date from header".to_owned())),

@@ -182,6 +182,15 @@ impl Default for OpenApiObjectType {
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub enum OpenApiNumberFormat {
+    Float,
+    Double,
+    Int32,
+    Int64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
 #[serde(tag = "type")]
 pub enum OpenApiType {
     // this includes dates and files
@@ -189,8 +198,14 @@ pub enum OpenApiType {
         #[serde(rename = "enum", skip_serializing_if = "Vec::is_empty")]
         enum_values: Vec<String>,
     },
-    Number,
-    Integer,
+    Number {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        format: Option<OpenApiNumberFormat>,
+    },
+    Integer {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        format: Option<OpenApiNumberFormat>,
+    },
     Boolean,
     Array {
         items: Box<OpenApiSchema>,
@@ -250,8 +265,11 @@ impl OpenApiType {
 
     pub fn from_rust_type_str(s: &str) -> Option<OpenApiType> {
         match s {
-            "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "i8" | "i16" | "i32" | "i64" | "i128" | "isize" => Some(OpenApiType::Integer),
-            "f32" | "f64" => Some(OpenApiType::Number),
+            "u64" | "i64" => Some(OpenApiType::Integer { format: Some(OpenApiNumberFormat::Int64) }),
+            "i32" => Some(OpenApiType::Integer { format: Some(OpenApiNumberFormat::Int32) }),
+            "u8" | "u16" | "u32" | "u128" | "usize" | "i8" | "i16" | "i128" | "isize" => Some(OpenApiType::Integer { format: None }),
+            "f32" => Some(OpenApiType::Number { format: Some(OpenApiNumberFormat::Float) }),
+            "f64" => Some(OpenApiType::Number { format: Some(OpenApiNumberFormat::Double) }),
             "bool" | "Bool" | "Boolean" => Some(OpenApiType::Boolean),
             "string" | "String" => Some(OpenApiType::string()),
             _ => None,

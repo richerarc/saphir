@@ -265,11 +265,19 @@ impl OpenApiType {
 
     pub fn from_rust_type_str(s: &str) -> Option<OpenApiType> {
         match s {
-            "u64" | "i64" => Some(OpenApiType::Integer { format: Some(OpenApiNumberFormat::Int64) }),
-            "i32" => Some(OpenApiType::Integer { format: Some(OpenApiNumberFormat::Int32) }),
+            "u64" | "i64" => Some(OpenApiType::Integer {
+                format: Some(OpenApiNumberFormat::Int64),
+            }),
+            "i32" => Some(OpenApiType::Integer {
+                format: Some(OpenApiNumberFormat::Int32),
+            }),
             "u8" | "u16" | "u32" | "u128" | "usize" | "i8" | "i16" | "i128" | "isize" => Some(OpenApiType::Integer { format: None }),
-            "f32" => Some(OpenApiType::Number { format: Some(OpenApiNumberFormat::Float) }),
-            "f64" => Some(OpenApiType::Number { format: Some(OpenApiNumberFormat::Double) }),
+            "f32" => Some(OpenApiType::Number {
+                format: Some(OpenApiNumberFormat::Float),
+            }),
+            "f64" => Some(OpenApiType::Number {
+                format: Some(OpenApiNumberFormat::Double),
+            }),
             "bool" | "Bool" | "Boolean" => Some(OpenApiType::Boolean),
             "string" | "String" => Some(OpenApiType::string()),
             _ => None,

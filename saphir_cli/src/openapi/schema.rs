@@ -1,3 +1,4 @@
+use crate::openapi::generate::SchemaGranularity;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{
@@ -6,7 +7,6 @@ use serde::{
 };
 use serde_derive::{Deserialize, Serialize};
 use std::{cmp::Ordering, collections::BTreeMap, fmt};
-use crate::openapi::generate::SchemaGranularity;
 
 static VERSIONNED_TAG_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r".+_v\d+").expect("regex should be valid"));
 static VERSION_TAG_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"v\d+").expect("regex should be valid"));

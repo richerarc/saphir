@@ -79,7 +79,7 @@ impl From<&Case> for convert_case::Case {
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, ValueEnum)]
-enum SchemaGranularity {
+pub enum SchemaGranularity {
     None,
     Top,
     All,
@@ -92,7 +92,7 @@ impl Default for SchemaGranularity {
 }
 
 #[derive(Debug)]
-enum SchemaGranularityError {
+pub enum SchemaGranularityError {
     UnknownValue,
 }
 
@@ -440,7 +440,7 @@ by using the --package flag."
             }
         }
 
-        let schema = if ty.is_primitive() {
+        let schema = if ty.is_primitive(&self.args.schema_granularity) {
             OpenApiSchema::Inline(ty)
         } else {
             let ref_name = if let Some(map) = self.generated_schema_names.get_mut(name) {

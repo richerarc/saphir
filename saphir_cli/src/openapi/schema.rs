@@ -6,6 +6,7 @@ use serde::{
 };
 use serde_derive::{Deserialize, Serialize};
 use std::{cmp::Ordering, collections::BTreeMap, fmt};
+use crate::openapi::generate::SchemaGranularity;
 
 static VERSIONNED_TAG_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r".+_v\d+").expect("regex should be valid"));
 static VERSION_TAG_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"v\d+").expect("regex should be valid"));
@@ -225,9 +226,10 @@ impl Default for OpenApiType {
     }
 }
 impl OpenApiType {
-    pub fn is_primitive(&self) -> bool {
+    pub fn is_primitive(&self, granularity: &SchemaGranularity) -> bool {
         match self {
             OpenApiType::Object { .. } | OpenApiType::Array { .. } => false,
+            OpenApiType::String { enum_values } if !enum_values.is_empty() && *granularity == SchemaGranularity::All => false,
             _ => true,
         }
     }

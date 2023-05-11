@@ -11,22 +11,19 @@ use std::{cmp::Ordering, collections::BTreeMap, fmt};
 static VERSIONNED_TAG_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r".+_v\d+").expect("regex should be valid"));
 static VERSION_TAG_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"v\d+").expect("regex should be valid"));
 
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum OpenApiParameterLocation {
+    #[default]
     Path,
     Query,
 }
-impl Default for OpenApiParameterLocation {
-    fn default() -> Self {
-        OpenApiParameterLocation::Path
-    }
-}
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Default)]
 pub enum OpenApiMimeType {
     Json,
     Form,
+    #[default]
     Any,
     Other(String),
 }
@@ -99,13 +96,7 @@ impl<'de> ImplDeserialize<'de> for OpenApiMimeType {
     }
 }
 
-impl Default for OpenApiMimeType {
-    fn default() -> Self {
-        OpenApiMimeType::Any
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Hash, Ord, PartialOrd)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Hash, Ord, PartialOrd, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum OpenApiPathMethod {
     Get,
@@ -113,12 +104,8 @@ pub enum OpenApiPathMethod {
     Put,
     Patch,
     Delete,
+    #[default]
     Any,
-}
-impl Default for OpenApiPathMethod {
-    fn default() -> Self {
-        OpenApiPathMethod::Any
-    }
 }
 impl OpenApiPathMethod {
     pub fn from_str(s: &str) -> Option<Self> {

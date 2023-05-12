@@ -37,7 +37,7 @@ mod route_info;
 mod type_info;
 mod utils;
 
-#[derive(Debug, Eq, PartialEq, Clone, ValueEnum)]
+#[derive(Debug, Eq, PartialEq, Clone, ValueEnum, Default)]
 enum Case {
     #[value(name = "lowercase")]
     Lower,
@@ -46,6 +46,7 @@ enum Case {
     #[value(name = "PascalCase")]
     Pascal,
     #[value(name = "camelCase")]
+    #[default]
     Camel,
     #[value(name = "snake_case")]
     Snake,
@@ -55,12 +56,6 @@ enum Case {
     Kebab,
     #[value(name = "SCREAMING-KEBAB-CASE", alias("COBOL-CASE"))]
     Cobol,
-}
-
-impl Default for Case {
-    fn default() -> Self {
-        Case::Camel
-    }
 }
 
 impl From<&Case> for convert_case::Case {
@@ -78,21 +73,16 @@ impl From<&Case> for convert_case::Case {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone, ValueEnum)]
-enum SchemaGranularity {
+#[derive(Debug, Eq, PartialEq, Clone, ValueEnum, Default)]
+pub enum SchemaGranularity {
     None,
+    #[default]
     Top,
     All,
 }
 
-impl Default for SchemaGranularity {
-    fn default() -> Self {
-        SchemaGranularity::Top
-    }
-}
-
 #[derive(Debug)]
-enum SchemaGranularityError {
+pub enum SchemaGranularityError {
     UnknownValue,
 }
 
@@ -440,7 +430,7 @@ by using the --package flag."
             }
         }
 
-        let schema = if ty.is_primitive() {
+        let schema = if ty.is_primitive(&self.args.schema_granularity) {
             OpenApiSchema::Inline(ty)
         } else {
             let ref_name = if let Some(map) = self.generated_schema_names.get_mut(name) {

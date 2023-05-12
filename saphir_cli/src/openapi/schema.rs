@@ -1,3 +1,4 @@
+use crate::openapi::generate::SchemaGranularity;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{
@@ -10,22 +11,19 @@ use std::{cmp::Ordering, collections::BTreeMap, fmt};
 static VERSIONNED_TAG_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r".+_v\d+").expect("regex should be valid"));
 static VERSION_TAG_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"v\d+").expect("regex should be valid"));
 
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum OpenApiParameterLocation {
+    #[default]
     Path,
     Query,
 }
-impl Default for OpenApiParameterLocation {
-    fn default() -> Self {
-        OpenApiParameterLocation::Path
-    }
-}
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Default)]
 pub enum OpenApiMimeType {
     Json,
     Form,
+    #[default]
     Any,
     Other(String),
 }
@@ -98,13 +96,7 @@ impl<'de> ImplDeserialize<'de> for OpenApiMimeType {
     }
 }
 
-impl Default for OpenApiMimeType {
-    fn default() -> Self {
-        OpenApiMimeType::Any
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Hash, Ord, PartialOrd)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, Hash, Ord, PartialOrd, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum OpenApiPathMethod {
     Get,
@@ -112,12 +104,8 @@ pub enum OpenApiPathMethod {
     Put,
     Patch,
     Delete,
+    #[default]
     Any,
-}
-impl Default for OpenApiPathMethod {
-    fn default() -> Self {
-        OpenApiPathMethod::Any
-    }
 }
 impl OpenApiPathMethod {
     pub fn from_str(s: &str) -> Option<Self> {
@@ -182,6 +170,15 @@ impl Default for OpenApiObjectType {
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub enum OpenApiNumberFormat {
+    Float,
+    Double,
+    Int32,
+    Int64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
 #[serde(tag = "type")]
 pub enum OpenApiType {
     // this includes dates and files
@@ -189,8 +186,14 @@ pub enum OpenApiType {
         #[serde(rename = "enum", skip_serializing_if = "Vec::is_empty")]
         enum_values: Vec<String>,
     },
-    Number,
-    Integer,
+    Number {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        format: Option<OpenApiNumberFormat>,
+    },
+    Integer {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        format: Option<OpenApiNumberFormat>,
+    },
     Boolean,
     Array {
         items: Box<OpenApiSchema>,
@@ -210,9 +213,10 @@ impl Default for OpenApiType {
     }
 }
 impl OpenApiType {
-    pub fn is_primitive(&self) -> bool {
+    pub fn is_primitive(&self, granularity: &SchemaGranularity) -> bool {
         match self {
             OpenApiType::Object { .. } | OpenApiType::Array { .. } => false,
+            OpenApiType::String { enum_values } if !enum_values.is_empty() && *granularity == SchemaGranularity::All => false,
             _ => true,
         }
     }
@@ -250,8 +254,19 @@ impl OpenApiType {
 
     pub fn from_rust_type_str(s: &str) -> Option<OpenApiType> {
         match s {
-            "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "i8" | "i16" | "i32" | "i64" | "i128" | "isize" => Some(OpenApiType::Integer),
-            "f32" | "f64" => Some(OpenApiType::Number),
+            "u64" | "i64" => Some(OpenApiType::Integer {
+                format: Some(OpenApiNumberFormat::Int64),
+            }),
+            "i32" => Some(OpenApiType::Integer {
+                format: Some(OpenApiNumberFormat::Int32),
+            }),
+            "u8" | "u16" | "u32" | "u128" | "usize" | "i8" | "i16" | "i128" | "isize" => Some(OpenApiType::Integer { format: None }),
+            "f32" => Some(OpenApiType::Number {
+                format: Some(OpenApiNumberFormat::Float),
+            }),
+            "f64" => Some(OpenApiType::Number {
+                format: Some(OpenApiNumberFormat::Double),
+            }),
             "bool" | "Bool" | "Boolean" => Some(OpenApiType::Boolean),
             "string" | "String" => Some(OpenApiType::string()),
             _ => None,

@@ -1,6 +1,6 @@
 [package]
 name = "saphir-cli"
-version = "0.5.1"
+version = "0.5.2"
 authors = ["Samuel Bergeron-Drouin <kazelone@gmail.com>"]
 edition = "2021"
 description = "CLI utility for the Saphir web framework"

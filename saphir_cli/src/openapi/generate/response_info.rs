@@ -276,7 +276,7 @@ impl Gen {
                                     }
                                 } else {
                                     if let Some(type_path) = type_path {
-                                        let anonymous_type= self.openapitype_from_raw(method.impl_item.im.item.scope, type_path.as_str());
+                                        let anonymous_type = self.openapitype_from_raw(method.impl_item.im.item.scope, type_path.as_str());
                                         if let Some(mut anonymous_type) = anonymous_type {
                                             if let Some(name) = name {
                                                 anonymous_type.name = Some(name);

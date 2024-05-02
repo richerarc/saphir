@@ -13,8 +13,8 @@ mod target;
 pub use self::{
     browser::Browser,
     file::File,
-    item::{Enum, Impl, ImplItem, ImplItemKind, Item, ItemKind, Method, Struct, Use},
-    module::{CrateModule, FileModule, InlineModule, Module, ModuleKind},
+    item::{Impl, ImplItemKind, Item, ItemKind, Method},
+    module::Module,
     package::Package,
     target::Target,
 };

@@ -48,7 +48,7 @@ impl Gen {
 
         if !vec.is_empty() {
             for meta in &openapi_metas {
-                self.override_response_info_from_openapi_meta(meta, &mut vec);
+                self.override_response_info_from_openapi_meta(method, meta, &mut vec);
             }
         } else {
             vec.push((
@@ -186,7 +186,7 @@ impl Gen {
         vec
     }
 
-    fn override_response_info_from_openapi_meta(&self, meta: &MetaList, responses: &mut Vec<(Option<u16>, ResponseInfo)>) {
+    fn override_response_info_from_openapi_meta<'b>(&mut self, method: &'b Method<'b>, meta: &MetaList, responses: &mut Vec<(Option<u16>, ResponseInfo)>) {
         let mut extra_responses: Vec<(Option<u16>, ResponseInfo)> = Vec::new();
         for openapi_paths in &meta.nested {
             match openapi_paths {
@@ -197,6 +197,7 @@ impl Gen {
                             let mut codes: Vec<u16> = Vec::new();
                             let mut type_path: Option<String> = None;
                             let mut mime: Option<String> = None;
+                            let mut name: Option<String> = None;
                             if nl.nested.is_empty() {
                                 continue;
                             }
@@ -226,39 +227,63 @@ impl Gen {
                                                 mime = Some(s.value());
                                             }
                                         }
+                                        Some("name") => {
+                                            if let Lit::Str(s) = &nv.lit {
+                                                name = Some(s.value());
+                                            }
+                                        }
                                         _ => {}
                                     }
                                 }
                             }
 
-                            let type_path = match type_path {
-                                Some(t) => t,
-                                None => return,
-                            };
-
                             let mime = mime.map(OpenApiMimeType::from);
-                            let res = responses.iter_mut().find(|(_, ri)| {
-                                if let Some(ti) = &ri.type_info {
-                                    // TODO: clever-er match
-                                    return ti.name == type_path;
-                                }
-                                false
-                            });
+
+                            // Match by code first, then by type
+                            let mut matched_on_code = false;
+                            let mut res = None;
+                            if codes.len() == 1 {
+                                res = responses.iter_mut().find(|(_, ri)| codes[0] == ri.code);
+                                matched_on_code = res.is_some();
+                            }
+                            if let (Some(type_path), None) = (&type_path, &res) {
+                                res = responses.iter_mut().find(|(_, ri)| {
+                                    if let Some(ti) = &ri.type_info {
+                                        // TODO: clever-er match
+                                        return ti.name == *type_path;
+                                    }
+                                    false
+                                });
+                            }
 
                             if let Some(res) = res {
                                 if let Some(mime) = mime {
                                     res.1.mime = mime;
                                 }
 
-                                if let Some(first_code) = codes.first() {
-                                    res.1.code = *first_code;
-                                    res.0 = Some(*first_code);
+                                if !matched_on_code {
+                                    if let Some(first_code) = codes.first() {
+                                        res.1.code = *first_code;
+                                        res.0 = Some(*first_code);
 
-                                    if codes.len() > 1 {
-                                        for code in codes.iter().skip(1) {
-                                            let mut new_res = (Some(*code), res.1.clone());
-                                            new_res.1.code = *code;
-                                            extra_responses.push(new_res);
+                                        if codes.len() > 1 {
+                                            for code in codes.iter().skip(1) {
+                                                let mut new_res = (Some(*code), res.1.clone());
+                                                new_res.1.code = *code;
+                                                extra_responses.push(new_res);
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    if let Some(type_path) = type_path {
+                                        let anonymous_type= self.openapitype_from_raw(method.impl_item.im.item.scope, type_path.as_str());
+                                        if let Some(mut anonymous_type) = anonymous_type {
+                                            if let Some(name) = name {
+                                                anonymous_type.name = Some(name);
+                                            }
+
+                                            res.1.type_info = None;
+                                            res.1.anonymous_type = Some(anonymous_type);
                                         }
                                     }
                                 }
@@ -331,7 +356,7 @@ impl Gen {
                     let mut result = self.extract_arguments(method, &last.arguments);
                     if result.len() == 1 {
                         for (_, mut success_response) in result.remove(0) {
-                            if let Some(mut type_info) = success_response.type_info.as_mut() {
+                            if let Some(type_info) = success_response.type_info.as_mut() {
                                 type_info.is_array = true;
                             }
                             vec.push((None, success_response));

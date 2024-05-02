@@ -650,6 +650,7 @@ by using the --package flag."
         let mut chars = raw.chars();
         let first_char = chars.next()?;
         match first_char {
+            // Parse RAW Object notation
             '{' => {
                 let mut cur_key: Option<&str> = None;
                 let mut properties = BTreeMap::new();
@@ -701,6 +702,7 @@ by using the --package flag."
                 }
                 None
             }
+            // Parse RAW Array notation
             '[' => {
                 if chars.last()? != ']' {
                     return None;
@@ -717,6 +719,22 @@ by using the --package flag."
                     )
                 })
             }
+            // Parse RAW String Enum notation
+            'e' if raw.starts_with("enum(") => {
+                if chars.last()? != ')' {
+                    return None;
+                }
+                let values = raw[5..(len - 1)].split(&[',', '|'][..])
+                    .into_iter()
+                    .map(|v| v.trim().trim_start_matches(char_is_quote).trim_end_matches(char_is_quote).to_string())
+                    .collect::<Vec<_>>();
+                let values_len = values.len();
+                Some((
+                    OpenApiSchema::Inline(OpenApiType::enums(values)),
+                    None,
+                    values_len,
+                ))
+            }
             _ => syn::parse_str::<syn::Path>(raw)
                 .ok()
                 .and_then(|p| TypeInfo::new_from_path(scope, &p))
@@ -724,9 +742,13 @@ by using the --package flag."
                 .filter(|t| t.is_type_serializable)
                 .and_then(|t| self.get_open_api_schema_from_type_info(scope, t, self.args.schema_granularity == SchemaGranularity::All))
                 .or_else(|| OpenApiType::from_rust_type_str(raw).map(OpenApiSchema::Inline))
-                .map(|schema| (schema, None, len)),
+                .map(|schema| (schema, None, len))
         }
     }
+}
+
+fn char_is_quote(c: char) -> bool {
+    matches!(c, '\'' | '"')
 }
 
 #[derive(Clone, Debug)]

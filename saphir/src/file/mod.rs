@@ -18,10 +18,10 @@ use flate2::write::{DeflateEncoder, GzEncoder};
 use futures::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, Cursor};
 use mime::Mime;
 use std::{
+    fmt::Display,
     io::{Cursor as CursorSync, Write},
     str::FromStr,
 };
-use std::fmt::Display;
 use tokio::io::ReadBuf;
 
 mod cache;

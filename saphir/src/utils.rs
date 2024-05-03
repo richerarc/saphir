@@ -9,10 +9,10 @@ use regex::Regex;
 use std::{
     cmp::{min, Ordering},
     collections::{HashMap, VecDeque},
+    fmt::Write,
     iter::FromIterator,
     str::FromStr,
     sync::atomic::AtomicU64,
-    fmt::Write,
 };
 
 // TODO: Add possibility to match any route like /page/<path..>/view

@@ -3,9 +3,8 @@
 // license: https://github.com/dekellum/hyperx/blob/master/LICENSE
 // source: https://github.com/dekellum/hyperx/blob/master/src/header/common/range.rs
 
-use std::fmt::Display;
 use crate::error::SaphirError;
-use std::str::FromStr;
+use std::{fmt::Display, str::FromStr};
 
 /// `Range` header, defined in [RFC7233](https://tools.ietf.org/html/rfc7233#section-3.1)
 ///

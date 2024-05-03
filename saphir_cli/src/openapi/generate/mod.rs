@@ -726,7 +726,6 @@ by using the --package flag."
                 }
                 let values = raw[5..(len - 1)]
                     .split(&[',', '|'][..])
-                    .into_iter()
                     .map(|v| v.trim().trim_start_matches(char_is_quote).trim_end_matches(char_is_quote).to_string())
                     .collect::<Vec<_>>();
                 let values_len = values.len();

@@ -21,6 +21,7 @@ use std::{
     io::{Cursor as CursorSync, Write},
     str::FromStr,
 };
+use std::fmt::Display;
 use tokio::io::ReadBuf;
 
 mod cache;
@@ -212,13 +213,13 @@ impl FromStr for Compression {
     }
 }
 
-impl ToString for Compression {
-    fn to_string(&self) -> String {
+impl Display for Compression {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Compression::Deflate => "deflate".to_string(),
-            Compression::Gzip => "gzip".to_string(),
-            Compression::Brotli => "br".to_string(),
-            _ => "".to_string(),
+            Compression::Deflate => write!(f, "deflate"),
+            Compression::Gzip => write!(f, "gzip"),
+            Compression::Brotli => write!(f, "br"),
+            _ => write!(f, ""),
         }
     }
 }

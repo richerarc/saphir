@@ -3,6 +3,7 @@
 // license: https://github.com/dekellum/hyperx/blob/master/LICENSE
 // source: https://github.com/dekellum/hyperx/blob/master/src/header/common/content_range.rs
 
+use std::fmt::Display;
 use crate::error::SaphirError;
 use std::str::FromStr;
 
@@ -98,8 +99,8 @@ impl FromStr for ContentRange {
     }
 }
 
-impl ToString for ContentRange {
-    fn to_string(&self) -> String {
+impl Display for ContentRange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
             ContentRange::Bytes { range, instance_length } => {
                 let mut string = "bytes ".to_owned();
@@ -118,9 +119,9 @@ impl ToString for ContentRange {
                     string.push('*')
                 }
 
-                string
+                write!(f, "{}", string)
             }
-            ContentRange::Unregistered { ref unit, ref resp } => format!("{} {}", unit, resp),
+            ContentRange::Unregistered { ref unit, ref resp } => write!(f, "{} {}", unit, resp),
         }
     }
 }

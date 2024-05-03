@@ -71,6 +71,7 @@
 //! *_More feature will be added in the future_*
 #![allow(clippy::match_like_matches_macro)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
+#![allow(clippy::empty_docs)]
 
 #[macro_use]
 extern crate log;

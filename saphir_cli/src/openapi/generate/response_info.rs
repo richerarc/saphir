@@ -138,7 +138,7 @@ impl Gen {
                             for (code, type_name) in pairs {
                                 if !type_name.is_empty() {
                                     if let Some(mut anonymous_type) = self.openapitype_from_raw(method.impl_item.im.item.scope, type_name.as_str()) {
-                                        anonymous_type.name = name.clone();
+                                        anonymous_type.name.clone_from(&name);
                                         vec.push((
                                             Some(code),
                                             ResponseInfo {
@@ -274,17 +274,15 @@ impl Gen {
                                             }
                                         }
                                     }
-                                } else {
-                                    if let Some(type_path) = type_path {
-                                        let anonymous_type = self.openapitype_from_raw(method.impl_item.im.item.scope, type_path.as_str());
-                                        if let Some(mut anonymous_type) = anonymous_type {
-                                            if let Some(name) = name {
-                                                anonymous_type.name = Some(name);
-                                            }
-
-                                            res.1.type_info = None;
-                                            res.1.anonymous_type = Some(anonymous_type);
+                                } else if let Some(type_path) = type_path {
+                                    let anonymous_type = self.openapitype_from_raw(method.impl_item.im.item.scope, type_path.as_str());
+                                    if let Some(mut anonymous_type) = anonymous_type {
+                                        if let Some(name) = name {
+                                            anonymous_type.name = Some(name);
                                         }
+
+                                        res.1.type_info = None;
+                                        res.1.anonymous_type = Some(anonymous_type);
                                     }
                                 }
                             }

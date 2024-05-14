@@ -124,7 +124,7 @@ impl Display for Range {
                     if i != 0 {
                         write!(f, ",")?;
                     }
-                    write!(f, "{}", range.to_string())?;
+                    write!(f, "{range}")?;
                 }
 
                 Ok(())

@@ -326,7 +326,7 @@ where
 
     pub fn build(self) -> Server {
         Server {
-            listener_config: self.listener.unwrap_or_else(ListenerBuilder::new).build(),
+            listener_config: self.listener.unwrap_or_default().build(),
             stack: Stack {
                 router: self.router.build(),
                 middlewares: self.middlewares.build(),

@@ -83,6 +83,7 @@ impl UserController {
     }
 }
 
+#[allow(dead_code)]
 struct ApiKeyMiddleware(String);
 
 #[middleware]

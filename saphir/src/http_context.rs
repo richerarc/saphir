@@ -222,7 +222,7 @@ impl HttpContext {
                 .get(OPERATION_ID_HEADER)
                 .and_then(|h| h.to_str().ok())
                 .and_then(|op_id_str| operation::OperationId::from_str(op_id_str).ok())
-                .unwrap_or_else(operation::OperationId::new);
+                .unwrap_or_default();
             *request.operation_id_mut() = operation_id;
             let state = State::Before(Box::new(request));
             let router = Some(router);

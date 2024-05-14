@@ -9,6 +9,7 @@ use regex::Regex;
 use std::{
     cmp::{min, Ordering},
     collections::{HashMap, VecDeque},
+    fmt::Write,
     iter::FromIterator,
     str::FromStr,
     sync::atomic::AtomicU64,
@@ -392,7 +393,10 @@ impl UriPathMatcher {
                 let mut segments = path_segments.clone();
                 if Self::match_start(start, &mut segments) && Self::match_end(end, &mut segments) {
                     if let Some(name) = wildcard_capture_name {
-                        let value = segments.iter().map(|&s| format!("/{}", s)).collect();
+                        let value = segments.iter().fold(String::new(), |mut o, &s| {
+                            let _ = write!(o, "/{s}");
+                            o
+                        });
                         captures.insert(name.clone(), value);
                     }
                 } else {

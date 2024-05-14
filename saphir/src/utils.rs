@@ -394,7 +394,7 @@ impl UriPathMatcher {
                 if Self::match_start(start, &mut segments) && Self::match_end(end, &mut segments) {
                     if let Some(name) = wildcard_capture_name {
                         let value = segments.iter().fold(String::new(), |mut o, &s| {
-                            let _ = write!(o, "/{}", s);
+                            let _ = write!(o, "/{s}");
                             o
                         });
                         captures.insert(name.clone(), value);

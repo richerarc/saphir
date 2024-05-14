@@ -107,9 +107,9 @@ impl ByteRangeSpec {
 impl Display for ByteRangeSpec {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
-            ByteRangeSpec::FromTo(from, to) => write!(f, "{}-{}", from, to),
-            ByteRangeSpec::Last(pos) => write!(f, "-{}", pos),
-            ByteRangeSpec::AllFrom(pos) => write!(f, "{}-", pos),
+            ByteRangeSpec::FromTo(from, to) => write!(f, "{from}-{to}"),
+            ByteRangeSpec::Last(pos) => write!(f, "-{pos}"),
+            ByteRangeSpec::AllFrom(pos) => write!(f, "{pos}-"),
         }
     }
 }
@@ -118,18 +118,18 @@ impl Display for Range {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
             Range::Bytes(ref ranges) => {
-                let mut string = "bytes=".to_owned();
+                write!(f, "bytes=")?;
 
                 for (i, range) in ranges.iter().enumerate() {
                     if i != 0 {
-                        string.push(',');
+                        write!(f, ",")?;
                     }
-                    string.push_str(&range.to_string())
+                    write!(f, "{}", range.to_string())?;
                 }
 
-                write!(f, "{}", string)
+                Ok(())
             }
-            Range::Unregistered(ref unit, ref range_str) => write!(f, "{}={}", unit, range_str),
+            Range::Unregistered(ref unit, ref range_str) => write!(f, "{unit}={range_str}"),
         }
     }
 }

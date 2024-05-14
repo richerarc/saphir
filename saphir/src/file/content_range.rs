@@ -102,25 +102,25 @@ impl Display for ContentRange {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
             ContentRange::Bytes { range, instance_length } => {
-                let mut string = "bytes ".to_owned();
+                write!(f, "bytes ")?;
                 match range {
                     Some((first_byte, last_byte)) => {
-                        string.push_str(format!("{}-{}", first_byte, last_byte).as_str());
+                        write!(f, "{first_byte}-{last_byte}")?;
                     }
                     None => {
-                        string.push('*');
+                        write!(f, "*")?;
                     }
                 };
-                string.push('/');
+                write!(f, "/")?;
                 if let Some(v) = instance_length {
-                    string.push_str(v.to_string().as_str());
+                    write!(f, "{v}")?;
                 } else {
-                    string.push('*')
+                    write!(f, "*")?;
                 }
 
-                write!(f, "{}", string)
+                Ok(())
             }
-            ContentRange::Unregistered { ref unit, ref resp } => write!(f, "{} {}", unit, resp),
+            ContentRange::Unregistered { ref unit, ref resp } => write!(f, "{unit} {resp}"),
         }
     }
 }

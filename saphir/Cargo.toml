@@ -47,7 +47,7 @@ hyper = { version = "0.14", features = ["stream", "server"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "time", "parking_lot"] }
 futures = "0.3"
 futures-util = "0.3"
-cookie = "0.17"
+cookie = "0.18"
 http = "0.2"
 http-body = "0.4"
 regex = "1.5.5"

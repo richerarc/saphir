@@ -87,7 +87,7 @@ impl<'f> From<RawField<'f>> for Field<'f> {
     }
 }
 
-impl<'f> Field<'f> {
+impl Field<'_> {
     /// Returns the `name` param of the `Content-Disposition` header.
     ///
     /// Currently return `""` if the name is missing.

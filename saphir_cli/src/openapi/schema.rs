@@ -55,7 +55,7 @@ impl ImplSerialize for OpenApiMimeType {
 
 struct OpenApiMimeTypeVisitor;
 
-impl<'de> Visitor<'de> for OpenApiMimeTypeVisitor {
+impl Visitor<'_> for OpenApiMimeTypeVisitor {
     type Value = OpenApiMimeType;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {

@@ -727,9 +727,8 @@ impl Stack {
             .or_else(|e| {
                 let builder = crate::response::Builder::new();
                 e.log(&err_ctx);
-                e.response_builder(builder, &err_ctx).build().map_err(|e2| {
+                e.response_builder(builder, &err_ctx).build().inspect_err(|e2| {
                     e2.log(&err_ctx);
-                    e2
                 })
             });
         REQUEST_FUTURE_COUNT.fetch_sub(1, Ordering::SeqCst);
@@ -927,7 +926,8 @@ mod ssl_loading_utils {
         } else {
             assert!(!rsa_keys.is_empty(), "Unable to load key");
             rsa_keys[0].clone()
-        }).expect(&format!("Unable to load key: {}", filename))
+        })
+        .unwrap_or_else(|_| panic!("Unable to load key: {}", filename))
     }
 
     fn load_pkcs8_private_key_from_data(data: &str) -> Vec<rustls_pki_types::PrivateKeyDer> {

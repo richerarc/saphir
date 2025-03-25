@@ -131,7 +131,8 @@ pub(crate) struct GenArgs {
     /// - GET  /about
     /// - GET  /api/v1/user
     /// - POST /api/v1/user
-    /// , the generated doc would contain only the `/api/v2/user` endpoints.
+    ///
+    /// the generated doc would contain only the `/api/v2/user` endpoints.
     #[arg(short = 's', long = "scope", default_value = "/", verbatim_doc_comment)]
     scope: String,
 

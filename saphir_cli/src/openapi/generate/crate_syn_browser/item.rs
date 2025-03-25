@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use super::Module;
 use crate::openapi::generate::crate_syn_browser::UseScope;
 use lazycell::LazyCell;

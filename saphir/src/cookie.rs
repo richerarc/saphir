@@ -9,7 +9,7 @@ impl Responder for Cookie<'static> {
 
 impl Responder for CookieBuilder<'static> {
     fn respond_with_builder(self, builder: Builder, ctx: &HttpContext) -> Builder {
-        self.finish().respond_with_builder(builder, ctx)
+        self.build().respond_with_builder(builder, ctx)
     }
 }
 

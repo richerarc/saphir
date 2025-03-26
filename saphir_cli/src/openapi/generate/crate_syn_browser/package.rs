@@ -38,7 +38,7 @@ impl<'b> Package<'b> {
         })
     }
 
-    pub fn dependancy(&'b self, name: &str) -> Option<&'b Package> {
+    pub fn dependancy(&'b self, name: &str) -> Option<&'b Package<'b>> {
         if !self.dependancies.borrow().contains_key(name) {
             let package = self
                 .meta
@@ -70,7 +70,7 @@ impl<'b> Package<'b> {
             .map(|b| unsafe { &*b })
     }
 
-    fn targets(&'b self) -> &'b Vec<Target> {
+    fn targets(&'b self) -> &'b Vec<Target<'b>> {
         if !self.targets.filled() {
             let targets = self.meta.targets.iter().map(|t| Target::new(self, t)).collect();
             self.targets.fill(targets).expect("We should never be filling this twice");
@@ -78,11 +78,11 @@ impl<'b> Package<'b> {
         self.targets.borrow().expect("Should have been initialized by the previous statement")
     }
 
-    pub fn bin_target(&'b self) -> Option<&'b Target> {
+    pub fn bin_target(&'b self) -> Option<&'b Target<'b>> {
         self.targets().iter().find(|t| t.target.kind.contains(&"bin".to_string()))
     }
 
-    pub fn lib_target(&'b self) -> Option<&'b Target> {
+    pub fn lib_target(&'b self) -> Option<&'b Target<'b>> {
         self.targets().iter().find(|t| t.target.kind.contains(&"lib".to_string()))
     }
 }

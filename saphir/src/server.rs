@@ -6,7 +6,6 @@
 //! To allow controller and middleware to respond future with static lifetime,
 //! the server stack is put inside a static variable. This is needed for safety,
 //! but also means that only one saphir server can run at a time
-
 use std::{future::Future, net::SocketAddr};
 
 use futures::{
@@ -496,7 +495,6 @@ impl Server {
                         let certs = load_certs(cert_config);
                         let key = load_private_key(key_config);
                         let cfg = ::rustls::server::ServerConfig::builder()
-                            .with_safe_defaults()
                             .with_no_client_auth()
                             .with_single_cert(certs, key)
                             .expect("bad certificate/key");
@@ -729,9 +727,8 @@ impl Stack {
             .or_else(|e| {
                 let builder = crate::response::Builder::new();
                 e.log(&err_ctx);
-                e.response_builder(builder, &err_ctx).build().map_err(|e2| {
+                e.response_builder(builder, &err_ctx).build().inspect_err(|e2| {
                     e2.log(&err_ctx);
-                    e2
                 })
             });
         REQUEST_FUTURE_COUNT.fetch_sub(1, Ordering::SeqCst);
@@ -875,7 +872,7 @@ mod ssl_loading_utils {
         Plain(TcpListener),
     }
 
-    pub fn load_certs(cert_config: &SslConfig) -> Vec<rustls::Certificate> {
+    pub fn load_certs(cert_config: &SslConfig) -> Vec<rustls_pki_types::CertificateDer<'static>> {
         match cert_config {
             SslConfig::FilePath(filename) => {
                 let certfile = fs::File::open(filename).expect("cannot open certificate file");
@@ -883,34 +880,34 @@ mod ssl_loading_utils {
                 rustls_pemfile::certs(&mut reader)
                     .expect("Unable to load certificate from file")
                     .into_iter()
-                    .map(rustls::Certificate)
+                    .map(|i| rustls_pki_types::CertificateDer::from(i).into_owned())
                     .collect()
             }
             SslConfig::FileData(data) => extract_der_data(data.to_string(), "-----BEGIN CERTIFICATE-----", "-----END CERTIFICATE-----", &|v| {
-                rustls::Certificate(v)
+                rustls_pki_types::CertificateDer::from(v).into_owned()
             })
             .expect("Unable to load certificate from data"),
         }
     }
 
-    pub fn load_private_key(key_config: &SslConfig) -> rustls::PrivateKey {
+    pub fn load_private_key(key_config: &SslConfig) -> rustls_pki_types::PrivateKeyDer<'static> {
         match key_config {
             SslConfig::FilePath(filename) => load_private_key_from_file(filename),
             SslConfig::FileData(data) => {
                 let pkcs8_keys = load_pkcs8_private_key_from_data(data);
 
                 if !pkcs8_keys.is_empty() {
-                    pkcs8_keys[0].clone()
+                    pkcs8_keys[0].clone_key()
                 } else {
                     let rsa_keys = load_rsa_private_key_from_data(data);
                     assert!(!rsa_keys.is_empty(), "Unable to load key");
-                    rsa_keys[0].clone()
+                    rsa_keys[0].clone_key()
                 }
             }
         }
     }
 
-    fn load_private_key_from_file(filename: &str) -> rustls::PrivateKey {
+    fn load_private_key_from_file(filename: &str) -> rustls_pki_types::PrivateKeyDer<'static> {
         let rsa_keys = {
             let keyfile = fs::File::open(filename).expect("cannot open private key file");
             let mut reader = BufReader::new(keyfile);
@@ -924,24 +921,25 @@ mod ssl_loading_utils {
         };
 
         // prefer to load pkcs8 keys
-        rustls::PrivateKey(if !pkcs8_keys.is_empty() {
+        rustls_pki_types::PrivateKeyDer::try_from(if !pkcs8_keys.is_empty() {
             pkcs8_keys[0].clone()
         } else {
             assert!(!rsa_keys.is_empty(), "Unable to load key");
             rsa_keys[0].clone()
         })
+        .unwrap_or_else(|_| panic!("Unable to load key: {}", filename))
     }
 
-    fn load_pkcs8_private_key_from_data(data: &str) -> Vec<rustls::PrivateKey> {
+    fn load_pkcs8_private_key_from_data(data: &str) -> Vec<rustls_pki_types::PrivateKeyDer> {
         extract_der_data(data.to_string(), "-----BEGIN PRIVATE KEY-----", "-----END PRIVATE KEY-----", &|v| {
-            rustls::PrivateKey(v)
+            rustls_pki_types::PrivateKeyDer::try_from(v).expect("Unable to load private key from data")
         })
         .expect("Unable to load private key from data")
     }
 
-    fn load_rsa_private_key_from_data(data: &str) -> Vec<rustls::PrivateKey> {
+    fn load_rsa_private_key_from_data(data: &str) -> Vec<rustls_pki_types::PrivateKeyDer> {
         extract_der_data(data.to_string(), "-----BEGIN RSA PRIVATE KEY-----", "-----END RSA PRIVATE KEY-----", &|v| {
-            rustls::PrivateKey(v)
+            rustls_pki_types::PrivateKeyDer::try_from(v).expect("Unable to load private key from data")
         })
         .expect("Unable to load private key from data")
     }

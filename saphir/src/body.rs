@@ -60,6 +60,8 @@ impl BodyInner {
                 };
 
                 unsafe {
+                    // SAFETY: This variable is only set once
+                    #[allow(static_mut_refs)]
                     if REQUEST_BODY_BYTES_LIMIT.as_ref().filter(|p| first.len() >= **p).is_some() {
                         return Ok(first);
                     }
@@ -77,6 +79,8 @@ impl BodyInner {
                 vec.extend_from_slice(second.as_ref());
 
                 unsafe {
+                    // SAFETY: This variable is only set once
+                    #[allow(static_mut_refs)]
                     if REQUEST_BODY_BYTES_LIMIT.as_ref().filter(|p| vec.len() >= **p).is_some() {
                         return Ok(vec.into());
                     }
@@ -85,6 +89,8 @@ impl BodyInner {
                 while let Some(buf) = r.next().await.transpose().map_err(SaphirError::from)? {
                     vec.extend_from_slice(buf.as_ref());
                     unsafe {
+                        // SAFETY: This variable is only set once
+                        #[allow(static_mut_refs)]
                         if REQUEST_BODY_BYTES_LIMIT.as_ref().filter(|p| vec.len() >= **p).is_some() {
                             break;
                         }

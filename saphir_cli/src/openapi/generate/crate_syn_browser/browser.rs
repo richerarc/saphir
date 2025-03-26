@@ -36,7 +36,7 @@ impl<'b> Browser<'b> {
         }
     }
 
-    pub fn packages(&'b self) -> &'b Vec<Package> {
+    pub fn packages(&'b self) -> &'b Vec<Package<'b>> {
         self.init_packages();
         self.packages.borrow().expect("Should have been initialized by the previous statement")
     }

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use super::{Error, Target};
 use std::{
     fmt::Debug,

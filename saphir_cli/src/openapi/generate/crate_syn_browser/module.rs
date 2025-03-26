@@ -183,7 +183,7 @@ impl<'b> Module<'b> {
         self.name.as_str()
     }
 
-    fn items(&'b self) -> &Vec<Item<'b>> {
+    fn items(&'b self) -> &'b Vec<Item<'b>> {
         if !self.items.filled() {
             let items = match self.kind.borrow().expect("Kind should always be initialized") {
                 ModuleKind::Crate(m) => &m.file.file.items,
@@ -212,7 +212,7 @@ impl<'b> Module<'b> {
         &self.uses
     }
 
-    pub fn modules(&'b self) -> Result<&'b Vec<Module>, Error> {
+    pub fn modules(&'b self) -> Result<&'b Vec<Module<'b>>, Error> {
         let cell = &self.modules;
         if !cell.filled() {
             let mut syn_modules = Vec::new();

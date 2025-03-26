@@ -396,10 +396,10 @@ mod json {
     use super::*;
 
     impl Builder {
-        pub fn json<T: Serialize>(self, t: &T) -> Result<Builder, (Builder, SaphirError)> {
+        pub fn json<T: Serialize>(self, t: &T) -> Result<Builder, Box<(Builder, SaphirError)>> {
             match serde_json::to_vec(t) {
                 Ok(v) => Ok(self.content_type_if_not_set("application/json").body(v)),
-                Err(e) => Err((self, e.into())),
+                Err(e) => Err(Box::new((self, e.into()))),
             }
         }
     }
@@ -413,10 +413,10 @@ mod form {
     use super::*;
 
     impl Builder {
-        pub fn form<T: Serialize>(self, t: &T) -> Result<Builder, (Builder, SaphirError)> {
+        pub fn form<T: Serialize>(self, t: &T) -> Result<Builder, Box<(Builder, SaphirError)>> {
             match serde_urlencoded::to_string(t) {
                 Ok(v) => Ok(self.content_type_if_not_set("application/x-www-form-urlencoded").body(v)),
-                Err(e) => Err((self, e.into())),
+                Err(e) => Err(Box::new((self, e.into()))),
             }
         }
     }

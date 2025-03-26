@@ -303,7 +303,7 @@ pub mod operation {
 
     struct OperationIdVisitor;
 
-    impl<'de> Visitor<'de> for OperationIdVisitor {
+    impl Visitor<'_> for OperationIdVisitor {
         type Value = OperationId;
 
         fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {

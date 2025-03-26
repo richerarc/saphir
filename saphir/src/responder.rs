@@ -145,10 +145,9 @@ mod json {
 
     impl<T: Serialize> Responder for Json<T> {
         fn respond_with_builder(self, builder: Builder, _ctx: &HttpContext) -> Builder {
-            match builder.json(&self.0) {
-                Ok(b) => b,
-                Err((b, _e)) => b.status(500).body("Unable to serialize json data"),
-            }
+            builder
+                .json(&self.0)
+                .unwrap_or_else(|boxed| (*boxed).0.status(500).body("Unable to serialize json data"))
         }
     }
 }
@@ -162,10 +161,9 @@ mod form {
 
     impl<T: Serialize> Responder for Form<T> {
         fn respond_with_builder(self, builder: Builder, _ctx: &HttpContext) -> Builder {
-            match builder.form(&self.0) {
-                Ok(b) => b,
-                Err((b, _e)) => b.status(500).body("Unable to serialize form data"),
-            }
+            builder
+                .form(&self.0)
+                .unwrap_or_else(|boxed| (*boxed).0.status(500).body("Unable to serialize form data"))
         }
     }
 }

@@ -51,19 +51,19 @@ impl ByteRangeSpec {
     /// following conditions:
     ///
     /// > If a valid byte-range-set includes at least one byte-range-spec with
-    /// a first-byte-pos that is less than the current length of the
-    /// representation, or at least one suffix-byte-range-spec with a
-    /// non-zero suffix-length, then the byte-range-set is satisfiable.
-    /// Otherwise, the byte-range-set is unsatisfiable.
+    /// > a first-byte-pos that is less than the current length of the
+    /// > representation, or at least one suffix-byte-range-spec with a
+    /// > non-zero suffix-length, then the byte-range-set is satisfiable.
+    /// > Otherwise, the byte-range-set is unsatisfiable.
     ///
     /// The function also computes remainder ranges based on the RFC:
     ///
     /// > If the last-byte-pos value is
-    /// absent, or if the value is greater than or equal to the current
-    /// length of the representation data, the byte range is interpreted as
-    /// the remainder of the representation (i.e., the server replaces the
-    /// value of last-byte-pos with a value that is one less than the current
-    /// length of the selected representation).
+    /// > absent, or if the value is greater than or equal to the current
+    /// > length of the representation data, the byte range is interpreted as
+    /// > the remainder of the representation (i.e., the server replaces the
+    /// > value of last-byte-pos with a value that is one less than the current
+    /// > length of the selected representation).
     ///
     /// [1]: https://tools.ietf.org/html/rfc7233
     pub fn to_satisfiable_range(&self, full_length: u64) -> Option<(u64, u64)> {

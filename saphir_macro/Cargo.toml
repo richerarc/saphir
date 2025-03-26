@@ -26,4 +26,4 @@ tracing-instrument = []
 proc-macro2 = "1.0"
 quote = "1.0"
 syn = { version = "1.0", features = ["full", "extra-traits"] }
-http = "0.2"
+http = "1.3"

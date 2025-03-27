@@ -43,7 +43,7 @@ tracing-instrument = ["tracing", "saphir_macro/tracing-instrument"]
 [dependencies]
 async-stream = "0.3"
 log = "0.4"
-hyper = { version = "0.14", features = ["stream", "server"] }
+hyper = { version = "1.6", features = ["stream", "server"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "time", "parking_lot"] }
 futures = "0.3"
 futures-util = "0.3"

@@ -51,7 +51,7 @@ cookie = "0.18"
 http = "0.2"
 http-body = "0.4"
 regex = "1.5.5"
-thiserror = "1.0"
+thiserror = "2.0"
 
 uuid = { version = "1", features = ["serde", "v4"], optional = true }
 rustls = { version = "0.23", optional = true }
